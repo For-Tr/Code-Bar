@@ -8,6 +8,7 @@ import { Toolbar } from "./components/Toolbar";
 import { OutputConsole } from "./components/OutputConsole";
 import { DiffViewer } from "./components/DiffViewer";
 import { StatusBar } from "./components/StatusBar";
+import { SessionDetail } from "./components/SessionDetail";
 import Settings from "./components/Settings";
 import { useSessionStore, DiffFile } from "./store/sessionStore";
 import { useSettingsStore } from "./store/settingsStore";
@@ -147,6 +148,10 @@ export default function App() {
   const hasDiff = (activeSession?.diffFiles.length ?? 0) > 0;
 
   return (
+    <>
+    {/* ── PTY 终端展开层（位于 popup 外部，弹簧动画） ── */}
+    <SessionDetail session={activeSession ?? null} />
+
     <div style={{
       width: "360px",
       padding: "8px 8px 0 8px",
@@ -254,5 +259,6 @@ export default function App() {
         <StatusBar session={activeSession} />
       </motion.div>
     </div>
+    </>
   );
 }

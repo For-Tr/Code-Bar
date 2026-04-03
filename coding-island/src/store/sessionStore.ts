@@ -40,6 +40,7 @@ interface SessionStore {
   sessions: ClaudeSession[];
   activeSessionId: string | null;
   expandedDiffFileId: string | null;
+  expandedSessionId: string | null;  // 放大展开的 session
 
   addSession: (workdir?: string) => void;
   removeSession: (id: string) => void;
@@ -49,6 +50,7 @@ interface SessionStore {
   clearOutput: (id: string) => void;
   setDiffFiles: (id: string, files: DiffFile[]) => void;
   toggleDiffFile: (path: string) => void;
+  setExpandedSession: (id: string | null) => void;
 }
 
 // ── Mock diff 数据（后续由 git diff 实时替换）────────────────
@@ -164,6 +166,7 @@ export const useSessionStore = create<SessionStore>((set) => ({
   ],
   activeSessionId: "1",
   expandedDiffFileId: null,
+  expandedSessionId: null,
 
   addSession: (workdir = "~/projects/my-app") => {
     const s = makeSession({ workdir });
@@ -185,6 +188,9 @@ export const useSessionStore = create<SessionStore>((set) => ({
 
   setActiveSession: (id) =>
     set({ activeSessionId: id, expandedDiffFileId: null }),
+
+  setExpandedSession: (id) =>
+    set({ expandedSessionId: id }),
 
   updateSession: (id, patch) =>
     set((state) => ({

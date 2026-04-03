@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     fs,
-    io::{BufRead, BufReader, Write},
+    io::{BufRead, BufReader, Read, Write},
     path::PathBuf,
     process::{Child, Command, Stdio},
     sync::{Arc, Mutex},
@@ -16,6 +16,13 @@ use objc::{class, msg_send, sel, sel_impl};
 
 // ── 全局子进程注册表 ─────────────────────────────────────────
 type ProcessMap = Arc<Mutex<HashMap<String, Child>>>;
+
+// ── PTY 注册表：session_id → PTY master writer ───────────────
+type PtyWriterMap = Arc<Mutex<HashMap<String, Box<dyn Write + Send>>>>;
+// PTY child killer：session_id → kill handle
+type PtyKillerMap = Arc<Mutex<HashMap<String, Box<dyn portable_pty::Child + Send>>>>;
+// PTY master：session_id → MasterPty（用于 resize）
+type PtyMasterMap = Arc<Mutex<HashMap<String, Box<dyn portable_pty::MasterPty + Send>>>>;
 
 fn process_map(app: &tauri::AppHandle) -> ProcessMap {
     app.state::<ProcessMap>().inner().clone()
@@ -85,9 +92,18 @@ fn setup_popup_window(win: &tauri::WebviewWindow) {
         let _: () = msg_send![ns_window, setOpaque: NO];
         let clear: cocoa::base::id = msg_send![class!(NSColor), clearColor];
         let _: () = msg_send![ns_window, setBackgroundColor: clear];
-        let behavior: u64 = 1 | 16 | 64 | 256;
+
+        // NSWindowCollectionBehavior:
+        //   1   = CanJoinAllSpaces
+        //   16  = FullScreenAuxiliary
+        //   64  = Stationary
+        //   128 = IgnoresCycle (不出现在 Cmd+Tab)
+        let behavior: u64 = 1 | 16 | 64 | 128;
         let _: () = msg_send![ns_window, setCollectionBehavior: behavior];
-        let _: () = msg_send![ns_window, setLevel: 26_i64];
+
+        // NSFloatingWindowLevel = 3：悬浮在普通窗口之上，
+        // 低于输入法候选框层级（通常 19），IME 候选框可正常显示在弹窗前面
+        let _: () = msg_send![ns_window, setLevel: 3_i64];
     }
 }
 
@@ -628,6 +644,210 @@ fn parse_diff_hunks(diff: &str) -> Vec<serde_json::Value> {
     hunks
 }
 
+/// 展开模式：同时调整宽度和高度（用于显示终端面板）
+#[tauri::command]
+fn resize_popup_full(window: tauri::WebviewWindow, width: f64, height: f64) {
+    #[cfg(target_os = "macos")]
+    {
+        use cocoa::appkit::NSScreen;
+        use cocoa::base::{nil, YES};
+        use cocoa::foundation::{NSPoint, NSRect, NSSize};
+        unsafe {
+            let ns_window = window.ns_window().expect("ns_window") as cocoa::base::id;
+            let main_screen = NSScreen::mainScreen(nil);
+            if main_screen == nil { return; }
+            let screen_frame: NSRect = NSScreen::frame(main_screen);
+            let screen_w = screen_frame.size.width;
+            // 面板靠右对齐，x = screen_w - width - 8
+            let new_x = screen_w - width - 8.0;
+            let new_y = (screen_frame.size.height - 28.0) - height - 4.0;
+            let frame = NSRect::new(
+                NSPoint::new(new_x, new_y),
+                NSSize::new(width, height),
+            );
+            cocoa::appkit::NSWindow::setFrame_display_(ns_window, frame, YES);
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize { width, height }));
+    }
+}
+
+// ── PTY Commands ─────────────────────────────────────────────
+
+fn pty_writer_map(app: &tauri::AppHandle) -> PtyWriterMap {
+    app.state::<PtyWriterMap>().inner().clone()
+}
+
+fn pty_killer_map(app: &tauri::AppHandle) -> PtyKillerMap {
+    app.state::<PtyKillerMap>().inner().clone()
+}
+
+fn pty_master_map(app: &tauri::AppHandle) -> PtyMasterMap {
+    app.state::<PtyMasterMap>().inner().clone()
+}
+
+/// 启动 PTY 会话（用于 Claude Code / 任意 CLI），原始字节流推送给前端
+#[tauri::command]
+async fn start_pty_session(
+    app: tauri::AppHandle,
+    session_id: String,
+    workdir: String,
+    command: String,
+    args: Vec<String>,
+    cols: u16,
+    rows: u16,
+) -> Result<(), String> {
+    use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+    use base64::Engine;
+
+    let expanded = expand_path(&workdir);
+
+    // 先停掉同 session 的旧 PTY
+    {
+        let km = pty_killer_map(&app);
+        let mut km = km.lock().unwrap();
+        if let Some(mut old) = km.remove(&session_id) {
+            let _ = old.kill();
+        }
+    }
+
+    let pty_system = native_pty_system();
+    let pair = pty_system
+        .openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
+        .map_err(|e| format!("openpty 失败: {e}"))?;
+
+    let mut cmd = CommandBuilder::new(&command);
+    for arg in &args {
+        cmd.arg(arg);
+    }
+    cmd.cwd(&expanded);
+
+    // 继承常用环境变量（确保 CLI 工具可用）
+    cmd.env("TERM", "xterm-256color");
+    cmd.env("COLORTERM", "truecolor");
+    if let Ok(path) = std::env::var("PATH") {
+        cmd.env("PATH", path);
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        cmd.env("HOME", home);
+    }
+
+    let child = pair.slave.spawn_command(cmd)
+        .map_err(|e| format!("spawn 失败: {e}"))?;
+
+    // 先把 reader clone 出来（在 take_writer 之前）
+    let mut master_reader = pair.master.try_clone_reader()
+        .map_err(|e| format!("clone_reader 失败: {e}"))?;
+
+    // 保存 writer、child 和 master（用于 resize）
+    let master_writer = pair.master.take_writer()
+        .map_err(|e| format!("take_writer 失败: {e}"))?;
+    {
+        let wm = pty_writer_map(&app);
+        let mut wm = wm.lock().unwrap();
+        wm.insert(session_id.clone(), master_writer);
+    }
+    {
+        let km = pty_killer_map(&app);
+        let mut km = km.lock().unwrap();
+        km.insert(session_id.clone(), child);
+    }
+    {
+        let mm = pty_master_map(&app);
+        let mut mm = mm.lock().unwrap();
+        mm.insert(session_id.clone(), pair.master);
+    }
+    let app_r = app.clone();
+    let sid_r = session_id.clone();
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 4096];
+        loop {
+            match master_reader.read(&mut buf) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => {
+                    let b64 = base64::engine::general_purpose::STANDARD.encode(&buf[..n]);
+                    let _ = app_r.emit(
+                        "pty-data",
+                        serde_json::json!({ "session_id": sid_r, "data": b64 }),
+                    );
+                }
+            }
+        }
+        let _ = app_r.emit(
+            "pty-exit",
+            serde_json::json!({ "session_id": sid_r }),
+        );
+    });
+
+    Ok(())
+}
+
+/// 向 PTY 写入数据（键盘输入）
+#[tauri::command]
+fn write_pty(
+    app: tauri::AppHandle,
+    session_id: String,
+    data: String,
+) -> Result<(), String> {
+    use base64::Engine;
+    let wm = pty_writer_map(&app);
+    let mut wm = wm.lock().unwrap();
+    if let Some(writer) = wm.get_mut(&session_id) {
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(&data)
+            .map_err(|e| format!("base64 decode 失败: {e}"))?;
+        writer.write_all(&bytes).map_err(|e| format!("write 失败: {e}"))?;
+    }
+    Ok(())
+}
+
+/// 调整 PTY 大小（窗口 resize）
+#[tauri::command]
+fn resize_pty(
+    app: tauri::AppHandle,
+    session_id: String,
+    cols: u16,
+    rows: u16,
+) -> Result<(), String> {
+    use portable_pty::PtySize;
+    let mm = pty_master_map(&app);
+    let mm = mm.lock().unwrap();
+    if let Some(master) = mm.get(&session_id) {
+        master.resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
+            .map_err(|e| format!("resize_pty 失败: {e}"))?;
+    }
+    Ok(())
+}
+
+/// 停止 PTY 会话
+#[tauri::command]
+fn stop_pty_session(
+    app: tauri::AppHandle,
+    session_id: String,
+) -> Result<(), String> {
+    {
+        let km = pty_killer_map(&app);
+        let mut km = km.lock().unwrap();
+        if let Some(mut child) = km.remove(&session_id) {
+            let _ = child.kill();
+        }
+    }
+    {
+        let wm = pty_writer_map(&app);
+        let mut wm = wm.lock().unwrap();
+        wm.remove(&session_id);
+    }
+    {
+        let mm = pty_master_map(&app);
+        let mut mm = mm.lock().unwrap();
+        mm.remove(&session_id);
+    }
+    let _ = app.emit("pty-exit", serde_json::json!({ "session_id": session_id }));
+    Ok(())
+}
+
 // ── 入口 ─────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -635,6 +855,9 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(ProcessMap::default())
+        .manage(PtyWriterMap::default())
+        .manage(PtyKillerMap::default())
+        .manage(PtyMasterMap::default())
         .setup(|app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
@@ -667,6 +890,7 @@ pub fn run() {
             // 窗口
             close_popup,
             resize_popup,
+            resize_popup_full,
             // API Key
             save_api_key,
             load_api_key,
@@ -684,6 +908,11 @@ pub fn run() {
             harness_run_command,
             harness_git_diff,
             harness_confirm,
+            // PTY 终端
+            start_pty_session,
+            write_pty,
+            resize_pty,
+            stop_pty_session,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

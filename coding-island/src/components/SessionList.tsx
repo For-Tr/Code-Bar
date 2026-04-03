@@ -2,6 +2,13 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ClaudeSession, SessionStatus, useSessionStore } from "../store/sessionStore";
 import { useSettingsStore, RUNNER_LABELS } from "../store/settingsStore";
 
+// 展开图标
+const ExpandIcon = () => (
+  <svg width="11" height="11" viewBox="0 0 11 11" fill="none" style={{ display: "block" }}>
+    <path d="M1.5 9.5L9.5 1.5M9.5 1.5H4.5M9.5 1.5V6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
+
 // ── 状态指示灯 ──────────────────────────────────────────────
 const STATUS_CONFIG: Record<SessionStatus, { color: string; pulse: boolean; label: string }> = {
   running: { color: "#4ade80", pulse: true,  label: "运行中" },
@@ -39,11 +46,13 @@ function SessionCard({
   session,
   isActive,
   onClick,
+  onExpand,
   onRemove,
 }: {
   session: ClaudeSession;
   isActive: boolean;
   onClick: () => void;
+  onExpand: () => void;
   onRemove: () => void;
 }) {
   const { label } = STATUS_CONFIG[session.status];
@@ -51,6 +60,7 @@ function SessionCard({
   return (
     <motion.div
       layout
+      layoutId={`session-card-${session.id}`}
       initial={{ opacity: 0, x: -8 }}
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: -8, height: 0 }}
@@ -66,6 +76,7 @@ function SessionCard({
           : "1px solid transparent",
         cursor: "pointer",
         transition: "background 0.15s, border-color 0.15s",
+        position: "relative",
       }}
     >
       {/* 状态灯 */}
@@ -111,6 +122,29 @@ function SessionCard({
         )}
       </div>
 
+      {/* 展开终端按钮 */}
+      <button
+        onClick={(e) => { e.stopPropagation(); onExpand(); }}
+        title="展开终端"
+        style={{
+          background: "none", border: "none",
+          color: "rgba(255,255,255,0.2)",
+          cursor: "pointer", padding: "4px", borderRadius: 5,
+          flexShrink: 0, display: "flex", alignItems: "center",
+          transition: "color 0.15s, background 0.15s",
+        }}
+        onMouseEnter={e => {
+          e.currentTarget.style.color = "#60a5fa";
+          e.currentTarget.style.background = "rgba(96,165,250,0.12)";
+        }}
+        onMouseLeave={e => {
+          e.currentTarget.style.color = "rgba(255,255,255,0.2)";
+          e.currentTarget.style.background = "none";
+        }}
+      >
+        <ExpandIcon />
+      </button>
+
       {/* 删除按钮 */}
       <button
         onClick={(e) => { e.stopPropagation(); onRemove(); }}
@@ -131,7 +165,7 @@ function SessionCard({
 }
 
 export function SessionList() {
-  const { sessions, activeSessionId, addSession, removeSession, setActiveSession } = useSessionStore();
+  const { sessions, activeSessionId, addSession, removeSession, setActiveSession, setExpandedSession } = useSessionStore();
   const runnerType = useSettingsStore((s) => s.settings.runner.type);
   const runnerLabel = RUNNER_LABELS[runnerType];
 
@@ -171,6 +205,10 @@ export function SessionList() {
             session={session}
             isActive={session.id === activeSessionId}
             onClick={() => setActiveSession(session.id)}
+            onExpand={() => {
+              setActiveSession(session.id);
+              setExpandedSession(session.id);
+            }}
             onRemove={() => removeSession(session.id)}
           />
         ))}
