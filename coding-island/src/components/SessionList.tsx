@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ClaudeSession, SessionStatus, useSessionStore } from "../store/sessionStore";
 import { useWorkspaceStore, getWorkspaceColor } from "../store/workspaceStore";
@@ -149,87 +148,27 @@ function SessionCard({
   );
 }
 
-// ── 新建会话表单（仅用于当前激活 workspace） ──────────────────
-function NewSessionForm({
-  workspaceId, workdir, accentColor, onDone,
-}: {
-  workspaceId: string;
-  workdir: string;
-  accentColor: string;
-  onDone: () => void;
-}) {
-  const { addSession } = useSessionStore();
-  const [name, setName] = useState("");
-
-  const handleCreate = () => {
-    addSession(workspaceId, workdir, name.trim() || undefined);
-    onDone();
-  };
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, height: 0 }}
-      animate={{ opacity: 1, height: "auto" }}
-      exit={{ opacity: 0, height: 0 }}
-      transition={{ duration: 0.16 }}
-      style={{ overflow: "hidden" }}
-    >
-      <div style={{
-        background: "rgba(255,255,255,0.03)",
-        border: `1px solid ${accentColor}25`,
-        borderRadius: 9, padding: "10px 11px",
-        display: "flex", gap: 8, alignItems: "center",
-        marginBottom: 4,
-      }}>
-        <input
-          autoFocus
-          value={name}
-          onChange={e => setName(e.target.value)}
-          placeholder="会话名称（可选）"
-          onKeyDown={e => {
-            if (e.key === "Enter") handleCreate();
-            if (e.key === "Escape") onDone();
-          }}
-          style={{
-            flex: 1, background: "none", border: "none", outline: "none",
-            color: "#fff", fontSize: 11,
-          }}
-        />
-        <button onClick={handleCreate}
-          style={{
-            background: `${accentColor}20`, border: `1px solid ${accentColor}40`,
-            borderRadius: 6, padding: "3px 10px",
-            color: accentColor, fontSize: 11, fontWeight: 600, cursor: "pointer",
-          }}>
-          创建
-        </button>
-        <button onClick={onDone}
-          style={{
-            background: "none", border: "none",
-            color: "rgba(255,255,255,0.3)", fontSize: 12,
-            cursor: "pointer", padding: "2px 4px",
-          }}>✕</button>
-      </div>
-    </motion.div>
-  );
-}
-
-// ── 主组件：SessionList（展示当前激活 workspace 的 sessions） ─
+// ── 主组件：SessionList ───────────────────────────────────────
 export function SessionList() {
-  const { sessions, activeSessionId, removeSession, setActiveSession, setExpandedSession } = useSessionStore();
+  const { sessions, activeSessionId, removeSession, setActiveSession, setExpandedSession, addSession } = useSessionStore();
   const { activeWorkspaceId } = useWorkspaceStore();
   const activeWorkspace = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === activeWorkspaceId)
   );
   const runnerType = useSettingsStore((s) => s.settings.runner.type);
   const runnerLabel = RUNNER_LABELS[runnerType];
-  const [showForm, setShowForm] = useState(false);
 
-  // 没有激活 workspace 时不渲染
   if (!activeWorkspace) return null;
 
   const accentColor = getWorkspaceColor(activeWorkspace.color);
   const wsSessions = sessions.filter((s) => s.workspaceId === activeWorkspaceId);
+
+  // 新建 session：直接创建并展开终端，跳过命名表单
+  const handleNewSession = () => {
+    const id = addSession(activeWorkspace.id, activeWorkspace.path);
+    // 立即展开终端，用户在终端面板内输入 query
+    setExpandedSession(id);
+  };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
@@ -241,7 +180,6 @@ export function SessionList() {
         marginTop: 2,
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          {/* workspace 颜色小标 */}
           <div style={{
             width: 6, height: 6, borderRadius: "50%",
             background: accentColor, flexShrink: 0,
@@ -252,33 +190,30 @@ export function SessionList() {
         </div>
 
         <button
-          onClick={() => setShowForm(v => !v)}
+          onClick={handleNewSession}
           style={{
-            background: showForm ? `${accentColor}20` : "rgba(255,255,255,0.06)",
-            border: showForm ? `1px solid ${accentColor}40` : "1px solid rgba(255,255,255,0.09)",
+            background: "rgba(255,255,255,0.06)",
+            border: "1px solid rgba(255,255,255,0.09)",
             borderRadius: 6, padding: "2px 7px",
-            color: showForm ? accentColor : "rgba(255,255,255,0.45)",
+            color: "rgba(255,255,255,0.45)",
             fontSize: 11, cursor: "pointer",
             display: "flex", alignItems: "center", gap: 3,
             transition: "background 0.12s, color 0.12s",
+          }}
+          onMouseEnter={e => {
+            e.currentTarget.style.background = `${accentColor}20`;
+            e.currentTarget.style.borderColor = `${accentColor}40`;
+            e.currentTarget.style.color = accentColor;
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.background = "rgba(255,255,255,0.06)";
+            e.currentTarget.style.borderColor = "rgba(255,255,255,0.09)";
+            e.currentTarget.style.color = "rgba(255,255,255,0.45)";
           }}
         >
           <span style={{ fontSize: 13, lineHeight: 1 }}>+</span> 新建
         </button>
       </div>
-
-      {/* 新建表单 */}
-      <AnimatePresence>
-        {showForm && (
-          <NewSessionForm
-            key="new-form"
-            workspaceId={activeWorkspace.id}
-            workdir={activeWorkspace.path}
-            accentColor={accentColor}
-            onDone={() => setShowForm(false)}
-          />
-        )}
-      </AnimatePresence>
 
       {/* Session 列表 */}
       <AnimatePresence>
@@ -298,7 +233,7 @@ export function SessionList() {
         ))}
       </AnimatePresence>
 
-      {wsSessions.length === 0 && !showForm && (
+      {wsSessions.length === 0 && (
         <div style={{
           textAlign: "center", padding: "12px 0 6px",
           color: "rgba(255,255,255,0.18)", fontSize: 11,

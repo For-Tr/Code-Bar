@@ -136,9 +136,11 @@ fn setup_popup_window(win: &tauri::WebviewWindow) {
         let behavior: u64 = 1 | 16 | 64 | 128;
         let _: () = msg_send![ns_window, setCollectionBehavior: behavior];
 
-        // NSStatusBarWindowLevel = 25：与菜单栏弹窗（Spotlight/通知中心）同级，
-        // 在 Accessory 模式下 app deactivate 时不会被系统隐藏
-        let _: () = msg_send![ns_window, setLevel: 25_i64];
+        // NSFloatingWindowLevel = 3：浮动窗口级别
+        // 输入法候选窗口（kCGAssistiveTechHighWindowLevel ≈ 1500）远高于此，
+        // 因此候选框会自然地显示在我们弹窗上方而不被遮挡。
+        // 同时仍然高于普通应用窗口（0），确保弹窗不被其他应用遮住。
+        let _: () = msg_send![ns_window, setLevel: 3_i64];
 
         // hidesOnDeactivate = false 防止切换应用时弹窗消失
         let _: () = msg_send![ns_window, setHidesOnDeactivate: NO];
@@ -300,9 +302,11 @@ async fn start_runner(
     // 按 Runner 类型设置参数
     match runner_type.as_str() {
         "claude-code" => {
-            cmd.arg("--output-format")
+            // --print 启用非交互模式（新版替代 --no-pager）
+            // --output-format stream-json 仅在 --print 模式下有效
+            cmd.arg("--print")
+                .arg("--output-format")
                 .arg("stream-json")
-                .arg("--no-pager")
                 .arg(&task);
         }
         "codex" => {
@@ -845,12 +849,61 @@ fn resize_pty(
     rows: u16,
 ) -> Result<(), String> {
     use portable_pty::PtySize;
+    // 防御：cols/rows 为 0 时跳过（面板收起时容器尺寸可能变为 0，
+    // 传 0 给 TIOCSWINSZ 可能导致进程收到 SIGWINCH 后异常退出）
+    let cols = cols.max(20);
+    let rows = rows.max(5);
     let mm = pty_master_map(&app);
     let mm = mm.lock().unwrap();
     if let Some(master) = mm.get(&session_id) {
         master.resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
             .map_err(|e| format!("resize_pty 失败: {e}"))?;
     }
+    Ok(())
+}
+
+/// 将目录写入 ~/.claude/settings.json 的 trustedDirectories，
+/// 避免 claude 启动时弹出"是否信任此文件夹"对话框。
+#[tauri::command]
+fn trust_workspace(path: String) -> Result<(), String> {
+    let home = std::env::var("HOME").map_err(|_| "无法获取 HOME 环境变量")?;
+    let settings_path = std::path::PathBuf::from(home)
+        .join(".claude")
+        .join("settings.json");
+
+    // 读取现有配置（不存在则用空对象）
+    let content = if settings_path.exists() {
+        std::fs::read_to_string(&settings_path).map_err(|e| e.to_string())?
+    } else {
+        "{}".to_string()
+    };
+
+    let mut json: serde_json::Value =
+        serde_json::from_str(&content).unwrap_or(serde_json::json!({}));
+
+    // 确保 trustedDirectories 字段存在且为数组
+    let trusted = json
+        .as_object_mut()
+        .ok_or("settings.json 格式错误")?
+        .entry("trustedDirectories")
+        .or_insert(serde_json::json!([]));
+
+    if let serde_json::Value::Array(arr) = trusted {
+        // 去重：只有不存在时才插入
+        let already = arr.iter().any(|v| v.as_str() == Some(&path));
+        if !already {
+            arr.push(serde_json::Value::String(path));
+        }
+    }
+
+    // 写回（pretty print 保持可读性）
+    let out = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
+    // 确保目录存在
+    if let Some(parent) = settings_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&settings_path, out).map_err(|e| e.to_string())?;
+
     Ok(())
 }
 
@@ -976,6 +1029,8 @@ pub fn run() {
             write_pty,
             resize_pty,
             stop_pty_session,
+            // Claude 信任目录
+            trust_workspace,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

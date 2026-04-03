@@ -43,6 +43,9 @@ function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
     const trimmed = path.trim();
     if (!trimmed) { setError("请选择工作目录"); return; }
     addWorkspace(trimmed, name.trim() || undefined, color);
+    // 将目录写入 ~/.claude/settings.json trustedDirectories，
+    // 避免 claude 启动时弹出"是否信任此文件夹"对话框
+    invoke("trust_workspace", { path: trimmed }).catch(() => {});
     onDone();
   };
 

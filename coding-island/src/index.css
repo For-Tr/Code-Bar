@@ -21,3 +21,10 @@ body,
   width: fit-content;
   height: fit-content;
 }
+
+/* 全局隐藏 WebKit 滚动条（保留滚动功能，只隐藏视觉滚动条轨道） */
+::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}

@@ -8,12 +8,13 @@ import "@xterm/xterm/css/xterm.css";
 interface Props {
   sessionId: string;
   command: string;     // e.g. "claude"
-  args?: string[];     // e.g. []
+  args?: string[];     // e.g. ["--dangerously-skip-permissions"]
   workdir: string;
   active: boolean;     // 是否可见/激活
+  onReady?: () => void; // PTY 进程启动成功后回调（用于透传初始 query）
 }
 
-export function PtyTerminal({ sessionId, command, args = [], workdir, active }: Props) {
+export function PtyTerminal({ sessionId, command, args = [], workdir, active, onReady }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -88,7 +89,6 @@ export function PtyTerminal({ sessionId, command, args = [], workdir, active }: 
         if (payload.session_id !== sessionId) return;
         const term = termRef.current;
         if (!term) return;
-        // base64 → Uint8Array → 写入 xterm
         try {
           const bin = atob(payload.data);
           const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
@@ -104,6 +104,7 @@ export function PtyTerminal({ sessionId, command, args = [], workdir, active }: 
         termRef.current?.writeln("\r\n\x1b[90m─────────────────────────────────────\x1b[0m");
         termRef.current?.writeln("\x1b[90m[进程已退出]\x1b[0m");
         setExited(true);
+        startedRef.current = false; // 允许重启
       }
     );
 
@@ -113,7 +114,7 @@ export function PtyTerminal({ sessionId, command, args = [], workdir, active }: 
     };
   }, [sessionId]);
 
-  // ── 启动 PTY 进程（延迟确保容器已经展开到正确宽度）─────
+  // ── 启动 PTY 进程（仅第一次，之后常驻直到 exit）────────
   useEffect(() => {
     if (!active || startedRef.current) return;
     startedRef.current = true;
@@ -134,22 +135,27 @@ export function PtyTerminal({ sessionId, command, args = [], workdir, active }: 
         args,
         cols,
         rows,
-      }).catch((e) => {
-        termRef.current?.writeln(`\x1b[31m启动失败: ${e}\x1b[0m`);
-      });
+      })
+        .then(() => {
+          // PTY 启动成功，通知父组件可以写入初始 query
+          onReady?.();
+        })
+        .catch((e) => {
+          termRef.current?.writeln(`\x1b[31m启动失败: ${e}\x1b[0m`);
+        });
     }, 250);
 
     return () => clearTimeout(timer);
-  }, [active, sessionId, workdir, command, args]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, sessionId, workdir, command]);
+  // 注意：args/onReady 故意不加入依赖，避免每次渲染重新启动
 
   // ── 重新启动（退出后用户点击重启）───────────────────────
   const handleRestart = () => {
     setExited(false);
     startedRef.current = false;
-    // 清屏
     termRef.current?.clear();
 
-    // 立即触发重启
     const fit = fitRef.current;
     const term = termRef.current;
     if (fit) fit.fit();
@@ -164,12 +170,16 @@ export function PtyTerminal({ sessionId, command, args = [], workdir, active }: 
       args,
       cols,
       rows,
-    }).catch((e) => {
-      termRef.current?.writeln(`\x1b[31m启动失败: ${e}\x1b[0m`);
-    });
+    })
+      .then(() => {
+        onReady?.();
+      })
+      .catch((e) => {
+        termRef.current?.writeln(`\x1b[31m启动失败: ${e}\x1b[0m`);
+      });
   };
 
-  // ── 可见时 fit ────────────────────────────────────────────
+  // ── 可见时 fit + focus（重新展开时恢复焦点，不重启 PTY）──
   useEffect(() => {
     if (!active) return;
     const t = setTimeout(() => {
@@ -179,7 +189,13 @@ export function PtyTerminal({ sessionId, command, args = [], workdir, active }: 
     return () => clearTimeout(t);
   }, [active]);
 
+  // active ref：供 ResizeObserver 回调访问（避免闭包过时）
+  const activeRef = useRef(active);
+  activeRef.current = active;
+
   // ── ResizeObserver：自动 fit + 同步 PTY 大小给 Rust ─────
+  // 只有 active=true（面板可见）时才向 Rust 同步尺寸，
+  // 避免面板收起时窗口缩小导致 resize_pty 传入极小值使进程崩溃
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -188,9 +204,10 @@ export function PtyTerminal({ sessionId, command, args = [], workdir, active }: 
       const term = termRef.current;
       if (!fit || !term) return;
       fit.fit();
-      const cols = term.cols;
-      const rows = term.rows;
-      // 同步给 Rust PTY
+      // 仅在面板可见时同步给 Rust，防止收起时 cols/rows 为 0 导致进程崩溃
+      if (!activeRef.current) return;
+      const cols = Math.max(term.cols, 20);
+      const rows = Math.max(term.rows, 5);
       invoke("resize_pty", { sessionId, cols, rows }).catch(() => {});
     });
     ro.observe(el);
@@ -202,51 +219,29 @@ export function PtyTerminal({ sessionId, command, args = [], workdir, active }: 
       {/* xterm canvas */}
       <div
         ref={containerRef}
-        style={{
-          width: "100%",
-          height: "100%",
-          background: "#0a0a0c",
-        }}
+        style={{ width: "100%", height: "100%", background: "#0a0a0c" }}
       />
 
       {/* 退出后的重启覆盖层 */}
       {exited && (
-        <div
-          style={{
-            position: "absolute",
-            bottom: 0,
-            left: 0,
-            right: 0,
-            padding: "12px 16px",
-            background: "linear-gradient(to top, rgba(10,10,12,0.98) 70%, transparent)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 12,
-          }}
-        >
-          <span style={{
-            fontSize: 11,
-            color: "rgba(255,255,255,0.35)",
-            fontFamily: "monospace",
-          }}>
+        <div style={{
+          position: "absolute", bottom: 0, left: 0, right: 0,
+          padding: "12px 16px",
+          background: "linear-gradient(to top, rgba(10,10,12,0.98) 70%, transparent)",
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 12,
+        }}>
+          <span style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", fontFamily: "monospace" }}>
             会话已结束
           </span>
           <button
             onClick={handleRestart}
             style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              padding: "5px 14px",
-              borderRadius: 8,
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "5px 14px", borderRadius: 8,
               border: "1px solid rgba(96,165,250,0.35)",
               background: "rgba(96,165,250,0.1)",
-              color: "#60a5fa",
-              fontSize: 12,
-              fontWeight: 600,
-              cursor: "pointer",
-              transition: "background 0.15s, border-color 0.15s",
+              color: "#60a5fa", fontSize: 12, fontWeight: 600,
+              cursor: "pointer", transition: "background 0.15s, border-color 0.15s",
             }}
             onMouseEnter={e => {
               e.currentTarget.style.background = "rgba(96,165,250,0.2)";

@@ -13,6 +13,7 @@ import { SessionDetail } from "./components/SessionDetail";
 import Settings from "./components/Settings";
 import { useSessionStore, DiffFile } from "./store/sessionStore";
 import { useSettingsStore } from "./store/settingsStore";
+import { useWorkspaceStore } from "./store/workspaceStore";
 
 const spring = { type: "spring" as const, stiffness: 320, damping: 28, mass: 1 };
 
@@ -28,6 +29,7 @@ export default function App() {
   const { settings } = useSettingsStore();
   const activeSession = sessions.find((s) => s.id === activeSessionId);
 
+
   // ── Esc 关闭 ──────────────────────────────────────────────
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -40,6 +42,15 @@ export default function App() {
   // 暴露给 Toolbar 的焦点回调（保留接口，不再触发窗口 resize）
   const onTaskInputFocus = useCallback(() => {}, []);
   const onTaskInputBlur  = useCallback(() => {}, []);
+
+  // ── 启动时批量信任所有已有 workspace 目录（写入 claude settings）──
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+    const { workspaces } = useWorkspaceStore.getState();
+    workspaces.forEach((ws) => {
+      invoke("trust_workspace", { path: ws.path }).catch(() => {});
+    });
+  }, []);
 
   // ── 启动时加载保存的 API Key ──────────────────────────────
   useEffect(() => {
@@ -122,8 +133,8 @@ export default function App() {
 
   return (
     <>
-    {/* ── PTY 终端展开层（位于 popup 外部，弹簧动画） ── */}
-    <SessionDetail session={activeSession ?? null} />
+    {/* ── PTY 终端展开层（位于 popup 外部，常驻挂载） ── */}
+    <SessionDetail />
 
     <div style={{
       width: "360px",
@@ -146,93 +157,117 @@ export default function App() {
             "0 24px 48px rgba(0,0,0,0.5)",
             "inset 0 0 0 0.5px rgba(255,255,255,0.04)",
           ].join(", "),
-          overflow: "visible",
+          overflow: "hidden",
+          display: "flex",
+          flexDirection: "column",
         }}
       >
         {/* ── Settings 遮罩层 ── */}
         <Settings />
 
-        {/* ── 标题栏 ── */}
+        {/* ── 标题栏（固定不滚动） ── */}
         <TitleBar />
 
-        {/* ── Workspace 堆叠卡片 ── */}
-        <div style={{ padding: "8px 8px 0" }}>
-          <WorkspaceStack />
+        {/* ── 可滚动内容区域 ── */}
+        <div style={{
+          flex: 1,
+          overflowY: "auto",
+          overflowX: "hidden",
+          position: "relative",
+          // 自定义滚动条样式
+          scrollbarWidth: "none",
+        }}>
+          {/* Workspace 堆叠卡片 */}
+          <div style={{ padding: "8px 8px 0" }}>
+            <WorkspaceStack />
+          </div>
+
+          {/* Session 列表（在激活 Workspace 下） */}
+          <div style={{ padding: "0 8px 4px" }}>
+            <SessionList />
+          </div>
+
+          {/* 当前 Session 详情 */}
+          <AnimatePresence mode="wait">
+            {activeSession && (
+              <motion.div
+                key={activeSession.id}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.15 }}
+              >
+                <Toolbar
+                  session={activeSession}
+                  onInputFocus={onTaskInputFocus}
+                  onInputBlur={onTaskInputBlur}
+                />
+                <OutputConsole session={activeSession} />
+
+                <AnimatePresence>
+                  {hasDiff && (
+                    <motion.div
+                      key="diff"
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: "auto" }}
+                      exit={{ opacity: 0, height: 0 }}
+                      transition={{ duration: 0.2 }}
+                      style={{
+                        borderTop: "1px solid rgba(255,255,255,0.05)",
+                        overflow: "hidden",
+                      }}
+                    >
+                      <div style={{
+                        display: "flex", alignItems: "center", gap: 8,
+                        padding: "8px 12px 4px",
+                      }}>
+                        <span style={{
+                          fontSize: 10, fontWeight: 600,
+                          letterSpacing: "0.07em", textTransform: "uppercase",
+                          color: "rgba(255,255,255,0.22)",
+                        }}>
+                          变更
+                        </span>
+                        <span style={{
+                          fontSize: 10, padding: "1px 6px", borderRadius: 99,
+                          background: "rgba(74,222,128,0.12)",
+                          border: "1px solid rgba(74,222,128,0.25)",
+                          color: "#4ade80",
+                        }}>
+                          +{activeSession.diffFiles.reduce((s, f) => s + f.additions, 0)}
+                        </span>
+                        <span style={{
+                          fontSize: 10, padding: "1px 6px", borderRadius: 99,
+                          background: "rgba(239,68,68,0.1)",
+                          border: "1px solid rgba(239,68,68,0.22)",
+                          color: "#f87171",
+                        }}>
+                          −{activeSession.diffFiles.reduce((s, f) => s + f.deletions, 0)}
+                        </span>
+                        <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.05)" }} />
+                      </div>
+                      <DiffViewer files={activeSession.diffFiles} />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* 底部淡出遮罩：解决滚动到底部内容透明看不清的问题 */}
+          <div style={{
+            position: "sticky",
+            bottom: 0,
+            left: 0,
+            right: 0,
+            height: 24,
+            background: "linear-gradient(to bottom, transparent, rgba(14,14,16,0.96))",
+            pointerEvents: "none",
+            flexShrink: 0,
+          }} />
         </div>
 
-        {/* ── Session 列表（在激活 Workspace 下） ── */}
-        <div style={{ padding: "0 8px 4px" }}>
-          <SessionList />
-        </div>
-
-        {/* ── 当前 Session 详情 ── */}
-        <AnimatePresence mode="wait">
-          {activeSession && (
-            <motion.div
-              key={activeSession.id}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.15 }}
-            >
-              <Toolbar
-                session={activeSession}
-                onInputFocus={onTaskInputFocus}
-                onInputBlur={onTaskInputBlur}
-              />
-              <OutputConsole session={activeSession} />
-
-              <AnimatePresence>
-                {hasDiff && (
-                  <motion.div
-                    key="diff"
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: "auto" }}
-                    exit={{ opacity: 0, height: 0 }}
-                    transition={{ duration: 0.2 }}
-                    style={{
-                      borderTop: "1px solid rgba(255,255,255,0.05)",
-                      overflow: "hidden",
-                    }}
-                  >
-                    <div style={{
-                      display: "flex", alignItems: "center", gap: 8,
-                      padding: "8px 12px 4px",
-                    }}>
-                      <span style={{
-                        fontSize: 10, fontWeight: 600,
-                        letterSpacing: "0.07em", textTransform: "uppercase",
-                        color: "rgba(255,255,255,0.22)",
-                      }}>
-                        变更
-                      </span>
-                      <span style={{
-                        fontSize: 10, padding: "1px 6px", borderRadius: 99,
-                        background: "rgba(74,222,128,0.12)",
-                        border: "1px solid rgba(74,222,128,0.25)",
-                        color: "#4ade80",
-                      }}>
-                        +{activeSession.diffFiles.reduce((s, f) => s + f.additions, 0)}
-                      </span>
-                      <span style={{
-                        fontSize: 10, padding: "1px 6px", borderRadius: 99,
-                        background: "rgba(239,68,68,0.1)",
-                        border: "1px solid rgba(239,68,68,0.22)",
-                        color: "#f87171",
-                      }}>
-                        −{activeSession.diffFiles.reduce((s, f) => s + f.deletions, 0)}
-                      </span>
-                      <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.05)" }} />
-                    </div>
-                    <DiffViewer files={activeSession.diffFiles} />
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* ── 状态栏 ── */}
+        {/* ── 状态栏（固定在底部） ── */}
         <StatusBar session={activeSession} />
       </motion.div>
     </div>
