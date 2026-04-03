@@ -644,6 +644,26 @@ fn parse_diff_hunks(diff: &str) -> Vec<serde_json::Value> {
     hunks
 }
 
+/// 调用系统文件夹选择对话框，返回用户选中的路径（取消返回空字符串）
+#[tauri::command]
+fn pick_folder() -> String {
+    // 用 osascript 弹出 macOS 原生文件夹选择器（无需额外权限，不需要在主线程）
+    let script = r#"
+        set folderPath to POSIX path of (choose folder with prompt "选择工作目录")
+        return folderPath
+    "#;
+    let output = Command::new("osascript")
+        .arg("-e")
+        .arg(script)
+        .output();
+    match output {
+        Ok(out) if out.status.success() => {
+            String::from_utf8_lossy(&out.stdout).trim().trim_end_matches('/').to_string()
+        }
+        _ => String::new(),
+    }
+}
+
 /// 展开模式：同时调整宽度和高度（用于显示终端面板）
 #[tauri::command]
 fn resize_popup_full(window: tauri::WebviewWindow, width: f64, height: f64) {
@@ -891,6 +911,7 @@ pub fn run() {
             close_popup,
             resize_popup,
             resize_popup_full,
+            pick_folder,
             // API Key
             save_api_key,
             load_api_key,

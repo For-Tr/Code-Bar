@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { invoke } from "@tauri-apps/api/core";
 import { ClaudeSession, SessionStatus, useSessionStore } from "../store/sessionStore";
 import { useSettingsStore, RUNNER_LABELS } from "../store/settingsStore";
 
@@ -164,10 +166,161 @@ function SessionCard({
   );
 }
 
+// ── 新建会话内联表单 ─────────────────────────────────────────
+function NewSessionForm({ onDone }: { onDone: () => void }) {
+  const { addSession } = useSessionStore();
+  const [name, setName] = useState("");
+  const [workdir, setWorkdir] = useState("");
+  const [picking, setPicking] = useState(false);
+  const [error, setError] = useState("");
+
+  const handlePickFolder = async () => {
+    setPicking(true);
+    setError("");
+    try {
+      const path = await invoke<string>("pick_folder");
+      if (path) setWorkdir(path);
+    } catch {
+      setError("无法打开文件夹选择器");
+    } finally {
+      setPicking(false);
+    }
+  };
+
+  const handleCreate = () => {
+    const trimmed = workdir.trim();
+    if (!trimmed) {
+      setError("请选择或输入工作目录");
+      return;
+    }
+    addSession(trimmed, name.trim() || undefined);
+    onDone();
+  };
+
+  const inputBase: React.CSSProperties = {
+    width: "100%", boxSizing: "border-box",
+    background: "rgba(255,255,255,0.06)",
+    border: "1px solid rgba(255,255,255,0.1)",
+    borderRadius: 7,
+    padding: "6px 10px",
+    color: "#fff",
+    fontSize: 11,
+    outline: "none",
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -6, height: 0 }}
+      animate={{ opacity: 1, y: 0, height: "auto" }}
+      exit={{ opacity: 0, y: -6, height: 0 }}
+      transition={{ duration: 0.2, ease: "easeOut" }}
+      style={{ overflow: "hidden" }}
+    >
+      <div style={{
+        background: "rgba(255,255,255,0.04)",
+        border: "1px solid rgba(255,255,255,0.1)",
+        borderRadius: 10,
+        padding: "12px",
+        display: "flex", flexDirection: "column", gap: 8,
+        marginBottom: 4,
+      }}>
+        {/* 标题 */}
+        <div style={{ fontSize: 11, fontWeight: 600, color: "rgba(255,255,255,0.5)", letterSpacing: 0.3 }}>
+          新建会话
+        </div>
+
+        {/* 会话名称 */}
+        <div>
+          <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", marginBottom: 4 }}>会话名称（可选）</div>
+          <input
+            value={name}
+            onChange={e => setName(e.target.value)}
+            placeholder="默认自动生成"
+            style={inputBase}
+            onKeyDown={e => e.key === "Enter" && handleCreate()}
+          />
+        </div>
+
+        {/* 工作目录 */}
+        <div>
+          <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", marginBottom: 4 }}>
+            工作目录 <span style={{ color: "#f87171" }}>*</span>
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <input
+              value={workdir}
+              onChange={e => { setWorkdir(e.target.value); setError(""); }}
+              placeholder="/Users/你/项目路径"
+              style={{ ...inputBase, flex: 1, borderColor: error ? "rgba(248,113,113,0.5)" : "rgba(255,255,255,0.1)" }}
+              onKeyDown={e => e.key === "Enter" && handleCreate()}
+            />
+            <button
+              onClick={handlePickFolder}
+              disabled={picking}
+              title="浏览目录"
+              style={{
+                flexShrink: 0,
+                background: "rgba(255,255,255,0.07)",
+                border: "1px solid rgba(255,255,255,0.12)",
+                borderRadius: 7,
+                padding: "0 9px",
+                color: picking ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.55)",
+                cursor: picking ? "wait" : "pointer",
+                fontSize: 14,
+                display: "flex", alignItems: "center",
+                transition: "background 0.15s",
+              }}
+              onMouseEnter={e => !picking && (e.currentTarget.style.background = "rgba(255,255,255,0.12)")}
+              onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.07)")}
+            >
+              {picking ? "…" : "📂"}
+            </button>
+          </div>
+          {error && (
+            <div style={{ marginTop: 4, fontSize: 10, color: "#f87171" }}>{error}</div>
+          )}
+        </div>
+
+        {/* 操作按钮 */}
+        <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+          <button
+            onClick={onDone}
+            style={{
+              background: "none",
+              border: "1px solid rgba(255,255,255,0.1)",
+              borderRadius: 7, padding: "5px 12px",
+              color: "rgba(255,255,255,0.4)", fontSize: 11,
+              cursor: "pointer",
+            }}
+          >
+            取消
+          </button>
+          <button
+            onClick={handleCreate}
+            style={{
+              background: "rgba(96,165,250,0.15)",
+              border: "1px solid rgba(96,165,250,0.3)",
+              borderRadius: 7, padding: "5px 14px",
+              color: "#60a5fa", fontSize: 11, fontWeight: 600,
+              cursor: "pointer",
+              transition: "background 0.15s",
+            }}
+            onMouseEnter={e => (e.currentTarget.style.background = "rgba(96,165,250,0.25)")}
+            onMouseLeave={e => (e.currentTarget.style.background = "rgba(96,165,250,0.15)")}
+          >
+            创建
+          </button>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
 export function SessionList() {
-  const { sessions, activeSessionId, addSession, removeSession, setActiveSession, setExpandedSession } = useSessionStore();
+  const { sessions, activeSessionId, removeSession, setActiveSession, setExpandedSession } = useSessionStore();
   const runnerType = useSettingsStore((s) => s.settings.runner.type);
   const runnerLabel = RUNNER_LABELS[runnerType];
+  const [showForm, setShowForm] = useState(false);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
@@ -182,20 +335,34 @@ export function SessionList() {
           {runnerLabel} 会话
         </span>
         <button
-          onClick={() => addSession()}
+          onClick={() => setShowForm(v => !v)}
           style={{
             display: "flex", alignItems: "center", gap: 4,
-            background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.1)",
+            background: showForm ? "rgba(96,165,250,0.15)" : "rgba(255,255,255,0.07)",
+            border: showForm ? "1px solid rgba(96,165,250,0.3)" : "1px solid rgba(255,255,255,0.1)",
             borderRadius: 6, padding: "3px 8px",
-            color: "rgba(255,255,255,0.6)", fontSize: 11, cursor: "pointer",
-            transition: "background 0.15s",
+            color: showForm ? "#60a5fa" : "rgba(255,255,255,0.6)",
+            fontSize: 11, cursor: "pointer",
+            transition: "background 0.15s, color 0.15s, border-color 0.15s",
           }}
-          onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.12)")}
-          onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.07)")}
+          onMouseEnter={e => {
+            if (!showForm) e.currentTarget.style.background = "rgba(255,255,255,0.12)";
+          }}
+          onMouseLeave={e => {
+            if (!showForm) e.currentTarget.style.background = "rgba(255,255,255,0.07)";
+          }}
         >
-          <span style={{ fontSize: 14, lineHeight: 1 }}>+</span> 新建
+          <span style={{ fontSize: 14, lineHeight: 1, transition: "transform 0.2s", transform: showForm ? "rotate(45deg)" : "none" }}>+</span>
+          {showForm ? "收起" : "新建"}
         </button>
       </div>
+
+      {/* 新建会话内联表单 */}
+      <AnimatePresence>
+        {showForm && (
+          <NewSessionForm key="new-form" onDone={() => setShowForm(false)} />
+        )}
+      </AnimatePresence>
 
       {/* Session 卡片列表 */}
       <AnimatePresence>
@@ -214,7 +381,7 @@ export function SessionList() {
         ))}
       </AnimatePresence>
 
-      {sessions.length === 0 && (
+      {sessions.length === 0 && !showForm && (
         <div style={{
           textAlign: "center", padding: "16px 0",
           color: "rgba(255,255,255,0.2)", fontSize: 12,

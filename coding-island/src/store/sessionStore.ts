@@ -42,7 +42,7 @@ interface SessionStore {
   expandedDiffFileId: string | null;
   expandedSessionId: string | null;  // 放大展开的 session
 
-  addSession: (workdir?: string) => void;
+  addSession: (workdir: string, name?: string) => void;
   removeSession: (id: string) => void;
   setActiveSession: (id: string) => void;
   updateSession: (id: string, patch: Partial<ClaudeSession>) => void;
@@ -168,8 +168,8 @@ export const useSessionStore = create<SessionStore>((set) => ({
   expandedDiffFileId: null,
   expandedSessionId: null,
 
-  addSession: (workdir = "~/projects/my-app") => {
-    const s = makeSession({ workdir });
+  addSession: (workdir: string, name?: string) => {
+    const s = makeSession({ workdir, ...(name ? { name } : {}) });
     set((state) => ({
       sessions: [...state.sessions, s],
       activeSessionId: s.id,
