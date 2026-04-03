@@ -1,0 +1,23 @@
+@import "tailwindcss";
+
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* 根节点必须完全透明，不能有任何尺寸撑开背景 */
+html,
+body,
+#root {
+  background: transparent !important;
+  background-color: transparent !important;
+  overflow: visible;
+  user-select: none;
+  -webkit-user-select: none;
+  /* 关键：高度不要铺满，跟随内容 */
+  width: fit-content;
+  height: fit-content;
+}
