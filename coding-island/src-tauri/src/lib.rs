@@ -24,22 +24,58 @@ type PtyKillerMap = Arc<Mutex<HashMap<String, Box<dyn portable_pty::Child + Send
 // PTY master：session_id → MasterPty（用于 resize）
 type PtyMasterMap = Arc<Mutex<HashMap<String, Box<dyn portable_pty::MasterPty + Send>>>>;
 
+// ── Popup 可见状态 ───
+struct PopupVisible(Mutex<bool>);
+impl PopupVisible {
+    fn new(v: bool) -> Self { Self(Mutex::new(v)) }
+    fn get(&self) -> bool { *self.0.lock().unwrap() }
+    fn set(&self, v: bool) { *self.0.lock().unwrap() = v; }
+}
+
 fn process_map(app: &tauri::AppHandle) -> ProcessMap {
     app.state::<ProcessMap>().inner().clone()
 }
 
 // ── 窗口管理 ─────────────────────────────────────────────────
 
+fn show_popup(app: &tauri::AppHandle, win: &tauri::WebviewWindow) {
+    position_popup(win);
+    let _ = win.show();
+
+    // macOS: 使用 makeKeyAndOrderFront 让弹窗成为 key window
+    #[cfg(target_os = "macos")]
+    unsafe {
+        use cocoa::base::nil;
+        let ns_window = win.ns_window().expect("ns_window") as cocoa::base::id;
+        let _: () = objc::msg_send![ns_window, makeKeyAndOrderFront: nil];
+    }
+    #[cfg(not(target_os = "macos"))]
+    { let _ = win.set_focus(); }
+
+    app.state::<PopupVisible>().set(true);
+    eprintln!("[popup] shown");
+}
+
 fn toggle_popup(app: &tauri::AppHandle) {
+    eprintln!("[popup] toggle_popup called");
+
     if let Some(win) = app.get_webview_window("popup") {
-        if win.is_visible().unwrap_or(false) {
+        // 以窗口真实可见性为准，PopupVisible 仅辅助记录；两者不一致时以真实值兜底
+        let really_visible = win.is_visible().unwrap_or(false);
+        let state_visible  = app.state::<PopupVisible>().get();
+        let is_visible = really_visible || state_visible;
+        eprintln!("[popup] window exists, really_visible={really_visible} state_visible={state_visible}");
+
+        if is_visible {
+            eprintln!("[popup] hiding");
+            app.state::<PopupVisible>().set(false);
             let _ = win.hide();
         } else {
-            position_popup(&win);
-            let _ = win.show();
-            let _ = win.set_focus();
+            eprintln!("[popup] showing");
+            show_popup(app, &win);
         }
     } else {
+        eprintln!("[popup] window not found, creating");
         create_popup(app);
     }
 }
@@ -47,7 +83,7 @@ fn toggle_popup(app: &tauri::AppHandle) {
 fn create_popup(app: &tauri::AppHandle) {
     let win = WebviewWindowBuilder::new(app, "popup", WebviewUrl::App("index.html".into()))
         .title("")
-        .inner_size(360.0, 240.0)
+        .inner_size(376.0, 600.0)
         .decorations(false)
         .transparent(true)
         .always_on_top(true)
@@ -58,29 +94,28 @@ fn create_popup(app: &tauri::AppHandle) {
         .build()
         .expect("Failed to create popup window");
 
-    position_popup(&win);
-
     #[cfg(target_os = "macos")]
     setup_popup_window(&win);
 
-    let _ = win.show();
-    let _ = win.set_focus();
-
-    let win_clone = win.clone();
-    win.on_window_event(move |event| {
-        if let tauri::WindowEvent::Focused(false) = event {
-            let _ = win_clone.hide();
-        }
-    });
+    show_popup(app, &win);
 }
 
 fn position_popup(win: &tauri::WebviewWindow) {
-    if let Some(monitor) = win.current_monitor().ok().flatten() {
-        let screen_w = monitor.size().width as f64 / monitor.scale_factor();
+    // current_monitor() 在窗口隐藏时可能返回 None，改用 primary_monitor()
+    let monitor_opt = win.primary_monitor().ok().flatten()
+        .or_else(|| win.available_monitors().ok()?.into_iter().next());
+
+    if let Some(monitor) = monitor_opt {
+        let scale = monitor.scale_factor();
+        let screen_w = monitor.size().width as f64 / scale;
         let win_w = 376.0_f64;
-        let x = screen_w - win_w - 0.0;
+        let x = screen_w - win_w;
         let y = 28.0;
+        eprintln!("[popup] position => x={x} y={y} screen_w={screen_w} scale={scale}");
         let _ = win.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
+    } else {
+        eprintln!("[popup] WARNING: no monitor found, using fallback position");
+        let _ = win.set_position(tauri::Position::Logical(tauri::LogicalPosition { x: 800.0, y: 28.0 }));
     }
 }
 
@@ -101,9 +136,12 @@ fn setup_popup_window(win: &tauri::WebviewWindow) {
         let behavior: u64 = 1 | 16 | 64 | 128;
         let _: () = msg_send![ns_window, setCollectionBehavior: behavior];
 
-        // NSFloatingWindowLevel = 3：悬浮在普通窗口之上，
-        // 低于输入法候选框层级（通常 19），IME 候选框可正常显示在弹窗前面
-        let _: () = msg_send![ns_window, setLevel: 3_i64];
+        // NSStatusBarWindowLevel = 25：与菜单栏弹窗（Spotlight/通知中心）同级，
+        // 在 Accessory 模式下 app deactivate 时不会被系统隐藏
+        let _: () = msg_send![ns_window, setLevel: 25_i64];
+
+        // hidesOnDeactivate = false 防止切换应用时弹窗消失
+        let _: () = msg_send![ns_window, setHidesOnDeactivate: NO];
     }
 }
 
@@ -149,42 +187,29 @@ fn find_cli_path(runner_type: &str, custom_path: &str) -> String {
 // ── Tauri Commands — 窗口控制 ─────────────────────────────────
 
 #[tauri::command]
-fn close_popup(window: tauri::WebviewWindow) {
+fn close_popup(app: tauri::AppHandle, window: tauri::WebviewWindow) {
+    app.state::<PopupVisible>().set(false);
     let _ = window.hide();
 }
 
 #[tauri::command]
 fn resize_popup(window: tauri::WebviewWindow, height: f64) {
     let h = height.clamp(240.0, 720.0);
-
-    #[cfg(target_os = "macos")]
-    {
-        use cocoa::appkit::NSScreen;
-        use cocoa::base::{nil, YES};
-        use cocoa::foundation::{NSPoint, NSRect, NSSize};
-        unsafe {
-            let ns_window = window.ns_window().expect("ns_window") as cocoa::base::id;
-            let main_screen = NSScreen::mainScreen(nil);
-            if main_screen == nil {
-                return;
-            }
-            let screen_frame: NSRect = NSScreen::frame(main_screen);
-            let cur = cocoa::appkit::NSWindow::frame(ns_window);
-            let new_y = (screen_frame.size.height - 28.0) - h - 4.0;
-            let frame = NSRect::new(
-                NSPoint::new(cur.origin.x, new_y),
-                NSSize::new(cur.size.width, h),
-            );
-            cocoa::appkit::NSWindow::setFrame_display_(ns_window, frame, YES);
-        }
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
-            width: 376.0,
-            height: h,
-        }));
+    // 使用 Tauri 原生 API：先 set_size，再 set_position
+    // 不使用 cocoa setFrame_display_ 以避免触发 NSWindow focus-loss
+    let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
+        width: 376.0,
+        height: h,
+    }));
+    // 重新定位：保持右上角贴屏幕顶
+    let monitor_opt = window.primary_monitor().ok().flatten()
+        .or_else(|| window.available_monitors().ok()?.into_iter().next());
+    if let Some(monitor) = monitor_opt {
+        let scale = monitor.scale_factor();
+        let screen_w = monitor.size().width as f64 / scale;
+        let x = screen_w - 376.0;
+        let y = 28.0;
+        let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
     }
 }
 
@@ -665,32 +690,20 @@ fn pick_folder() -> String {
 }
 
 /// 展开模式：同时调整宽度和高度（用于显示终端面板）
+/// 注意：使用 Tauri 原生 API 避免 setFrame_display_ 触发 macOS focus-loss
 #[tauri::command]
 fn resize_popup_full(window: tauri::WebviewWindow, width: f64, height: f64) {
-    #[cfg(target_os = "macos")]
-    {
-        use cocoa::appkit::NSScreen;
-        use cocoa::base::{nil, YES};
-        use cocoa::foundation::{NSPoint, NSRect, NSSize};
-        unsafe {
-            let ns_window = window.ns_window().expect("ns_window") as cocoa::base::id;
-            let main_screen = NSScreen::mainScreen(nil);
-            if main_screen == nil { return; }
-            let screen_frame: NSRect = NSScreen::frame(main_screen);
-            let screen_w = screen_frame.size.width;
-            // 面板靠右对齐，x = screen_w - width - 8
-            let new_x = screen_w - width - 8.0;
-            let new_y = (screen_frame.size.height - 28.0) - height - 4.0;
-            let frame = NSRect::new(
-                NSPoint::new(new_x, new_y),
-                NSSize::new(width, height),
-            );
-            cocoa::appkit::NSWindow::setFrame_display_(ns_window, frame, YES);
-        }
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize { width, height }));
+    let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize { width, height }));
+
+    // 重新定位：保持右上角贴屏幕顶
+    let monitor_opt = window.primary_monitor().ok().flatten()
+        .or_else(|| window.available_monitors().ok()?.into_iter().next());
+    if let Some(monitor) = monitor_opt {
+        let scale = monitor.scale_factor();
+        let screen_w = monitor.size().width as f64 / scale;
+        let x = screen_w - width - 8.0;
+        let y = 28.0;
+        let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
     }
 }
 
@@ -878,10 +891,43 @@ pub fn run() {
         .manage(PtyWriterMap::default())
         .manage(PtyKillerMap::default())
         .manage(PtyMasterMap::default())
+        .manage(PopupVisible::new(false))
         .setup(|app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
+            // 隐藏默认主窗口（tauri.conf.json 里的 main window）
+            if let Some(main_win) = app.get_webview_window("main") {
+                let _ = main_win.hide();
+            }
+
+            // ── 预创建 popup（visible=false）：让 WebView 在后台完成加载 ──
+            // 这样首次点击菜单栏图标时不需要等待窗口创建 + WebView 初始化，
+            // 避免时序问题（show_popup 时窗口尚未就绪 → focus-loss → 立即隐藏）
+            let win = WebviewWindowBuilder::new(
+                app.handle(),
+                "popup",
+                WebviewUrl::App("index.html".into()),
+            )
+            .title("")
+            .inner_size(376.0, 600.0)
+            .decorations(false)
+            .transparent(true)
+            .always_on_top(true)
+            .shadow(false)
+            .resizable(false)
+            .skip_taskbar(true)
+            .visible(false)
+            .build()
+            .expect("Failed to pre-create popup window");
+
+            #[cfg(target_os = "macos")]
+            setup_popup_window(&win);
+
+            // 不在失焦时自动隐藏：macOS 菜单栏应用点击图标后系统会把焦点还给前台应用
+            // 改由菜单栏图标点击切换，或前端 Esc/点击外部关闭
+
+            // ── 系统托盘 ──
             let tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .icon_as_template(true)
@@ -899,10 +945,6 @@ pub fn run() {
                     toggle_popup(&app_handle);
                 }
             });
-
-            if let Some(main_win) = app.get_webview_window("main") {
-                let _ = main_win.hide();
-            }
 
             Ok(())
         })

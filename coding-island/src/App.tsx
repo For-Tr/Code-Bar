@@ -1,8 +1,9 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { motion, AnimatePresence } from "framer-motion";
 import { TitleBar } from "./components/TitleBar";
+import { WorkspaceStack } from "./components/WorkspaceStack";
 import { SessionList } from "./components/SessionList";
 import { Toolbar } from "./components/Toolbar";
 import { OutputConsole } from "./components/OutputConsole";
@@ -19,7 +20,6 @@ export default function App() {
   const {
     sessions,
     activeSessionId,
-    expandedDiffFileId,
     appendOutput,
     updateSession,
     setDiffFiles,
@@ -27,7 +27,6 @@ export default function App() {
 
   const { settings } = useSettingsStore();
   const activeSession = sessions.find((s) => s.id === activeSessionId);
-  const panelRef = useRef<HTMLDivElement>(null);
 
   // ── Esc 关闭 ──────────────────────────────────────────────
   useEffect(() => {
@@ -38,43 +37,13 @@ export default function App() {
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  // ── 动态窗口高度（防抖，用 offsetHeight 避免输入框影响） ──
-  const resizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const inputFocusedRef = useRef(false); // Toolbar 输入框聚焦时暂停 resize
-
-  // 暴露给 Toolbar 的焦点回调
-  const onTaskInputFocus = useCallback(() => { inputFocusedRef.current = true; }, []);
-  const onTaskInputBlur  = useCallback(() => {
-    inputFocusedRef.current = false;
-    // blur 后立刻重算一次，确保高度正确
-    const el = panelRef.current;
-    if (!el) return;
-    const h = Math.min(Math.max(el.offsetHeight + 2, 240), 700);
-    invoke("resize_popup", { height: h }).catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    const el = panelRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => {
-      // 输入框聚焦期间跳过，防止输入时窗口抖动
-      if (inputFocusedRef.current) return;
-      if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
-      resizeTimerRef.current = setTimeout(() => {
-        // offsetHeight = 实际渲染高度，不含溢出内容，不受 input 文字影响
-        const h = Math.min(Math.max(el.offsetHeight + 2, 240), 700);
-        invoke("resize_popup", { height: h }).catch(() => {});
-      }, 60);
-    });
-    ro.observe(el);
-    return () => {
-      ro.disconnect();
-      if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
-    };
-  }, [expandedDiffFileId, activeSessionId, sessions.length]);
+  // 暴露给 Toolbar 的焦点回调（保留接口，不再触发窗口 resize）
+  const onTaskInputFocus = useCallback(() => {}, []);
+  const onTaskInputBlur  = useCallback(() => {}, []);
 
   // ── 启动时加载保存的 API Key ──────────────────────────────
   useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
     const { patchModel, settings } = useSettingsStore.getState();
     invoke<string>("load_api_key", { provider: settings.model.provider })
       .then((key) => {
@@ -85,6 +54,9 @@ export default function App() {
 
   // ── 监听 Rust 侧事件 ──────────────────────────────────────
   useEffect(() => {
+    // 非 Tauri 环境（纯浏览器 dev）下 listen 会因为缺少 __TAURI_INTERNALS__ 而报错，跳过
+    if (!("__TAURI_INTERNALS__" in window)) return;
+
     // 旧接口：claude-output（claude-code CLI）
     const u1 = listen<{ session_id: string; line: string }>(
       "claude-output",
@@ -133,6 +105,7 @@ export default function App() {
 
   // ── 自动刷新 Diff ─────────────────────────────────────────
   useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
     if (!settings.autoRefreshDiff || !activeSession || activeSession.status !== "running") return;
 
     const interval = setInterval(() => {
@@ -158,11 +131,10 @@ export default function App() {
       background: "transparent",
     }}>
       <motion.div
-        ref={panelRef}
-        layout
         transition={spring}
         style={{
           width: "100%",
+          maxHeight: "calc(100vh - 40px)",
           position: "relative",
           background: "rgba(14,14,16,0.96)",
           backdropFilter: "blur(56px)",
@@ -174,7 +146,7 @@ export default function App() {
             "0 24px 48px rgba(0,0,0,0.5)",
             "inset 0 0 0 0.5px rgba(255,255,255,0.04)",
           ].join(", "),
-          overflow: "hidden",
+          overflow: "visible",
         }}
       >
         {/* ── Settings 遮罩层 ── */}
@@ -183,8 +155,13 @@ export default function App() {
         {/* ── 标题栏 ── */}
         <TitleBar />
 
-        {/* ── Session 列表 ── */}
-        <div style={{ padding: "8px 8px 4px" }}>
+        {/* ── Workspace 堆叠卡片 ── */}
+        <div style={{ padding: "8px 8px 0" }}>
+          <WorkspaceStack />
+        </div>
+
+        {/* ── Session 列表（在激活 Workspace 下） ── */}
+        <div style={{ padding: "0 8px 4px" }}>
           <SessionList />
         </div>
 
