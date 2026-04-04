@@ -10,6 +10,8 @@ export interface DiffFile {
   type: "added" | "modified" | "deleted";
   additions: number;
   deletions: number;
+  binary?: boolean;
+  note?: string;
   hunks: DiffHunk[];
 }
 
@@ -36,6 +38,11 @@ export interface ClaudeSession {
   diffFiles: DiffFile[];
   output: string[];
   pid?: number;
+  // Git 分支信息（保留供未来功能使用；当前 PTY 流程通过 CODING_ISLAND_* 环境变量
+  // 透传 session 上下文，由 AI CLI 自主管理 git 分支，不依赖下列字段）
+  branchName?: string;     // AI 在本 session 中使用的 git 分支名（如 ci/session-3）
+  baseBranch?: string;     // 任务开始时的基础分支（如 main/master）
+  worktreePath?: string;   // git worktree 路径（预留，当前未使用）
 }
 
 interface SessionStore {

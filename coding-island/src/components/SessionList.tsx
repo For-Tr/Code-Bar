@@ -188,9 +188,43 @@ function SessionCard({
           </p>
         )}
 
-        {session.diffFiles.length > 0 && (
-          <p style={{ margin: "2px 0 0", fontSize: 10, color: "rgba(255,255,255,0.22)" }}>
-            {session.diffFiles.length} 个变更 ·{" "}
+        {/* Worktree 分支 + diff 信息 */}
+        {session.branchName && (
+          <p style={{ margin: "2px 0 0", fontSize: 10, color: "rgba(255,255,255,0.22)", display: "flex", alignItems: "center", gap: 4 }}>
+            <span style={{
+              fontSize: 9, padding: "1px 5px", borderRadius: 99,
+              background: "rgba(167,139,250,0.1)",
+              border: "1px solid rgba(167,139,250,0.2)",
+              color: "rgba(167,139,250,0.7)",
+              fontFamily: "monospace",
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+              maxWidth: 80,
+            }}>
+              ⎇ {session.branchName.replace("ci/", "")}
+            </span>
+            {session.worktreePath && (
+              <span style={{
+                fontSize: 9, padding: "1px 5px", borderRadius: 99,
+                background: "rgba(74,222,128,0.08)",
+                border: "1px solid rgba(74,222,128,0.15)",
+                color: "rgba(74,222,128,0.55)",
+              }}>
+                worktree
+              </span>
+            )}
+            {session.diffFiles.length > 0 && (
+              <>
+                <span style={{ opacity: 0.4 }}>·</span>
+                <span style={{ color: "#4ade80" }}>+{session.diffFiles.reduce((s, f) => s + f.additions, 0)}</span>
+                <span style={{ color: "#f87171" }}>−{session.diffFiles.reduce((s, f) => s + f.deletions, 0)}</span>
+              </>
+            )}
+          </p>
+        )}
+
+        {!session.branchName && session.diffFiles.length > 0 && (
+          <p style={{ margin: "2px 0 0", fontSize: 10, color: "rgba(255,255,255,0.22)", display: "flex", alignItems: "center", gap: 4 }}>
+            {session.diffFiles.length} 变更{" "}
             <span style={{ color: "#4ade80" }}>+{session.diffFiles.reduce((s, f) => s + f.additions, 0)}</span>{" "}
             <span style={{ color: "#f87171" }}>−{session.diffFiles.reduce((s, f) => s + f.deletions, 0)}</span>
           </p>

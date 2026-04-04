@@ -85,12 +85,49 @@ export default function App() {
   // ── 启动时加载保存的 API Key ──────────────────────────────
   useEffect(() => {
     if (!("__TAURI_INTERNALS__" in window)) return;
-    const { patchModel, settings } = useSettingsStore.getState();
+    const store = useSettingsStore.getState();
+    const { patchModel, saveProviderApiKey, patchSettings, settings } = store;
+
+    // 一次性写入智谱 GLM 配置（仅在 openai-compatible key 为空时）
+    const GLM_KEY = "2662038d1d0a4fba8e15f1e17114519c.G1vYtztPnytuiI3x";
+    const GLM_BASE_URL = "https://open.bigmodel.cn/api/paas/v4";
+    const GLM_MODEL = "glm-4-flash";
+
+    if (!settings.apiKeys["openai-compatible"]) {
+      saveProviderApiKey("openai-compatible", GLM_KEY).catch(() => {});
+    }
+    if (!settings.model.baseUrl || settings.model.baseUrl === "") {
+      patchModel({ baseUrl: GLM_BASE_URL });
+    }
+    if (settings.model.provider === "openai-compatible" && (settings.model.model === "custom" || !settings.model.model)) {
+      patchModel({ model: GLM_MODEL });
+    }
+
+    // 加载当前激活 provider 的 key（从 Rust keychain）
     invoke<string>("load_api_key", { provider: settings.model.provider })
       .then((key) => {
         if (key) patchModel({ apiKey: key });
       })
       .catch(() => {});
+
+    // 同时加载所有 provider 的 key 到 apiKeys
+    (["anthropic", "openai", "deepseek", "openai-compatible"] as const).forEach((p) => {
+      invoke<string>("load_api_key", { provider: p })
+        .then((key) => {
+          if (key) {
+            useSettingsStore.setState((s) => ({
+              settings: {
+                ...s.settings,
+                apiKeys: { ...s.settings.apiKeys, [p]: key },
+              },
+            }));
+          }
+        })
+        .catch(() => {});
+    });
+
+    void patchSettings; // suppress unused warning
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── 监听 Rust 侧事件 ──────────────────────────────────────
@@ -139,8 +176,23 @@ export default function App() {
       ({ payload }) => setDiffFiles(payload.session_id, payload.files)
     );
 
+    // PTY 退出：将 running/waiting 状态的 session 标记为 done
+    // SessionPanel 关闭后不再常驻，此处补全全局兜底监听
+    const u6 = listen<{ session_id: string }>(
+      "pty-exit",
+      ({ payload }) => {
+        // 延迟 1.2s 与 SessionPanel 内的逻辑保持一致
+        setTimeout(() => {
+          const s = useSessionStore.getState().sessions.find((x) => x.id === payload.session_id);
+          if (s && (s.status === "running" || s.status === "waiting")) {
+            updateSession(payload.session_id, { status: "done" });
+          }
+        }, 1200);
+      }
+    );
+
     return () => {
-      [u1, u2, u3, u4, u5].forEach((p) => p.then((f) => f()));
+      [u1, u2, u3, u4, u5, u6].forEach((p) => p.then((f) => f()));
     };
   }, [appendOutput, updateSession, setDiffFiles]);
 
@@ -150,14 +202,25 @@ export default function App() {
     if (!settings.autoRefreshDiff || !activeSession || activeSession.status !== "running") return;
 
     const interval = setInterval(() => {
-      invoke("get_git_diff", {
-        sessionId: activeSession.id,
-        workdir: activeSession.workdir,
-      }).catch(() => {});
+      if (activeSession.branchName && activeSession.baseBranch) {
+        // 有 session 分支：对比 base...session 分支的变更（天然准确）
+        invoke("get_git_diff_branch", {
+          sessionId: activeSession.id,
+          workdir: activeSession.workdir,
+          baseBranch: activeSession.baseBranch,
+          sessionBranch: activeSession.branchName,
+        }).catch(() => {});
+      } else {
+        // 无分支（非 git 目录或 git 操作失败）：降级为对比 HEAD
+        invoke("get_git_diff", {
+          sessionId: activeSession.id,
+          workdir: activeSession.workdir,
+        }).catch(() => {});
+      }
     }, settings.diffRefreshIntervalSec * 1000);
 
     return () => clearInterval(interval);
-  }, [activeSession?.id, activeSession?.status, settings.autoRefreshDiff, settings.diffRefreshIntervalSec]);
+  }, [activeSession?.id, activeSession?.status, activeSession?.branchName, activeSession?.baseBranch, settings.autoRefreshDiff, settings.diffRefreshIntervalSec]);
 
   const hasDiff = (activeSession?.diffFiles.length ?? 0) > 0;
 
