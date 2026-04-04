@@ -24,10 +24,30 @@ export default function App() {
     appendOutput,
     updateSession,
     setDiffFiles,
+    setActiveSession,
   } = useSessionStore();
 
   const { settings } = useSettingsStore();
-  const activeSession = sessions.find((s) => s.id === activeSessionId);
+  const { activeWorkspaceId } = useWorkspaceStore();
+
+  // ── 切换 Workspace 时自动将 activeSession 切换到该 Workspace 的第一个 session ──
+  useEffect(() => {
+    const currentActive = useSessionStore.getState().activeSessionId;
+    const currentSession = useSessionStore.getState().sessions.find((s) => s.id === currentActive);
+    // 当前 activeSession 不属于当前 workspace 时，重新选择
+    if (currentSession?.workspaceId !== activeWorkspaceId) {
+      const wsSessions = useSessionStore.getState().sessions.filter(
+        (s) => s.workspaceId === activeWorkspaceId
+      );
+      setActiveSession(wsSessions[0]?.id ?? null);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeWorkspaceId]);
+
+  // activeSession 必须属于当前 workspace，防止切换后仍显示旧 workspace 的内容
+  const activeSession = sessions.find(
+    (s) => s.id === activeSessionId && s.workspaceId === activeWorkspaceId
+  );
 
 
   // ── Esc 关闭 ──────────────────────────────────────────────

@@ -11,13 +11,39 @@ const ExpandIcon = () => (
   </svg>
 );
 
-// ── 状态指示灯 ──────────────────────────────────────────────
-const STATUS_CONFIG: Record<SessionStatus, { color: string; pulse: boolean; label: string }> = {
-  running: { color: "#4ade80", pulse: true,  label: "运行中" },
-  waiting: { color: "#fbbf24", pulse: true,  label: "等待确认" },
-  idle:    { color: "rgba(255,255,255,0.2)", pulse: false, label: "空闲" },
-  done:    { color: "#60a5fa", pulse: false, label: "完成" },
-  error:   { color: "#f87171", pulse: false, label: "出错" },
+// ── 状态配置 ────────────────────────────────────────────────
+const STATUS_CONFIG: Record<SessionStatus, {
+  color: string;
+  pulse: boolean;
+  label: string;
+  badgeBg: string;
+  badgeBorder: string;
+  badgeText: string;
+  leftBorder?: string;
+}> = {
+  running: {
+    color: "#4ade80", pulse: true,  label: "运行中",
+    badgeBg: "rgba(74,222,128,0.12)", badgeBorder: "rgba(74,222,128,0.3)", badgeText: "#4ade80",
+    leftBorder: "#4ade80",
+  },
+  waiting: {
+    color: "#fbbf24", pulse: true,  label: "需要操作",
+    badgeBg: "rgba(251,191,36,0.18)", badgeBorder: "rgba(251,191,36,0.5)", badgeText: "#fbbf24",
+    leftBorder: "#fbbf24",
+  },
+  idle:    {
+    color: "rgba(255,255,255,0.2)", pulse: false, label: "空闲",
+    badgeBg: "rgba(255,255,255,0.05)", badgeBorder: "rgba(255,255,255,0.1)", badgeText: "rgba(255,255,255,0.25)",
+  },
+  done:    {
+    color: "#60a5fa", pulse: false, label: "已完成",
+    badgeBg: "rgba(96,165,250,0.12)", badgeBorder: "rgba(96,165,250,0.3)", badgeText: "#60a5fa",
+  },
+  error:   {
+    color: "#f87171", pulse: false, label: "出错",
+    badgeBg: "rgba(248,113,113,0.15)", badgeBorder: "rgba(248,113,113,0.4)", badgeText: "#f87171",
+    leftBorder: "#f87171",
+  },
 };
 
 function StatusDot({ status }: { status: SessionStatus }) {
@@ -27,8 +53,8 @@ function StatusDot({ status }: { status: SessionStatus }) {
       <div style={{ width: 8, height: 8, borderRadius: "50%", background: color, position: "absolute" }} />
       {pulse && (
         <motion.div
-          animate={{ scale: [1, 2], opacity: [0.6, 0] }}
-          transition={{ duration: 1.2, repeat: Infinity, ease: "easeOut" }}
+          animate={{ scale: [1, 2.2], opacity: [0.7, 0] }}
+          transition={{ duration: 1.4, repeat: Infinity, ease: "easeOut" }}
           style={{ width: 8, height: 8, borderRadius: "50%", background: color, position: "absolute" }}
         />
       )}
@@ -47,7 +73,11 @@ function SessionCard({
   onExpand: () => void;
   onRemove: () => void;
 }) {
-  const { label } = STATUS_CONFIG[session.status];
+  const cfg = STATUS_CONFIG[session.status];
+  const isWaiting = session.status === "waiting";
+  const isRunning = session.status === "running";
+  const isError = session.status === "error";
+
   return (
     <motion.div
       layout
@@ -63,43 +93,101 @@ function SessionCard({
         borderRadius: 9,
         background: isActive
           ? `linear-gradient(135deg, ${accentColor}12 0%, rgba(255,255,255,0.05) 100%)`
+          : isWaiting
+          ? "rgba(251,191,36,0.06)"
+          : isError
+          ? "rgba(248,113,113,0.06)"
           : "rgba(255,255,255,0.03)",
         border: isActive
           ? `1px solid ${accentColor}30`
+          : isWaiting
+          ? "1px solid rgba(251,191,36,0.3)"
+          : isError
+          ? "1px solid rgba(248,113,113,0.25)"
           : "1px solid rgba(255,255,255,0.06)",
         cursor: "pointer",
         position: "relative",
+        overflow: "hidden",
         transition: "background 0.15s, border-color 0.15s",
       }}
     >
+      {/* 左侧状态色条 */}
+      {cfg.leftBorder && (
+        <div style={{
+          position: "absolute",
+          left: 0, top: 4, bottom: 4,
+          width: 2.5, borderRadius: 99,
+          background: cfg.leftBorder,
+          opacity: isRunning ? 0.8 : isWaiting ? 1 : 0.6,
+        }} />
+      )}
+
+      {/* waiting 状态：整体微脉冲边框效果 */}
+      {isWaiting && (
+        <motion.div
+          animate={{ opacity: [0.4, 0.9, 0.4] }}
+          transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
+          style={{
+            position: "absolute", inset: 0, borderRadius: 9,
+            border: "1px solid rgba(251,191,36,0.5)",
+            pointerEvents: "none",
+          }}
+        />
+      )}
+
       <StatusDot status={session.status} />
 
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{
-            color: isActive ? "#fff" : "rgba(255,255,255,0.65)",
-            fontSize: 11, fontWeight: 600,
+            color: isActive ? "#fff" : isWaiting ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.65)",
+            fontSize: 11, fontWeight: isWaiting ? 700 : 600,
             overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
           }}>
             {session.name}
           </span>
-          <span style={{
-            fontSize: 9, padding: "1px 5px", borderRadius: 99,
-            background: "rgba(255,255,255,0.07)",
-            color: "rgba(255,255,255,0.3)", flexShrink: 0,
-          }}>
-            {label}
-          </span>
+          {/* 状态 badge：idle 时不显示（减少噪音） */}
+          {session.status !== "idle" && (
+            <span style={{
+              fontSize: 9, padding: "1px 6px", borderRadius: 99,
+              background: cfg.badgeBg,
+              border: `1px solid ${cfg.badgeBorder}`,
+              color: cfg.badgeText,
+              flexShrink: 0, fontWeight: 600,
+            }}>
+              {cfg.label}
+            </span>
+          )}
         </div>
-        {session.currentTask && (
+
+        {/* waiting 状态：醒目的操作提示行 */}
+        {isWaiting && (
+          <motion.p
+            animate={{ opacity: [0.7, 1, 0.7] }}
+            transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
+            style={{
+              margin: "2px 0 0", fontSize: 10,
+              color: "#fbbf24",
+              display: "flex", alignItems: "center", gap: 4,
+            }}
+          >
+            <span style={{ fontSize: 9 }}>⚡</span>
+            点击展开终端查看并输入
+          </motion.p>
+        )}
+
+        {/* 运行中：显示当前任务 */}
+        {!isWaiting && session.currentTask && (
           <p style={{
             margin: "2px 0 0", fontSize: 10,
-            color: "rgba(255,255,255,0.3)",
+            color: isRunning ? "rgba(74,222,128,0.6)" : isError ? "rgba(248,113,113,0.6)" : "rgba(255,255,255,0.3)",
             overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
           }}>
+            {isRunning && <span style={{ marginRight: 3 }}>›</span>}
             {session.currentTask}
           </p>
         )}
+
         {session.diffFiles.length > 0 && (
           <p style={{ margin: "2px 0 0", fontSize: 10, color: "rgba(255,255,255,0.22)" }}>
             {session.diffFiles.length} 个变更 ·{" "}
@@ -114,19 +202,20 @@ function SessionCard({
         onClick={(e) => { e.stopPropagation(); onExpand(); }}
         title="展开终端"
         style={{
-          background: "none", border: "none",
-          color: "rgba(255,255,255,0.18)",
-          cursor: "pointer", padding: "4px", borderRadius: 5,
+          background: isWaiting ? "rgba(251,191,36,0.12)" : "none",
+          border: isWaiting ? "1px solid rgba(251,191,36,0.3)" : "none",
+          color: isWaiting ? "#fbbf24" : "rgba(255,255,255,0.18)",
+          cursor: "pointer", padding: "4px 6px", borderRadius: 5,
           flexShrink: 0, display: "flex", alignItems: "center",
           transition: "color 0.12s, background 0.12s",
         }}
         onMouseEnter={e => {
-          e.currentTarget.style.color = accentColor;
-          e.currentTarget.style.background = `${accentColor}18`;
+          e.currentTarget.style.color = isWaiting ? "#fde68a" : accentColor;
+          e.currentTarget.style.background = isWaiting ? "rgba(251,191,36,0.22)" : `${accentColor}18`;
         }}
         onMouseLeave={e => {
-          e.currentTarget.style.color = "rgba(255,255,255,0.18)";
-          e.currentTarget.style.background = "none";
+          e.currentTarget.style.color = isWaiting ? "#fbbf24" : "rgba(255,255,255,0.18)";
+          e.currentTarget.style.background = isWaiting ? "rgba(251,191,36,0.12)" : "none";
         }}
       >
         <ExpandIcon />

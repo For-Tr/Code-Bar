@@ -40,7 +40,6 @@ export interface ClaudeSession {
 interface SessionStore {
   sessions: ClaudeSession[];
   activeSessionId: string | null;
-  expandedDiffFileId: string | null;
   expandedSessionId: string | null;
 
   addSession: (workspaceId: string, workdir: string, name?: string) => string;
@@ -50,7 +49,6 @@ interface SessionStore {
   appendOutput: (id: string, line: string) => void;
   clearOutput: (id: string) => void;
   setDiffFiles: (id: string, files: DiffFile[]) => void;
-  toggleDiffFile: (path: string) => void;
   setExpandedSession: (id: string | null) => void;
   removeSessionsByWorkspace: (workspaceId: string) => void;
 }
@@ -78,7 +76,6 @@ function makeSession(overrides: Partial<ClaudeSession> & { workspaceId: string; 
 export const useSessionStore = create<SessionStore>((set) => ({
   sessions: [],
   activeSessionId: null,
-  expandedDiffFileId: null,
   expandedSessionId: null,
 
   addSession: (workspaceId, workdir, name) => {
@@ -101,7 +98,7 @@ export const useSessionStore = create<SessionStore>((set) => ({
     }),
 
   setActiveSession: (id) =>
-    set({ activeSessionId: id, expandedDiffFileId: null }),
+    set({ activeSessionId: id }),
 
   setExpandedSession: (id) =>
     set({ expandedSessionId: id }),
@@ -134,12 +131,6 @@ export const useSessionStore = create<SessionStore>((set) => ({
       sessions: state.sessions.map((s) =>
         s.id === id ? { ...s, diffFiles: files } : s
       ),
-    })),
-
-  toggleDiffFile: (path) =>
-    set((state) => ({
-      expandedDiffFileId:
-        state.expandedDiffFileId === path ? null : path,
     })),
 
   removeSessionsByWorkspace: (workspaceId) =>

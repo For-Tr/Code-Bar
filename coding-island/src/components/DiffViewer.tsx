@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { DiffFile, DiffLine, useSessionStore } from "../store/sessionStore";
+import { DiffFile, DiffLine } from "../store/sessionStore";
 
 // ── 颜色 token ──────────────────────────────────────────────
 const C = {
@@ -64,15 +65,15 @@ function FileStat({ additions, deletions }: { additions: number; deletions: numb
   );
 }
 
+// 展开状态改为组件本地 state，避免全局 store 导致的 session/workspace 切换干扰
 function DiffFileRow({ file }: { file: DiffFile }) {
-  const { expandedDiffFileId, toggleDiffFile } = useSessionStore();
-  const isOpen = expandedDiffFileId === file.path;
+  const [isOpen, setIsOpen] = useState(false);
 
   return (
     <div style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
       {/* 文件头 */}
       <button
-        onClick={() => toggleDiffFile(file.path)}
+        onClick={() => setIsOpen((v) => !v)}
         style={{
           width: "100%", display: "flex", alignItems: "center",
           padding: "7px 12px", background: "none", border: "none",
@@ -93,9 +94,10 @@ function DiffFileRow({ file }: { file: DiffFile }) {
       </button>
 
       {/* 展开的 diff 内容 */}
-      <AnimatePresence>
+      <AnimatePresence initial={false}>
         {isOpen && (
           <motion.div
+            key="diff-content"
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
@@ -107,22 +109,33 @@ function DiffFileRow({ file }: { file: DiffFile }) {
               borderTop: "1px solid rgba(255,255,255,0.06)",
               maxHeight: 320, overflowY: "auto",
             }}>
-              {file.hunks.map((hunk, hi) => (
-                <div key={hi}>
-                  {/* hunk header */}
-                  <div style={{
-                    padding: "2px 8px 2px 82px",
-                    background: "rgba(99,102,241,0.1)",
-                    color: "rgba(165,180,252,0.7)",
-                    fontSize: 10, fontFamily: "monospace",
-                  }}>
-                    {hunk.header}
-                  </div>
-                  {hunk.lines.map((line, li) => (
-                    <DiffLineRow key={li} line={line} />
-                  ))}
+              {file.hunks.length === 0 ? (
+                <div style={{
+                  padding: "12px 16px",
+                  fontSize: 11,
+                  color: "rgba(255,255,255,0.25)",
+                  fontFamily: "monospace",
+                }}>
+                  二进制文件或无法显示的内容
                 </div>
-              ))}
+              ) : (
+                file.hunks.map((hunk, hi) => (
+                  <div key={hi}>
+                    {/* hunk header */}
+                    <div style={{
+                      padding: "2px 8px 2px 82px",
+                      background: "rgba(99,102,241,0.1)",
+                      color: "rgba(165,180,252,0.7)",
+                      fontSize: 10, fontFamily: "monospace",
+                    }}>
+                      {hunk.header}
+                    </div>
+                    {hunk.lines.map((line, li) => (
+                      <DiffLineRow key={li} line={line} />
+                    ))}
+                  </div>
+                ))
+              )}
             </div>
           </motion.div>
         )}

@@ -25,6 +25,8 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
   const { updateSession } = useSessionStore();
   const { settings } = useSettingsStore();
   const hasOpenedRef = useRef(false);
+  // 动画是否已完成退出（退出动画结束后才真正隐藏，避免中间帧还可被点击）
+  const [hidden, setHidden] = useState(!isOpen);
 
   // query 相关状态
   const [pendingQuery, setPendingQuery] = useState("");
@@ -34,6 +36,11 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     return !!s?.currentTask;
   });
   const queryInputRef = useRef<HTMLTextAreaElement>(null);
+
+  // isOpen 变化：即将展开时立即取消隐藏（保证进入动画能看到）
+  useEffect(() => {
+    if (isOpen) setHidden(false);
+  }, [isOpen]);
 
   // sessionId 变化时重置（切换 session）
   useEffect(() => {
@@ -95,7 +102,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     if (!q) return;
     pendingQueryRef.current = null;
     setTimeout(() => {
-      const bytes = new TextEncoder().encode(q + "\n");
+      const bytes = new TextEncoder().encode(q + "\r");
       const b64 = btoa(String.fromCharCode(...bytes));
       invoke("write_pty", { sessionId: sessionIdRef.current, data: b64 }).catch(() => {});
     }, 200);
@@ -110,7 +117,8 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     setQuerySent(true);
 
     const sendQuery = () => {
-      const bytes = new TextEncoder().encode(trimmed + "\n");
+      // 发送文本内容（含换行符），再发 \r 触发 Claude Code 的「发送」动作
+      const bytes = new TextEncoder().encode(trimmed + "\r");
       const b64 = btoa(String.fromCharCode(...bytes));
       invoke("write_pty", { sessionId: sessionIdRef.current, data: b64 }).catch(() => {});
     };
@@ -134,10 +142,15 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
         : { opacity: 0, scale: 0.96, pointerEvents: "none" as const }
       }
       transition={SPRING}
+      // 退出动画完成后设置 hidden，防止 pointerEvents 动画延迟期间阻挡点击
+      onAnimationComplete={() => {
+        if (!isOpen) setHidden(true);
+      }}
       style={{
         position: "fixed",
         top: 0, left: 0, right: 0, bottom: 0,
-        zIndex: 100,
+        // 关闭且动画已完成时：zIndex=-1 彻底移出点击层；动画中或打开时：zIndex=200
+        zIndex: hidden ? -1 : 200,
         borderRadius: 18,
         overflow: "hidden",
         background: "rgba(10,10,12,0.97)",
@@ -151,7 +164,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
         ].join(", "),
         display: "flex",
         flexDirection: "column",
-        visibility: isOpen ? "visible" : "hidden",
+        visibility: hidden ? "hidden" : "visible",
       }}
     >
       {/* ── 标题栏 ── */}
@@ -218,7 +231,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
       {/* ── 内容区域 ── */}
       <div style={{ flex: 1, overflow: "hidden", position: "relative", display: "flex", flexDirection: "column" }}>
 
-        {/* PTY 终端：面板打开就启动（active=isOpen），常驻，query 发送后才变可见 */}
+        {/* PTY 终端：面板打开就启动（active=ptyEverActive），常驻，query 发送后才变可见 */}
         <div style={{
           flex: 1, overflow: "hidden", padding: "8px 4px 4px",
           opacity: querySent ? 1 : 0,
@@ -285,10 +298,15 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
                   placeholder="例：重构 auth 模块，添加 JWT 支持…"
                   rows={3}
                   onKeyDown={e => {
-                    if (e.key === "Enter" && !e.shiftKey) {
+                    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                      // Enter 发送：阻止默认换行，触发提交
+                      // isComposing=true 时说明正在用输入法选字，不触发发送
                       e.preventDefault();
-                      handleSubmitQuery(pendingQuery);
+                      if (pendingQuery.trim()) {
+                        handleSubmitQuery(pendingQuery);
+                      }
                     }
+                    // Shift+Enter 或 IME 组合中：不阻止，让 textarea 正常处理
                   }}
                   style={{
                     flex: 1, background: "none", border: "none", outline: "none",
@@ -309,7 +327,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
   );
 }
 
-// ── 主组件：渲染所有 session 的面板（常驻挂载） ───────────────
+// ── 主组件：渲染所有 session 的面板（常驻挂载，关闭时通过动画+hidden彻底隔离） ──
 export function SessionDetail() {
   const { sessions, expandedSessionId, setExpandedSession } = useSessionStore();
 
