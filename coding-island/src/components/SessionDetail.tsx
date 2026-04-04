@@ -31,11 +31,15 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
   // query 相关状态
   const [pendingQuery, setPendingQuery] = useState("");
   // querySent: query 已发送，隐藏输入遮罩，显示终端
+  // 注意：持久化恢复后 status 会被重置为 idle，所以 idle 状态一律显示输入框
   const [querySent, setQuerySent] = useState(() => {
     const s = useSessionStore.getState().sessions.find((x) => x.id === sessionId);
-    return !!s?.currentTask;
+    return !!s && s.status !== "idle";
   });
   const queryInputRef = useRef<HTMLTextAreaElement>(null);
+  // 用原生 DOM 事件处理 Enter 发送，绕过 React 合成事件对 isComposing 的时序问题
+  // pendingQueryRef 用于在原生事件回调中拿到最新的 pendingQuery 值
+  const pendingQueryForInputRef = useRef("");
 
   // isOpen 变化：即将展开时立即取消隐藏（保证进入动画能看到）
   useEffect(() => {
@@ -45,7 +49,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
   // sessionId 变化时重置（切换 session）
   useEffect(() => {
     const s = useSessionStore.getState().sessions.find((x) => x.id === sessionId);
-    setQuerySent(!!s?.currentTask);
+    setQuerySent(!!s && s.status !== "idle");
     setPendingQuery("");
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
@@ -117,20 +121,56 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     setQuerySent(true);
 
     const sendQuery = () => {
-      // 发送文本内容（含换行符），再发 \r 触发 Claude Code 的「发送」动作
+      // 发送文本内容，用 \r 触发 Claude Code 的「发送」动作
       const bytes = new TextEncoder().encode(trimmed + "\r");
       const b64 = btoa(String.fromCharCode(...bytes));
       invoke("write_pty", { sessionId: sessionIdRef.current, data: b64 }).catch(() => {});
     };
 
     if (ptyReadyRef.current) {
-      // PTY 已就绪（面板打开时就启动了），Claude 正在交互等待输入
       setTimeout(sendQuery, 100);
     } else {
-      // PTY 还在启动，等 onReady 回调消费
       pendingQueryRef.current = trimmed;
     }
   }, [session, updateSession]);
+
+  // pendingQuery 同步到 ref，供原生 DOM 事件回调读取最新值
+  useEffect(() => {
+    pendingQueryForInputRef.current = pendingQuery;
+  }, [pendingQuery]);
+
+  // 原生 DOM 事件处理 Enter 发送（按文章方案：自维护 flag + keyCode 229 兼容）
+  const handleSubmitQueryRef = useRef(handleSubmitQuery);
+  useEffect(() => { handleSubmitQueryRef.current = handleSubmitQuery; }, [handleSubmitQuery]);
+  useEffect(() => {
+    const el = queryInputRef.current;
+    if (!el) return;
+
+    let imeComposing = false;
+    const onCompositionStart = () => { imeComposing = true; };
+    const onCompositionEnd   = () => { imeComposing = false; };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        // 三重兼容：自维护 flag / 浏览器原生 isComposing / keyCode 229（老版本内核）
+        const composing = imeComposing || e.isComposing || e.keyCode === 229;
+        if (composing) return; // 仅确认候选，不提交
+        e.preventDefault();
+        const q = pendingQueryForInputRef.current.trim();
+        if (q) handleSubmitQueryRef.current(q);
+      }
+    };
+
+    el.addEventListener("compositionstart", onCompositionStart);
+    el.addEventListener("compositionend",   onCompositionEnd);
+    el.addEventListener("keydown",          onKeyDown);
+    return () => {
+      el.removeEventListener("compositionstart", onCompositionStart);
+      el.removeEventListener("compositionend",   onCompositionEnd);
+      el.removeEventListener("keydown",          onKeyDown);
+    };
+  // 仅挂载一次，通过 ref 读取最新值
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (!session) return null;
 
@@ -297,17 +337,8 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
                   onChange={e => setPendingQuery(e.target.value)}
                   placeholder="例：重构 auth 模块，添加 JWT 支持…"
                   rows={3}
-                  onKeyDown={e => {
-                    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                      // Enter 发送：阻止默认换行，触发提交
-                      // isComposing=true 时说明正在用输入法选字，不触发发送
-                      e.preventDefault();
-                      if (pendingQuery.trim()) {
-                        handleSubmitQuery(pendingQuery);
-                      }
-                    }
-                    // Shift+Enter 或 IME 组合中：不阻止，让 textarea 正常处理
-                  }}
+                  // Enter 发送逻辑通过原生 DOM addEventListener 处理（见上方 useEffect）
+                  // 原生事件的 e.isComposing 在 macOS 拼音选字确认帧仍为 true，能正确拦截
                   style={{
                     flex: 1, background: "none", border: "none", outline: "none",
                     color: "rgba(255,255,255,0.85)", fontSize: 13, lineHeight: "1.6",

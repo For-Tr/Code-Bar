@@ -25,6 +25,7 @@ export default function App() {
     updateSession,
     setDiffFiles,
     setActiveSession,
+    setExpandedSession,
   } = useSessionStore();
 
   const { settings } = useSettingsStore();
@@ -58,6 +59,15 @@ export default function App() {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, []);
+
+  // ── 弹窗重新显示时，收起展开的 Terminal 面板，回到首页 ──
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+    const unlisten = listen("popup-shown", () => {
+      setExpandedSession(null);
+    });
+    return () => { unlisten.then((f) => f()); };
+  }, [setExpandedSession]);
 
   // 暴露给 Toolbar 的焦点回调（保留接口，不再触发窗口 resize）
   const onTaskInputFocus = useCallback(() => {}, []);

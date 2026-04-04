@@ -53,6 +53,8 @@ fn show_popup(app: &tauri::AppHandle, win: &tauri::WebviewWindow) {
     { let _ = win.set_focus(); }
 
     app.state::<PopupVisible>().set(true);
+    // 通知前端弹窗已显示，前端据此重置展开状态（收起任何打开的 Terminal 面板）
+    let _ = win.emit("popup-shown", ());
     eprintln!("[popup] shown");
 }
 

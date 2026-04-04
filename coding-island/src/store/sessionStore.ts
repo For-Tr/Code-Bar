@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 
 // ── 类型定义 ────────────────────────────────────────────────
 
@@ -73,73 +74,100 @@ function makeSession(overrides: Partial<ClaudeSession> & { workspaceId: string; 
 
 // ── Store ─────────────────────────────────────────────────────
 
-export const useSessionStore = create<SessionStore>((set) => ({
-  sessions: [],
-  activeSessionId: null,
-  expandedSessionId: null,
+export const useSessionStore = create<SessionStore>()(
+  persist(
+    (set) => ({
+      sessions: [],
+      activeSessionId: null,
+      expandedSessionId: null,
 
-  addSession: (workspaceId, workdir, name) => {
-    const s = makeSession({ workspaceId, workdir, ...(name ? { name } : {}) });
-    set((state) => ({
-      sessions: [...state.sessions, s],
-      activeSessionId: s.id,
-    }));
-    return s.id;
-  },
+      addSession: (workspaceId, workdir, name) => {
+        const s = makeSession({ workspaceId, workdir, ...(name ? { name } : {}) });
+        set((state) => ({
+          sessions: [...state.sessions, s],
+          activeSessionId: s.id,
+        }));
+        return s.id;
+      },
 
-  removeSession: (id) =>
-    set((state) => {
-      const sessions = state.sessions.filter((s) => s.id !== id);
-      const activeSessionId =
-        state.activeSessionId === id
-          ? (sessions[0]?.id ?? null)
-          : state.activeSessionId;
-      return { sessions, activeSessionId };
+      removeSession: (id) =>
+        set((state) => {
+          const sessions = state.sessions.filter((s) => s.id !== id);
+          const activeSessionId =
+            state.activeSessionId === id
+              ? (sessions[0]?.id ?? null)
+              : state.activeSessionId;
+          return { sessions, activeSessionId };
+        }),
+
+      setActiveSession: (id) =>
+        set({ activeSessionId: id }),
+
+      setExpandedSession: (id) =>
+        set({ expandedSessionId: id }),
+
+      updateSession: (id, patch) =>
+        set((state) => ({
+          sessions: state.sessions.map((s) =>
+            s.id === id ? { ...s, ...patch } : s
+          ),
+        })),
+
+      appendOutput: (id, line) =>
+        set((state) => ({
+          sessions: state.sessions.map((s) =>
+            s.id === id
+              ? { ...s, output: [...s.output.slice(-299), line] }
+              : s
+          ),
+        })),
+
+      clearOutput: (id) =>
+        set((state) => ({
+          sessions: state.sessions.map((s) =>
+            s.id === id ? { ...s, output: [] } : s
+          ),
+        })),
+
+      setDiffFiles: (id, files) =>
+        set((state) => ({
+          sessions: state.sessions.map((s) =>
+            s.id === id ? { ...s, diffFiles: files } : s
+          ),
+        })),
+
+      removeSessionsByWorkspace: (workspaceId) =>
+        set((state) => {
+          const sessions = state.sessions.filter((s) => s.workspaceId !== workspaceId);
+          const activeSessionId =
+            state.sessions.find((s) => s.id === state.activeSessionId)?.workspaceId === workspaceId
+              ? (sessions[0]?.id ?? null)
+              : state.activeSessionId;
+          return { sessions, activeSessionId };
+        }),
     }),
-
-  setActiveSession: (id) =>
-    set({ activeSessionId: id }),
-
-  setExpandedSession: (id) =>
-    set({ expandedSessionId: id }),
-
-  updateSession: (id, patch) =>
-    set((state) => ({
-      sessions: state.sessions.map((s) =>
-        s.id === id ? { ...s, ...patch } : s
-      ),
-    })),
-
-  appendOutput: (id, line) =>
-    set((state) => ({
-      sessions: state.sessions.map((s) =>
-        s.id === id
-          ? { ...s, output: [...s.output.slice(-299), line] }
-          : s
-      ),
-    })),
-
-  clearOutput: (id) =>
-    set((state) => ({
-      sessions: state.sessions.map((s) =>
-        s.id === id ? { ...s, output: [] } : s
-      ),
-    })),
-
-  setDiffFiles: (id, files) =>
-    set((state) => ({
-      sessions: state.sessions.map((s) =>
-        s.id === id ? { ...s, diffFiles: files } : s
-      ),
-    })),
-
-  removeSessionsByWorkspace: (workspaceId) =>
-    set((state) => {
-      const sessions = state.sessions.filter((s) => s.workspaceId !== workspaceId);
-      const activeSessionId =
-        state.sessions.find((s) => s.id === state.activeSessionId)?.workspaceId === workspaceId
-          ? (sessions[0]?.id ?? null)
-          : state.activeSessionId;
-      return { sessions, activeSessionId };
-    }),
-}));
+    {
+      name: "coding-island-sessions",
+      // expandedSessionId 不持久化（每次打开都回到首页）
+      partialize: (state) => ({
+        sessions: state.sessions.map((s) => ({
+          ...s,
+          // running/waiting 状态在重启后 PTY 已不存在，重置为 idle
+          status: (s.status === "running" || s.status === "waiting") ? "idle" : s.status,
+          // output 不持久化（节省空间，PTY 重启后输出会重新产生）
+          output: [],
+          pid: undefined,
+        })),
+        activeSessionId: state.activeSessionId,
+      }),
+      // 恢复时修复 _counter，避免 id 冲突
+      onRehydrateStorage: () => (state) => {
+        if (!state) return;
+        const ids = state.sessions.map((s) => Number(s.id)).filter((n) => !isNaN(n));
+        if (ids.length > 0) {
+          _counter = Math.max(...ids) + 1;
+        }
+      },
+    }
+  )
+);
