@@ -162,6 +162,8 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
 
   // PTY 是否已就绪（start_pty_session 成功返回后置为 true）
   const ptyReadyRef = useRef(false);
+  // 最后一次发送 query 的时间戳（ms），用于过滤紧随 query 之后的延迟 Stop
+  const lastQuerySentAtRef = useRef(0);
   // 用 ref 保存 sessionId，供稳定回调访问（避免闭包过时）
   const sessionIdRef = useRef(sessionId);
   sessionIdRef.current = sessionId;
@@ -182,6 +184,34 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     }, 200);
   }, []); // 纯 ref 访问，永不更新引用
 
+  // PTY 状态回调：Claude 完成一轮回应，等待下一条 query
+  const handlePtyWaiting = useCallback(() => {
+    const sid = sessionIdRef.current;
+    const s = useSessionStore.getState().sessions.find((x) => x.id === sid);
+    // 已是 waiting 则不重复通知
+    if (s?.status === "waiting") return;
+    updateSession(sid, { status: "waiting" });
+    // 发系统通知
+    const taskName = s?.currentTask?.slice(0, 40) || "任务";
+    invoke("send_notification", {
+      title: "Coding Island",
+      body: `✅ ${taskName} — 已完成，等待下一步指令`,
+    }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [updateSession]);
+
+  // PTY 状态回调：Claude 开始处理（UserPromptSubmit hook 触发）
+  const handlePtyRunning = useCallback(() => {
+    updateSession(sessionIdRef.current, { status: "running" });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [updateSession]);
+
+  // PTY 状态回调：API 错误中断（StopFailure hook 触发）
+  const handlePtyError = useCallback((error: string) => {
+    updateSession(sessionIdRef.current, { status: "error", currentTask: error });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [updateSession]);
+
   // isOpen 变化：即将展开时立即取消隐藏
   useEffect(() => {
     if (isOpen) setHidden(false);
@@ -201,9 +231,11 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
   useEffect(() => {
     if (isOpen) {
       hasOpenedRef.current = true;
+      // 展开：临时放大，不写盘（不覆盖用户记忆的基础大小）
       invoke("resize_popup_full", { width: 700, height: 600 }).catch(() => {});
     } else if (hasOpenedRef.current) {
-      invoke("resize_popup_full", { width: 376, height: 400 }).catch(() => {});
+      // 收起：恢复到用户记忆的基础大小（从磁盘读取），不硬编码尺寸
+      invoke("restore_popup_bounds").catch(() => {});
     }
   }, [isOpen]);
 
@@ -318,6 +350,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     const trimmed = q.trim();
     if (!trimmed || !session) return;
     const title = trimmed.length > 24 ? trimmed.slice(0, 24) + "…" : trimmed;
+    lastQuerySentAtRef.current = Date.now();
     updateSession(session.id, { name: title, currentTask: trimmed, status: "running" });
     setQuerySent(true);
 
@@ -661,6 +694,13 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
               workdir={session.workdir}
               active={ptyEverActive}
               onReady={handlePtyReady}
+              onWaiting={handlePtyWaiting}
+              onRunning={handlePtyRunning}
+              onError={handlePtyError}
+              onNotification={(title, message, _type) => {
+                // Claude Code hook 通知：需要用户确认/输入
+                invoke("send_notification", { title, body: message }).catch(console.error);
+              }}
               env={contextEnv}
             />
           </div>

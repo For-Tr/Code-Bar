@@ -1,6 +1,7 @@
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { motion, AnimatePresence } from "framer-motion";
 import { TitleBar } from "./components/TitleBar";
 import { WorkspaceStack } from "./components/WorkspaceStack";
@@ -58,6 +59,71 @@ export default function App() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  // ── 浮窗位置 / 大小记忆：用户拖动/调整后防抖 500ms 写盘 ──
+  // 注意：只在基础状态（非展开）下保存，展开状态是临时的，不应覆盖记忆。
+  // expandedSessionId 不为 null 表示终端面板已展开。
+  const boundsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 用 ref 存 expandedSessionId，让 onMoved/onResized 回调读取最新值（避免闭包过时）
+  const expandedSessionRef = useRef(useSessionStore.getState().expandedSessionId);
+  useEffect(() => {
+    const unsub = useSessionStore.subscribe((s) => {
+      expandedSessionRef.current = s.expandedSessionId;
+    });
+    return unsub;
+  }, []);
+
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+
+    const win = getCurrentWindow();
+
+    // onMoved payload = PhysicalPosition { x, y }（物理像素）
+    // onResized payload = PhysicalSize { width, height }（物理像素）
+    // 直接从 payload 读取，无需额外异步调用。
+    const debouncedSave = (physX: number, physY: number, physW: number, physH: number) => {
+      // 展开状态下跳过，避免把展开后的大尺寸写盘
+      if (expandedSessionRef.current !== null) return;
+      if (boundsTimerRef.current) clearTimeout(boundsTimerRef.current);
+      boundsTimerRef.current = setTimeout(async () => {
+        try {
+          const scaleFactor = await win.scaleFactor();
+          await invoke("save_popup_bounds", {
+            x: physX / scaleFactor,
+            y: physY / scaleFactor,
+            width: physW / scaleFactor,
+            height: physH / scaleFactor,
+          });
+        } catch {
+          // 静默失败
+        }
+      }, 500);
+    };
+
+    // onMoved：payload 只有位置，宽高需读当前值
+    const unlistenMoved = win.onMoved(async ({ payload: pos }) => {
+      if (expandedSessionRef.current !== null) return;
+      try {
+        const size = await win.innerSize();
+        debouncedSave(pos.x, pos.y, size.width, size.height);
+      } catch { /* 静默 */ }
+    });
+
+    // onResized：payload 只有尺寸，位置需读当前值
+    const unlistenResized = win.onResized(async ({ payload: size }) => {
+      if (expandedSessionRef.current !== null) return;
+      try {
+        const pos = await win.outerPosition();
+        debouncedSave(pos.x, pos.y, size.width, size.height);
+      } catch { /* 静默 */ }
+    });
+
+    return () => {
+      if (boundsTimerRef.current) clearTimeout(boundsTimerRef.current);
+      unlistenMoved.then((f) => f());
+      unlistenResized.then((f) => f());
+    };
   }, []);
 
   // ── 弹窗重新显示时，收起展开的 Terminal 面板，回到首页 ──

@@ -12,11 +12,15 @@ interface Props {
   workdir: string;
   active: boolean;     // 是否可见/激活
   onReady?: () => void; // PTY 进程启动成功后回调（用于透传初始 query）
+  onWaiting?: () => void; // CLI 完成任务、等待下一条 query 时回调
+  onRunning?: () => void; // CLI 开始处理 query 时回调
+  onError?: (error: string) => void; // API 错误中断回调
+  onNotification?: (title: string, message: string, notification_type: string) => void; // Claude Code hook 通知回调
   // 额外注入的环境变量，透传给 start_pty_session（如 CODING_ISLAND_* context 信息）
   env?: [string, string][];
 }
 
-export function PtyTerminal({ sessionId, command, args = [], workdir, active, onReady, env }: Props) {
+export function PtyTerminal({ sessionId, command, args = [], workdir, active, onReady, onWaiting, onRunning, onError, onNotification, env }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -83,6 +87,16 @@ export function PtyTerminal({ sessionId, command, args = [], workdir, active, on
     };
   }, [sessionId]);
 
+  // 用 ref 保存最新回调，避免闭包过时（不加入依赖数组）
+  const onWaitingRef = useRef(onWaiting);
+  onWaitingRef.current = onWaiting;
+  const onRunningRef = useRef(onRunning);
+  onRunningRef.current = onRunning;
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
+  const onNotificationRef = useRef(onNotification);
+  onNotificationRef.current = onNotification;
+
   // ── 监听 PTY 数据事件 ─────────────────────────────────────
   useEffect(() => {
     const u1 = listen<{ session_id: string; data: string }>(
@@ -110,9 +124,49 @@ export function PtyTerminal({ sessionId, command, args = [], workdir, active, on
       }
     );
 
+    // CLI 完成任务，等待下一条 query（检测到 "? for shortcuts"）
+    const u3 = listen<{ session_id: string }>(
+      "pty-waiting",
+      ({ payload }) => {
+        if (payload.session_id !== sessionId) return;
+        onWaitingRef.current?.();
+      }
+    );
+
+    // CLI 开始处理 query（检测到 "esc to interrupt"）
+    const u4 = listen<{ session_id: string }>(
+      "pty-running",
+      ({ payload }) => {
+        if (payload.session_id !== sessionId) return;
+        onRunningRef.current?.();
+      }
+    );
+
+    // API 错误中断（StopFailure hook）
+    const u5 = listen<{ session_id: string; error: string }>(
+      "pty-error",
+      ({ payload }) => {
+        if (payload.session_id !== sessionId) return;
+        onErrorRef.current?.(payload.error);
+      }
+    );
+
+    // Claude Code hook: Notification（需要用户确认/输入）
+    const u6 = listen<{ session_id: string; title: string; message: string; notification_type: string }>(
+      "pty-notification",
+      ({ payload }) => {
+        if (payload.session_id !== sessionId) return;
+        onNotificationRef.current?.(payload.title, payload.message, payload.notification_type);
+      }
+    );
+
     return () => {
       u1.then((f) => f());
       u2.then((f) => f());
+      u3.then((f) => f());
+      u4.then((f) => f());
+      u5.then((f) => f());
+      u6.then((f) => f());
     };
   }, [sessionId]);
 

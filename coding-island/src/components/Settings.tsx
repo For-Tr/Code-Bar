@@ -653,6 +653,54 @@ function ApiKeysTab() {
         >
           🐞 诊断 PATH
         </button>
+        <button
+          onClick={async () => {
+            const { invoke } = await import("@tauri-apps/api/core");
+            try {
+              const result = await invoke<string>("setup_claude_hooks");
+              alert(result);
+            } catch (e) {
+              alert(`配置失败: ${e}`);
+            }
+          }}
+          style={{
+            padding: "7px 14px",
+            borderRadius: 8,
+            border: "1px solid rgba(124,109,240,0.3)",
+            background: "rgba(124,109,240,0.08)",
+            color: "rgba(124,109,240,0.8)",
+            fontSize: 11,
+            fontWeight: 500,
+            cursor: "pointer",
+          }}
+        >
+          🔔 启用 Claude Code Hooks
+        </button>
+        <button
+          onClick={async () => {
+            const { invoke } = await import("@tauri-apps/api/core");
+            try {
+              await invoke("send_notification", {
+                title: "Coding Island",
+                body: "🔔 通知权限正常，任务完成时会弹出此提示",
+              });
+            } catch (e) {
+              alert(`通知发送失败: ${e}\n\n请在「系统设置 → 通知 → Coding Island」中开启通知权限`);
+            }
+          }}
+          style={{
+            padding: "7px 14px",
+            borderRadius: 8,
+            border: "1px solid rgba(74,222,128,0.3)",
+            background: "rgba(74,222,128,0.08)",
+            color: "rgba(74,222,128,0.8)",
+            fontSize: 11,
+            fontWeight: 500,
+            cursor: "pointer",
+          }}
+        >
+          🔔 测试通知
+        </button>
         {detectResult && (
           <span style={{ fontSize: 10, color: C.textMuted }}>{detectResult}</span>
         )}

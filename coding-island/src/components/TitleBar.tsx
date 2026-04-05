@@ -5,13 +5,19 @@ export function TitleBar() {
   const sessions = useSessionStore((s) => s.sessions);
 
   return (
-    <div style={{
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "space-between",
-      padding: "11px 14px 9px",
-      borderBottom: "1px solid rgba(255,255,255,0.05)",
-    }}>
+    <div
+      data-tauri-drag-region
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: "11px 14px 9px",
+        borderBottom: "1px solid rgba(255,255,255,0.05)",
+        cursor: "grab",
+        userSelect: "none",
+        WebkitUserSelect: "none",
+      }}
+    >
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <div style={{
           width: 26, height: 26, borderRadius: 7,
