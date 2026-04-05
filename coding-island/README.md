@@ -17,7 +17,7 @@ English | [简体中文](./README.zh.md)
 - **📁 Workspace Support** - Multi-workspace management for quick project switching with Git worktree support
 - **🖥️ Integrated Terminal** - Built-in xterm terminal for direct command execution with PTY support
 - **📊 Git Diff Viewer** - Visual code changes display with diff2html rendering and auto-refresh
-- **🎨 Modern UI** - Fluid interface built with Tailwind CSS + Framer Motion
+- **🎨 Modern UI** - Fluid interface built with Framer Motion, macOS menu bar resident
 - **⚙️ Rich Settings** - Customizable themes, shortcuts, API keys, and behavior preferences
 
 ## 🚀 Quick Start
@@ -107,7 +107,6 @@ pnpm tauri build
 ### Frontend
 - **Framework**: React 19.1 + TypeScript
 - **Build Tool**: Vite 7
-- **Styling**: Tailwind CSS 4
 - **Animation**: Framer Motion
 - **State Management**: Zustand with persistence
 - **Terminal**: xterm.js with PTY support
@@ -132,7 +131,7 @@ pnpm tauri build
 coding-island/
 ├── src/                    # Frontend source code
 │   ├── components/         # React components
-│   ├── harness/           # Claude Code integration
+│   ├── harness/           # LLM Native Harness (direct LLM API calls)
 │   ├── store/             # Zustand state management
 │   ├── assets/            # Static assets
 │   └── App.tsx            # Main application component
@@ -153,8 +152,8 @@ coding-island/
 
 Application configuration is located at `src-tauri/tauri.conf.json`, main options:
 
-- **Window Settings**: 360×220 pixels, transparent background
-- **Behavior**: Always on top, resizable
+- **Window Settings**: Initial 360×220 pixels, auto-expands to ~700×600 when terminal is open, transparent background
+- **Behavior**: Always on top, macOS menu bar resident
 - **Security**: Content Security Policy (CSP)
 
 ## 🤝 Contributing
