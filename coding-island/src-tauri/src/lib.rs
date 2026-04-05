@@ -1406,52 +1406,54 @@ fn pty_master_map(app: &tauri::AppHandle) -> PtyMasterMap {
 }
 
 /// 检测指定 CLI 是否可用。
-/// 优先通过 interactive login shell 查找（确保 nvm/mise/pyenv 等路径也能命中），
-/// 降级到进程当前 PATH 扫描。
+/// 复用 resolve_command_path：若解析结果与原始命令不同（或是完整路径），说明找到了。
 #[tauri::command]
 async fn check_cli(command: String) -> bool {
-    // 完整路径：直接检测文件是否存在
-    if command.contains('/') || command.contains('\\') {
-        return std::path::Path::new(&command).exists();
+    let resolved = resolve_command_path(&command);
+    // 解析到完整路径且文件存在，即为可用
+    resolved.contains('/') && std::path::Path::new(&resolved).exists()
+}
+
+/// 解析命令的完整路径：先查进程 PATH，再用 login shell which（兜底 nvm/mise 等）。
+/// 返回可直接 spawn 的完整路径或原始命令名。
+fn resolve_command_path(command: &str) -> String {
+    // 已是完整路径，直接返回
+    if command.contains('/') {
+        return command.to_string();
     }
 
-    // 通过 interactive login shell 执行 `which`，可以命中 nvm/mise/pyenv 等动态路径
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-    let which_cmd = format!("which {} 2>/dev/null", shell_quote(&command));
-    if let Ok(out) = std::process::Command::new(&shell)
-        .args(["-i", "-l", "-c", &which_cmd])
-        .output()
-    {
-        let result = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        if !result.is_empty() && std::path::Path::new(&result).exists() {
-            return true;
-        }
-    }
-
-    // 降级：扫描进程当前 PATH（兜底）
+    // 先扫进程 PATH（最快）
     if let Ok(path_var) = std::env::var("PATH") {
-        let sep = if cfg!(windows) { ';' } else { ':' };
-        for dir in path_var.split(sep) {
-            let full = std::path::PathBuf::from(dir).join(&command);
+        for dir in path_var.split(':') {
+            let full = std::path::PathBuf::from(dir).join(command);
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
                 if let Ok(meta) = std::fs::metadata(&full) {
                     if meta.permissions().mode() & 0o111 != 0 {
-                        return true;
+                        return full.to_string_lossy().to_string();
                     }
                 }
             }
             #[cfg(not(unix))]
-            if full.exists() { return true; }
+            if full.exists() { return full.to_string_lossy().to_string(); }
         }
     }
-    false
-}
 
-/// 将字符串用单引号包裹，内部的单引号做 '\"'\"' 转义，用于安全地拼接 shell 命令
-fn shell_quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', "'\"'\"'"))
+    // 降级：login shell which（仅 -l，不加 -i，避免交互副作用）
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    if let Ok(out) = std::process::Command::new(&shell)
+        .args(["-l", "-c", &format!("which {command} 2>/dev/null")])
+        .output()
+    {
+        let resolved = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if !resolved.is_empty() && std::path::Path::new(&resolved).exists() {
+            eprintln!("[resolve_command_path] {command} -> {resolved}");
+            return resolved;
+        }
+    }
+
+    command.to_string()
 }
 
 /// 启动 PTY 会话（用于 Claude Code / 任意 CLI），原始字节流推送给前端
@@ -1486,30 +1488,25 @@ async fn start_pty_session(
         .openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
         .map_err(|e| format!("openpty 失败: {e}"))?;
 
-    // 通过 user 的 interactive login shell 启动命令，确保 nvm/mise/pyenv 等
-    // 版本管理器的 PATH 和环境变量被正确初始化（源自 ~/.zshrc / ~/.bashrc）。
-    // 等价于在终端里直接运行命令，彻底解决 GUI .app 启动时 PATH 不完整的问题。
-    let user_shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    // 解析完整路径后直接 spawn CLI（不包装 shell）
+    // 这样 PTY 生命周期 = CLI 进程生命周期，spawn 返回即 CLI 已启动
+    let resolved_command = resolve_command_path(&command);
+    eprintln!("[start_pty_session] spawn: {resolved_command} {:?}", args);
 
-    // 把 command + args 拼成 shell 命令字符串，特殊字符用单引号保护
-    let shell_cmd = {
-        let mut parts = vec![shell_quote(&command)];
-        for a in &args {
-            parts.push(shell_quote(a));
-        }
-        parts.join(" ")
-    };
-
-    let mut cmd = CommandBuilder::new(&user_shell);
-    // -i：interactive（加载 ~/.zshrc），-l：login（加载 ~/.zprofile）
-    cmd.args(["-i", "-l", "-c", &shell_cmd]);
+    let mut cmd = CommandBuilder::new(&resolved_command);
+    for arg in &args {
+        cmd.arg(arg);
+    }
     cmd.cwd(&expanded);
 
-    // 继承基础环境变量
+    // 继承常用环境变量（确保 CLI 工具可用）
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
+    if let Ok(path) = std::env::var("PATH") {
+        cmd.env("PATH", path);
+    }
     if let Ok(home) = std::env::var("HOME") {
-        cmd.env("HOME", &home);
+        cmd.env("HOME", home);
     }
 
     // 注入调用方传入的额外环境变量（CODING_ISLAND_* context 信息）
