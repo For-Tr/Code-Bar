@@ -7,6 +7,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 use tauri::{
+    menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager, WebviewUrl, WebviewWindowBuilder,
 };
@@ -1949,10 +1950,16 @@ pub fn run() {
             // 改由菜单栏图标点击切换，或前端 Esc/点击外部关闭
 
             // ── 系统托盘 ──
+            // 右键菜单
+            let quit_item = MenuItem::with_id(app, "quit", "退出 Coding Island", true, None::<&str>)?;
+            let tray_menu = Menu::with_items(app, &[&quit_item])?;
+
             let tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .icon_as_template(true)
                 .tooltip("Coding Island")
+                .menu(&tray_menu)
+                .show_menu_on_left_click(false)   // 左键点击不弹菜单
                 .build(app)?;
 
             let app_handle = app.handle().clone();
@@ -1964,6 +1971,14 @@ pub fn run() {
                 } = event
                 {
                     toggle_popup(&app_handle);
+                }
+            });
+
+            // 处理菜单项点击
+            let app_handle2 = app.handle().clone();
+            app.on_menu_event(move |_app, event| {
+                if event.id().as_ref() == "quit" {
+                    app_handle2.exit(0);
                 }
             });
 
