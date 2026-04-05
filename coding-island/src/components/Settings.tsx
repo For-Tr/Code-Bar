@@ -615,7 +615,7 @@ function ApiKeysTab() {
       </div>
 
       {/* 自动检测按钮 */}
-      <div style={{ marginBottom: 14, display: "flex", gap: 8, alignItems: "center" }}>
+      <div style={{ marginBottom: 14, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
         <button
           onClick={handleAutoDetect}
           disabled={detecting}
@@ -633,6 +633,25 @@ function ApiKeysTab() {
           }}
         >
           {detecting ? "检测中…" : "🔍 自动检测系统配置"}
+        </button>
+        <button
+          onClick={async () => {
+            const { invoke } = await import("@tauri-apps/api/core");
+            const result = await invoke("debug_env", { command: "claude" });
+            alert(JSON.stringify(result, null, 2));
+          }}
+          style={{
+            padding: "7px 14px",
+            borderRadius: 8,
+            border: "1px solid rgba(251,191,36,0.3)",
+            background: "rgba(251,191,36,0.08)",
+            color: "rgba(251,191,36,0.8)",
+            fontSize: 11,
+            fontWeight: 500,
+            cursor: "pointer",
+          }}
+        >
+          🐞 诊断 PATH
         </button>
         {detectResult && (
           <span style={{ fontSize: 10, color: C.textMuted }}>{detectResult}</span>

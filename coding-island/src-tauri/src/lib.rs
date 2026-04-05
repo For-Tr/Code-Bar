@@ -4,7 +4,7 @@ use std::{
     io::{BufRead, BufReader, Read, Write},
     path::PathBuf,
     process::{Child, Command, Stdio},
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
 };
 use tauri::{
     menu::{Menu, MenuItem},
@@ -1414,46 +1414,280 @@ async fn check_cli(command: String) -> bool {
     resolved.contains('/') && std::path::Path::new(&resolved).exists()
 }
 
-/// 解析命令的完整路径：先查进程 PATH，再用 login shell which（兜底 nvm/mise 等）。
-/// 返回可直接 spawn 的完整路径或原始命令名。
+/// 调试用：返回进程环境信息，用于诊断打包后 PATH/SHELL 问题
+#[tauri::command]
+fn debug_env(command: String) -> serde_json::Value {
+    let path = std::env::var("PATH").unwrap_or_else(|_| "<unset>".to_string());
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "<unset>".to_string());
+    let home = std::env::var("HOME").unwrap_or_else(|_| "<unset>".to_string());
+    let resolved = resolve_command_path(&command);
+
+    // 测试 login shell which
+    let shell_which = if shell != "<unset>" {
+        match std::process::Command::new(&shell)
+            .args(["-l", "-c", &format!("which {command} 2>/dev/null; echo SHELL_PATH=$PATH")])
+            .output()
+        {
+            Ok(out) => String::from_utf8_lossy(&out.stdout).trim().to_string(),
+            Err(e) => format!("error: {e}"),
+        }
+    } else {
+        "SHELL not set".to_string()
+    };
+
+    serde_json::json!({
+        "PATH": path,
+        "SHELL": shell,
+        "HOME": home,
+        "resolved": resolved,
+        "shell_which_output": shell_which,
+    })
+}
+
+/// 进程级 CLI 路径缓存：每个命令名只解析一次，结果常驻内存直到进程退出。
+/// value = None 表示"已查过但找不到"，避免重复触发耗时的 shell_which。
+static CMD_PATH_CACHE: OnceLock<Mutex<HashMap<String, Option<String>>>> = OnceLock::new();
+
+fn cmd_path_cache() -> &'static Mutex<HashMap<String, Option<String>>> {
+    CMD_PATH_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// 解析命令的完整路径，兼容各种版本管理器（nvm/mise/fnm/volta/asdf/pyenv 等）。
+///
+/// 生命周期：进程级缓存，每个命令名只做一次完整扫描，结果常驻至进程退出。
+///
+/// 策略（按优先级）：
+///   0. 命中缓存 → 立即返回（第二次起 O(1)）
+///   1. 已是完整路径 → 直接返回（不缓存，调用方自己管理路径）
+///   2. 扫进程 PATH（最快，适用于系统工具和 Homebrew）
+///   3. 让 shell source 所有配置文件后执行 which（最通用，覆盖 nvm/mise 等，3s timeout）
+///   4. 静态扫描常见版本管理器目录（shell 失败时的无进程兜底）
 fn resolve_command_path(command: &str) -> String {
-    // 已是完整路径，直接返回
+    // ── 1. 已是完整路径，跳过缓存直接返回 ───────────────────────
     if command.contains('/') {
         return command.to_string();
     }
 
-    // 先扫进程 PATH（最快）
-    if let Ok(path_var) = std::env::var("PATH") {
-        for dir in path_var.split(':') {
-            let full = std::path::PathBuf::from(dir).join(command);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                if let Ok(meta) = std::fs::metadata(&full) {
-                    if meta.permissions().mode() & 0o111 != 0 {
-                        return full.to_string_lossy().to_string();
+    // ── 0. 命中缓存 ───────────────────────────────────────────────
+    {
+        let cache = cmd_path_cache().lock().unwrap();
+        if let Some(cached) = cache.get(command) {
+            return cached.clone().unwrap_or_else(|| command.to_string());
+        }
+    }
+
+    // ── 2. 扫进程 PATH ────────────────────────────────────────────
+    let result = if let Some(p) = scan_path_env(command) {
+        Some(p)
+    }
+    // ── 3. shell source 配置后执行 which ─────────────────────────
+    else if let Some(p) = shell_which(command) {
+        eprintln!("[resolve] shell-which: {command} -> {p}");
+        Some(p)
+    }
+    // ── 4. 静态扫描版本管理器目录（兜底）────────────────────────
+    else if let Some(p) = static_venv_scan(command) {
+        eprintln!("[resolve] static-scan: {command} -> {p}");
+        Some(p)
+    } else {
+        None
+    };
+
+    // 写入缓存（包括 None，避免下次再走慢路径）
+    {
+        let mut cache = cmd_path_cache().lock().unwrap();
+        cache.insert(command.to_string(), result.clone());
+    }
+
+    result.unwrap_or_else(|| command.to_string())
+}
+
+/// 扫进程 PATH，找到可执行文件返回完整路径
+fn scan_path_env(command: &str) -> Option<String> {
+    let path_var = std::env::var("PATH").ok()?;
+    for dir in path_var.split(':') {
+        let full = std::path::PathBuf::from(dir).join(command);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(meta) = std::fs::metadata(&full) {
+                if meta.permissions().mode() & 0o111 != 0 {
+                    return Some(full.to_string_lossy().to_string());
+                }
+            }
+        }
+        #[cfg(not(unix))]
+        if full.exists() {
+            return Some(full.to_string_lossy().to_string());
+        }
+    }
+    None
+}
+
+/// 通过用户 shell source 完整配置文件后执行 which。
+/// 同时加载 login + interactive 配置（~/.zprofile, ~/.zshrc, ~/.bashrc 等），
+/// 覆盖 nvm/mise/fnm/volta/asdf/pyenv 等所有版本管理器。
+/// 使用 3s 超时，stderr 丢弃（避免 prompt 污染）。
+fn shell_which(command: &str) -> Option<String> {
+    use std::time::Duration;
+
+    // 用来 source 的脚本：先加载各种可能的配置文件，再 which
+    // TERM=dumb 防止 zsh 输出颜色/进度条；--no-rcs 用不了（会跳过配置），所以手动 source
+    let script = format!(
+        r#"export TERM=dumb
+[ -f "$HOME/.zshenv" ] && source "$HOME/.zshenv" 2>/dev/null
+[ -f "$HOME/.zprofile" ] && source "$HOME/.zprofile" 2>/dev/null
+[ -f "$HOME/.zshrc" ] && source "$HOME/.zshrc" 2>/dev/null
+[ -f "$HOME/.bashrc" ] && source "$HOME/.bashrc" 2>/dev/null
+[ -f "$HOME/.bash_profile" ] && source "$HOME/.bash_profile" 2>/dev/null
+which {command} 2>/dev/null | head -1"#
+    );
+
+    // 优先用用户 SHELL，没有就降级到 /bin/zsh、/bin/bash
+    let candidates = {
+        let mut v = vec![];
+        if let Ok(s) = std::env::var("SHELL") {
+            v.push(s);
+        }
+        v.push("/bin/zsh".to_string());
+        v.push("/bin/bash".to_string());
+        v
+    };
+
+    for shell in &candidates {
+        if !std::path::Path::new(shell.as_str()).exists() {
+            continue;
+        }
+        let mut child = match std::process::Command::new(shell)
+            .args(["-c", &script])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null()) // 丢弃 stderr，防止 prompt/警告 混入
+            .stdin(std::process::Stdio::null())
+            .spawn()
+        {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        // 3 秒超时等待，防止 shell 配置卡住（比如 ssh-agent 等待）
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        let mut timed_out = false;
+        loop {
+            match child.try_wait() {
+                Ok(Some(_)) => break,
+                Ok(None) => {
+                    if std::time::Instant::now() >= deadline {
+                        let _ = child.kill();
+                        let _ = child.wait(); // 回收 zombie
+                        eprintln!("[resolve] shell-which timeout for {command} via {shell}");
+                        timed_out = true;
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                Err(_) => break,
+            }
+        }
+
+        if !timed_out {
+            if let Ok(out) = child.wait_with_output() {
+                let line = String::from_utf8_lossy(&out.stdout)
+                    .lines()
+                    .find(|l| !l.trim().is_empty() && l.contains('/'))
+                    .map(|l| l.trim().to_string());
+                if let Some(p) = line {
+                    if std::path::Path::new(&p).exists() {
+                        return Some(p);
                     }
                 }
             }
-            #[cfg(not(unix))]
-            if full.exists() { return full.to_string_lossy().to_string(); }
+        }
+    }
+    None
+}
+
+/// 静态扫描常见版本管理器的安装目录，无需启动任何进程。
+/// 覆盖：nvm / fnm / volta / mise / asdf / pyenv / rbenv
+fn static_venv_scan(command: &str) -> Option<String> {
+    let home = std::env::var("HOME").ok()?;
+    let home = std::path::PathBuf::from(&home);
+
+    // 候选目录列表（按常见程度排序）
+    let mut dirs: Vec<std::path::PathBuf> = vec![
+        // Homebrew (Intel / M1)
+        "/usr/local/bin".into(),
+        "/opt/homebrew/bin".into(),
+        "/opt/homebrew/sbin".into(),
+    ];
+
+    // nvm: ~/.nvm/versions/node/vX.Y.Z/bin/
+    let nvm_versions = home.join(".nvm/versions/node");
+    if let Ok(entries) = std::fs::read_dir(&nvm_versions) {
+        let mut versions: Vec<_> = entries
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_dir())
+            .collect();
+        // 按版本名倒序，优先最新版
+        versions.sort_by_key(|e| std::cmp::Reverse(e.file_name()));
+        for entry in &versions {
+            dirs.push(entry.path().join("bin"));
         }
     }
 
-    // 降级：login shell which（仅 -l，不加 -i，避免交互副作用）
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-    if let Ok(out) = std::process::Command::new(&shell)
-        .args(["-l", "-c", &format!("which {command} 2>/dev/null")])
-        .output()
-    {
-        let resolved = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        if !resolved.is_empty() && std::path::Path::new(&resolved).exists() {
-            eprintln!("[resolve_command_path] {command} -> {resolved}");
-            return resolved;
+    // fnm: ~/.local/share/fnm/node-versions/vX/installation/bin/
+    let fnm_root = home.join(".local/share/fnm/node-versions");
+    if let Ok(entries) = std::fs::read_dir(&fnm_root) {
+        let mut versions: Vec<_> = entries
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_dir())
+            .collect();
+        versions.sort_by_key(|e| std::cmp::Reverse(e.file_name()));
+        for entry in &versions {
+            dirs.push(entry.path().join("installation/bin"));
         }
     }
 
-    command.to_string()
+    // volta: ~/.volta/bin/
+    dirs.push(home.join(".volta/bin"));
+
+    // mise shims: ~/.local/share/mise/shims/
+    dirs.push(home.join(".local/share/mise/shims"));
+
+    // asdf shims: ~/.asdf/shims/
+    dirs.push(home.join(".asdf/shims"));
+
+    // pyenv: ~/.pyenv/shims/, ~/.pyenv/bin/
+    dirs.push(home.join(".pyenv/shims"));
+    dirs.push(home.join(".pyenv/bin"));
+
+    // rbenv: ~/.rbenv/shims/, ~/.rbenv/bin/
+    dirs.push(home.join(".rbenv/shims"));
+    dirs.push(home.join(".rbenv/bin"));
+
+    // cargo: ~/.cargo/bin/
+    dirs.push(home.join(".cargo/bin"));
+
+    // go: ~/go/bin/
+    dirs.push(home.join("go/bin"));
+
+    for dir in &dirs {
+        let full = dir.join(command);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(meta) = std::fs::metadata(&full) {
+                if meta.permissions().mode() & 0o111 != 0 {
+                    return Some(full.to_string_lossy().to_string());
+                }
+            }
+        }
+        #[cfg(not(unix))]
+        if full.exists() {
+            return Some(full.to_string_lossy().to_string());
+        }
+    }
+
+    None
 }
 
 /// 启动 PTY 会话（用于 Claude Code / 任意 CLI），原始字节流推送给前端
@@ -1502,11 +1736,34 @@ async fn start_pty_session(
     // 继承常用环境变量（确保 CLI 工具可用）
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
-    if let Ok(path) = std::env::var("PATH") {
-        cmd.env("PATH", path);
-    }
     if let Ok(home) = std::env::var("HOME") {
         cmd.env("HOME", home);
+    }
+
+    // 构建子进程 PATH：进程 PATH + CLI 运行时依赖目录（node/python 等）
+    // GUI .app 的进程 PATH 极度精简，需要把 CLI 的运行时目录补进来，
+    // 否则 claude/codex（Node.js 脚本）启动后会因找不到 node 而退出。
+    {
+        let base_path = std::env::var("PATH").unwrap_or_default();
+        // 解析 node 完整路径，取其所在目录（用于让 claude/codex 等 Node.js 脚本能找到 node）
+        let node_path = resolve_command_path("node");
+        let node_dir = if node_path.contains('/') {
+            std::path::Path::new(&node_path)
+                .parent()
+                .map(|d| d.to_string_lossy().to_string())
+        } else {
+            None
+        };
+        let enriched_path = if let Some(dir) = node_dir {
+            if base_path.split(':').any(|s| s == dir) {
+                base_path
+            } else {
+                format!("{dir}:{base_path}")
+            }
+        } else {
+            base_path
+        };
+        cmd.env("PATH", enriched_path);
     }
 
     // 注入调用方传入的额外环境变量（CODING_ISLAND_* context 信息）
@@ -2028,6 +2285,19 @@ pub fn run() {
                 }
             });
 
+            // ── 后台预热 CLI 路径缓存 ──────────────────────────────
+            // App 启动后立即在独立线程里跑一次 resolve，填满缓存。
+            // 这样用户首次点「新建会话」时，shell_which 已经跑完，
+            // start_pty_session 能瞬间拿到路径，消除冷启动延迟。
+            std::thread::spawn(|| {
+                // node 必须最先预热（claude/codex 等 Node.js 脚本依赖它）
+                let clis = ["node", "claude", "codex"];
+                for cli in &clis {
+                    let resolved = resolve_command_path(cli);
+                    eprintln!("[warmup] {cli} -> {resolved}");
+                }
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -2072,6 +2342,7 @@ pub fn run() {
             trust_workspace,
             // CLI 配置自动检测
             detect_cli_config,
+            debug_env,
             // Git Worktree 管理
             git_worktree_create,
             git_worktree_remove,
