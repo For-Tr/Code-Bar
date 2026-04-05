@@ -1905,8 +1905,62 @@ fn stop_pty_session(
 
 // ── 入口 ─────────────────────────────────────────────────────
 
+/// 修复打包后 macOS GUI 进程 PATH 不含 Homebrew/nvm/mise 等目录的问题。
+/// GUI 启动的 .app 只有 /usr/bin:/bin:/usr/sbin:/sbin，
+/// 导致 claude/codex/node 等找不到。
+/// 策略：从用户 shell 的 login 环境读取完整 PATH，合并后写回。
+#[cfg(target_os = "macos")]
+fn fix_path_env() {
+    use std::env;
+
+    // 先把常见路径直接加进来（兜底，不依赖 shell）
+    let extra_dirs = [
+        "/opt/homebrew/bin",
+        "/opt/homebrew/sbin",
+        "/usr/local/bin",
+        "/usr/local/sbin",
+        // nvm 默认路径
+        &format!("{}/.nvm/versions/node/bin", env::var("HOME").unwrap_or_default()),
+        // mise / asdf shims
+        &format!("{}/.local/share/mise/shims", env::var("HOME").unwrap_or_default()),
+        &format!("{}/.asdf/shims", env::var("HOME").unwrap_or_default()),
+    ];
+
+    let current_path = env::var("PATH").unwrap_or_default();
+    let mut parts: Vec<&str> = current_path.split(':').collect();
+
+    for dir in extra_dirs.iter().rev() {
+        if !dir.is_empty() && !parts.contains(dir) {
+            parts.insert(0, dir);
+        }
+    }
+
+    // 再用 login shell 读取一次，获取用户完整环境（含 nvm/mise 动态路径）
+    let shell_path_owned: String;
+    if let Ok(shell) = env::var("SHELL") {
+        if let Ok(out) = std::process::Command::new(&shell)
+            .args(["-l", "-c", "echo $PATH"])
+            .output()
+        {
+            shell_path_owned = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            for dir in shell_path_owned.split(':') {
+                if !dir.is_empty() && !parts.contains(&dir) {
+                    parts.push(dir);
+                }
+            }
+        }
+    }
+
+    let new_path = parts.join(":");
+    env::set_var("PATH", &new_path);
+    eprintln!("[fix_path_env] PATH={new_path}");
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "macos")]
+    fix_path_env();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(ProcessMap::default())
