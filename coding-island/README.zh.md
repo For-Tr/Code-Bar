@@ -2,7 +2,7 @@
 
 <div align="center">
 
-一个基于 Tauri + React 的桌面应用，专为 Claude Code 用户提供增强的会话管理和开发体验。
+一个通用的 AI 编程助手平台 - 统一管理多种 AI 工具和服务商的开发体验。
 
 [English](./README.md) | 简体中文
 
@@ -10,13 +10,15 @@
 
 ## ✨ 特性
 
-- **🎯 会话管理** - 集中管理多个 Claude Code 会话，支持按工作区分组
-- **📁 工作区支持** - 多工作区管理，快速切换不同项目
-- **🖥️ 集成终端** - 内置 xterm 终端，直接在应用中执行命令
-- **📊 Git Diff 查看** - 可视化展示代码变更，支持 diff2html 渲染
-- **🔧 Claude Code 集成** - 原生集成 Claude Code harness 功能
+- **🎯 通用 Runner 支持** - 一处集成多种 AI 工具：Claude Code、OpenAI Codex、自定义 CLI、内置原生 Harness
+- **🤖 多服务商集成** - 支持 Anthropic Claude、OpenAI GPT、DeepSeek、OpenAI 兼容接口（默认：智谱 GLM）
+- **🔧 原生 Harness** - 内置 LLM 集成，无需外部 CLI 即可直接调用 API
+- **🎯 会话管理** - 集中管理多个 AI 会话，支持按工作区分组
+- **📁 工作区支持** - 多工作区管理，快速切换不同项目，支持 Git worktree
+- **🖥️ 集成终端** - 内置 xterm 终端，支持 PTY 直接执行命令
+- **📊 Git Diff 查看** - 可视化展示代码变更，支持 diff2html 渲染和自动刷新
 - **🎨 现代化 UI** - 使用 Tailwind CSS + Framer Motion 构建的流畅界面
-- **⚙️ 丰富设置** - 可自定义主题、快捷键、行为偏好等
+- **⚙️ 丰富设置** - 可自定义主题、快捷键、API 密钥和行为偏好
 
 ## 🚀 快速开始
 
@@ -63,29 +65,42 @@ pnpm tauri build
 
 ## 📖 功能说明
 
+### 通用 Runner 系统
+- **Claude Code** - 官方 Anthropic Claude Code CLI 集成
+- **OpenAI Codex** - OpenAI 的 GPT 模型 CLI
+- **自定义 CLI** - 支持任意自定义 AI CLI 工具
+- **原生 Harness** - 内置 LLM 集成（无需 CLI）
+
+### 多服务商支持
+- **Anthropic** - Claude Opus、Sonnet、Haiku 模型
+- **OpenAI** - GPT-4o、GPT-4.1、O3、O4-mini 模型
+- **DeepSeek** - DeepSeek Chat、Reasoner 模型
+- **OpenAI 兼容** - 任何遵循 OpenAI 格式的 API（默认：智谱 GLM-4-Flash）
+
 ### 会话管理
 - 创建、编辑、删除会话
 - 会话分组和标签
 - 会话状态持久化
 - 快速搜索和过滤
+- 实时输出流式传输
 
 ### 工作区管理
 - 添加和管理多个代码工作区
 - 自动信任工作区目录
 - 工作区间快速切换
-- Git worktree 支持
+- Git worktree 支持及自动清理
 
 ### 终端功能
-- 完整的终端模拟器支持
+- 完整的 PTY 终端模拟器支持
 - 多会话终端管理
 - 自动适配窗口大小
 - 丰富的终端配置选项
 
 ### Git 集成
 - 可视化 Git diff
-- 支持分文件查看变更
-- 语法高亮
+- 支持分文件查看变更及语法高亮
 - 行内差异显示
+- 可配置的自动刷新间隔
 
 ## 🛠️ 技术栈
 
@@ -94,14 +109,17 @@ pnpm tauri build
 - **构建工具**: Vite 7
 - **样式**: Tailwind CSS 4
 - **动画**: Framer Motion
-- **状态管理**: Zustand
-- **终端**: xterm.js
+- **状态管理**: Zustand（带持久化）
+- **终端**: xterm.js（支持 PTY）
 - **Diff 渲染**: diff2html
+- **LLM 客户端**: 原生 API 集成
 
 ### 后端
 - **框架**: Tauri 2 (Rust)
 - **系统 API**: Tauri API
 - **插件**: Tauri Plugin Opener
+- **密钥链**: 安全的 API 密钥存储
+- **进程管理**: PTY 生成及输出流式传输
 
 ### 开发工具
 - **IDE 推荐**: VS Code + Tauri 扩展 + rust-analyzer
@@ -161,6 +179,9 @@ coding-island/
 
 - [Tauri](https://tauri.app/) - 跨平台桌面应用框架
 - [React](https://react.dev/) - 用户界面库
-- [Claude Code](https://claude.ai/code) - AI 编程助手
+- [Anthropic Claude](https://www.anthropic.com/claude) - Claude 模型
+- [OpenAI](https://openai.com/) - GPT 模型
+- [DeepSeek](https://www.deepseek.com/) - DeepSeek 模型
+- [智谱 AI](https://open.bigmodel.cn/) - GLM 模型
 - [xterm.js](https://xtermjs.org/) - 终端模拟器
 - [diff2html](https://diff2html.xyz/) - Git diff 可视化

@@ -2,7 +2,7 @@
 
 <div align="center">
 
-A Tauri + React desktop application providing enhanced session management and development experience for Claude Code users.
+A universal AI programming assistant platform - unified session management and development experience across multiple AI tools and providers.
 
 English | [简体中文](./README.zh.md)
 
@@ -10,13 +10,15 @@ English | [简体中文](./README.zh.md)
 
 ## ✨ Features
 
-- **🎯 Session Management** - Centralized management of multiple Claude Code sessions with workspace grouping
-- **📁 Workspace Support** - Multi-workspace management for quick project switching
-- **🖥️ Integrated Terminal** - Built-in xterm terminal for direct command execution
-- **📊 Git Diff Viewer** - Visual code changes display with diff2html rendering
-- **🔧 Claude Code Integration** - Native Claude Code harness functionality
+- **🎯 Universal Runner Support** - Multiple AI runners in one place: Claude Code, OpenAI Codex, custom CLI, and built-in native harness
+- **🤖 Multi-Provider Integration** - Support for Anthropic Claude, OpenAI GPT, DeepSeek, and OpenAI-compatible APIs (default: Zhipu GLM)
+- **🔧 Native Harness** - Built-in LLM integration for direct API calls without external CLI dependencies
+- **🎯 Session Management** - Centralized management of multiple AI sessions with workspace grouping
+- **📁 Workspace Support** - Multi-workspace management for quick project switching with Git worktree support
+- **🖥️ Integrated Terminal** - Built-in xterm terminal for direct command execution with PTY support
+- **📊 Git Diff Viewer** - Visual code changes display with diff2html rendering and auto-refresh
 - **🎨 Modern UI** - Fluid interface built with Tailwind CSS + Framer Motion
-- **⚙️ Rich Settings** - Customizable themes, shortcuts, and behavior preferences
+- **⚙️ Rich Settings** - Customizable themes, shortcuts, API keys, and behavior preferences
 
 ## 🚀 Quick Start
 
@@ -63,29 +65,42 @@ pnpm tauri build
 
 ## 📖 Features
 
+### Universal Runner System
+- **Claude Code** - Official Anthropic Claude Code CLI integration
+- **OpenAI Codex** - OpenAI's CLI for GPT models
+- **Custom CLI** - Bring your own AI CLI tool
+- **Native Harness** - Built-in LLM integration (no CLI required)
+
+### Multi-Provider Support
+- **Anthropic** - Claude Opus, Sonnet, Haiku models
+- **OpenAI** - GPT-4o, GPT-4.1, O3, O4-mini models
+- **DeepSeek** - DeepSeek Chat, Reasoner models
+- **OpenAI-Compatible** - Any API following OpenAI's format (default: Zhipu GLM-4-Flash)
+
 ### Session Management
 - Create, edit, and delete sessions
 - Session grouping and tagging
 - Persistent session state
 - Quick search and filtering
+- Real-time output streaming
 
 ### Workspace Management
 - Add and manage multiple code workspaces
 - Automatic workspace directory trust
 - Quick workspace switching
-- Git worktree support
+- Git worktree support with auto-cleanup
 
 ### Terminal Features
-- Full terminal emulator support
+- Full PTY terminal emulator support
 - Multi-session terminal management
 - Automatic window size adaptation
 - Rich terminal configuration options
 
 ### Git Integration
 - Visual Git diff display
-- Per-file change viewing
-- Syntax highlighting
+- Per-file change viewing with syntax highlighting
 - Inline diff display
+- Auto-refresh with configurable intervals
 
 ## 🛠️ Tech Stack
 
@@ -94,14 +109,17 @@ pnpm tauri build
 - **Build Tool**: Vite 7
 - **Styling**: Tailwind CSS 4
 - **Animation**: Framer Motion
-- **State Management**: Zustand
-- **Terminal**: xterm.js
+- **State Management**: Zustand with persistence
+- **Terminal**: xterm.js with PTY support
 - **Diff Rendering**: diff2html
+- **LLM Client**: Native API integration
 
 ### Backend
 - **Framework**: Tauri 2 (Rust)
 - **System API**: Tauri API
 - **Plugins**: Tauri Plugin Opener
+- **Keychain**: Secure API key storage
+- **Process Management**: PTY spawn/output streaming
 
 ### Development Tools
 - **IDE**: VS Code + Tauri extension + rust-analyzer
@@ -161,6 +179,9 @@ This project is licensed under the MIT License - see [LICENSE](LICENSE) for deta
 
 - [Tauri](https://tauri.app/) - Cross-platform desktop application framework
 - [React](https://react.dev/) - UI library
-- [Claude Code](https://claude.ai/code) - AI programming assistant
+- [Anthropic Claude](https://www.anthropic.com/claude) - AI models
+- [OpenAI](https://openai.com/) - GPT models
+- [DeepSeek](https://www.deepseek.com/) - DeepSeek models
+- [Zhipu AI](https://open.bigmodel.cn/) - GLM models
 - [xterm.js](https://xtermjs.org/) - Terminal emulator
 - [diff2html](https://diff2html.xyz/) - Git diff visualization
