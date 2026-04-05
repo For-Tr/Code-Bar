@@ -10,6 +10,8 @@ export interface DiffFile {
   type: "added" | "modified" | "deleted";
   additions: number;
   deletions: number;
+  binary?: boolean;
+  note?: string;
   hunks: DiffHunk[];
 }
 
@@ -36,12 +38,19 @@ export interface ClaudeSession {
   diffFiles: DiffFile[];
   output: string[];
   pid?: number;
+  branchName?: string;     // AI 在本 session 中使用的 git 分支名（如 ci/session-3）
+  baseBranch?: string;     // 任务开始时的基础分支（如 main/master）
+  worktreePath?: string;   // git worktree 路径
 }
 
 interface SessionStore {
   sessions: ClaudeSession[];
   activeSessionId: string | null;
   expandedSessionId: string | null;
+
+  // worktreeReady：记录 worktree 是否已就绪（创建完成或确认不是 git 仓库）
+  // 不持久化，每次应用启动重置；持久化的 session 重新打开时从 worktreePath 推断
+  worktreeReadyIds: Set<string>;
 
   addSession: (workspaceId: string, workdir: string, name?: string) => string;
   removeSession: (id: string) => void;
@@ -52,6 +61,7 @@ interface SessionStore {
   setDiffFiles: (id: string, files: DiffFile[]) => void;
   setExpandedSession: (id: string | null) => void;
   removeSessionsByWorkspace: (workspaceId: string) => void;
+  markWorktreeReady: (id: string) => void;
 }
 
 // ── 工厂函数 ─────────────────────────────────────────────────
@@ -80,6 +90,7 @@ export const useSessionStore = create<SessionStore>()(
       sessions: [],
       activeSessionId: null,
       expandedSessionId: null,
+      worktreeReadyIds: new Set<string>(),
 
       addSession: (workspaceId, workdir, name) => {
         const s = makeSession({ workspaceId, workdir, ...(name ? { name } : {}) });
@@ -97,7 +108,9 @@ export const useSessionStore = create<SessionStore>()(
             state.activeSessionId === id
               ? (sessions[0]?.id ?? null)
               : state.activeSessionId;
-          return { sessions, activeSessionId };
+          const worktreeReadyIds = new Set(state.worktreeReadyIds);
+          worktreeReadyIds.delete(id);
+          return { sessions, activeSessionId, worktreeReadyIds };
         }),
 
       setActiveSession: (id) =>
@@ -143,12 +156,24 @@ export const useSessionStore = create<SessionStore>()(
             state.sessions.find((s) => s.id === state.activeSessionId)?.workspaceId === workspaceId
               ? (sessions[0]?.id ?? null)
               : state.activeSessionId;
-          return { sessions, activeSessionId };
+          const removedIds = state.sessions
+            .filter((s) => s.workspaceId === workspaceId)
+            .map((s) => s.id);
+          const worktreeReadyIds = new Set(state.worktreeReadyIds);
+          removedIds.forEach((id) => worktreeReadyIds.delete(id));
+          return { sessions, activeSessionId, worktreeReadyIds };
+        }),
+
+      markWorktreeReady: (id) =>
+        set((state) => {
+          const worktreeReadyIds = new Set(state.worktreeReadyIds);
+          worktreeReadyIds.add(id);
+          return { worktreeReadyIds };
         }),
     }),
     {
       name: "coding-island-sessions",
-      // expandedSessionId 不持久化（每次打开都回到首页）
+      // expandedSessionId 和 worktreeReadyIds 不持久化
       partialize: (state) => ({
         sessions: state.sessions.map((s) => ({
           ...s,
@@ -160,13 +185,20 @@ export const useSessionStore = create<SessionStore>()(
         })),
         activeSessionId: state.activeSessionId,
       }),
-      // 恢复时修复 _counter，避免 id 冲突
+      // 恢复时：修复 _counter，并将已有 worktreePath 的 session 标记为 worktreeReady
+      // 这些 session 的 worktree 可能已存在（或被孤儿清理），但不再新建——直接用持久化路径
       onRehydrateStorage: () => (state) => {
         if (!state) return;
         const ids = state.sessions.map((s) => Number(s.id)).filter((n) => !isNaN(n));
         if (ids.length > 0) {
           _counter = Math.max(...ids) + 1;
         }
+        // 有 worktreePath 的持久化 session：worktree 已在文件系统中（由启动时的清理机制保证有效性）
+        // 直接标记为 ready，不重新创建
+        const readyIds = new Set<string>(
+          state.sessions.filter((s) => s.worktreePath).map((s) => s.id)
+        );
+        state.worktreeReadyIds = readyIds;
       },
     }
   )

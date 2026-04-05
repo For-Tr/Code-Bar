@@ -583,36 +583,92 @@ fn get_git_diff_raw(workdir: &str) -> Result<Vec<serde_json::Value>, String> {
         if parts.len() < 3 {
             continue;
         }
-        let additions = parts[0].parse::<u32>().unwrap_or(0);
-        let deletions = parts[1].parse::<u32>().unwrap_or(0);
         let path = parts[2].to_string();
-        let hunks = get_file_hunks(workdir, &path);
-        let file_type = if additions > 0 && deletions == 0 {
+
+        // 二进制文件在 --numstat 输出中 additions/deletions 均为 "-"
+        let is_binary = parts[0] == "-" && parts[1] == "-";
+        let additions = if is_binary { 0 } else { parts[0].parse::<u32>().unwrap_or(0) };
+        let deletions = if is_binary { 0 } else { parts[1].parse::<u32>().unwrap_or(0) };
+
+        // 文件类型：二进制文件统一标记为 modified（numstat 无法区分 added/deleted 二进制）
+        let file_type = if is_binary {
+            "modified"
+        } else if additions > 0 && deletions == 0 {
             "added"
         } else if additions == 0 && deletions > 0 {
             "deleted"
         } else {
             "modified"
         };
-        files.push(serde_json::json!({
+
+        let (hunks, note) = if is_binary {
+            (vec![], None)
+        } else {
+            get_file_hunks(workdir, &path)
+        };
+
+        let mut entry = serde_json::json!({
             "path": path,
             "type": file_type,
             "additions": additions,
             "deletions": deletions,
+            "binary": is_binary,
             "hunks": hunks,
-        }));
+        });
+        if let Some(n) = note {
+            entry["note"] = serde_json::Value::String(n);
+        }
+        files.push(entry);
     }
 
     Ok(files)
 }
 
-fn get_file_hunks(workdir: &str, path: &str) -> Vec<serde_json::Value> {
+/// 返回 (hunks, note)：hunks 为解析到的 diff 块，note 为无 hunk 时的说明（如权限变更）
+fn get_file_hunks(workdir: &str, path: &str) -> (Vec<serde_json::Value>, Option<String>) {
     let output = Command::new("git")
         .current_dir(workdir)
         .args(["diff", "HEAD", "--", path])
         .output();
-    let Ok(out) = output else { return vec![] };
-    parse_diff_hunks(&String::from_utf8_lossy(&out.stdout))
+    let Ok(out) = output else { return (vec![], None) };
+    let diff_text = String::from_utf8_lossy(&out.stdout);
+    let hunks = parse_diff_hunks(&diff_text);
+    // 若解析出 hunk 则直接返回
+    if !hunks.is_empty() {
+        return (hunks, None);
+    }
+    // 无 hunk 时，尝试从 diff header 提取有意义的说明
+    let note = parse_diff_note(&diff_text);
+    (vec![], note)
+}
+
+/// 从无 hunk 的 diff 输出中提取说明性文本（权限变更、submodule、空文件等）
+fn parse_diff_note(diff: &str) -> Option<String> {
+    let mut old_mode: Option<&str> = None;
+    let mut new_mode: Option<&str> = None;
+    let mut submodule_lines: Vec<&str> = vec![];
+
+    for line in diff.lines() {
+        if let Some(rest) = line.strip_prefix("old mode ") {
+            old_mode = Some(rest);
+        } else if let Some(rest) = line.strip_prefix("new mode ") {
+            new_mode = Some(rest);
+        } else if line.starts_with("Subproject commit") || line.starts_with("-Subproject commit") {
+            submodule_lines.push(line);
+        }
+    }
+
+    if let (Some(old), Some(new)) = (old_mode, new_mode) {
+        return Some(format!("文件权限变更：{old} → {new}"));
+    }
+    if !submodule_lines.is_empty() {
+        return Some("Submodule 提交变更".to_string());
+    }
+    if diff.contains("diff --git") {
+        // diff 头存在但没有任何可解析内容
+        return Some("仅元数据变更（无内容差异）".to_string());
+    }
+    None
 }
 
 fn parse_diff_hunks(diff: &str) -> Vec<serde_json::Value> {
@@ -675,6 +731,627 @@ fn parse_diff_hunks(diff: &str) -> Vec<serde_json::Value> {
     hunks
 }
 
+// ── Tauri Commands — Git 分支管理 ────────────────────────────
+
+/// 获取当前所在分支名
+#[tauri::command]
+async fn git_current_branch(workdir: String) -> Result<String, String> {
+    let expanded = expand_path(&workdir);
+    tokio::task::spawn_blocking(move || {
+        let out = Command::new("git")
+            .current_dir(&expanded)
+            .args(["rev-parse", "--abbrev-ref", "HEAD"])
+            .output()
+            .map_err(|e| e.to_string())?;
+        if !out.status.success() {
+            return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+        }
+        Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    }).await.map_err(|e| e.to_string())?
+}
+
+/// 创建并切换到新分支（基于当前 HEAD）
+#[tauri::command]
+async fn git_branch_create(workdir: String, branch: String) -> Result<(), String> {
+    let expanded = expand_path(&workdir);
+    tokio::task::spawn_blocking(move || {
+        let out = Command::new("git")
+            .current_dir(&expanded)
+            .args(["checkout", "-b", &branch])
+            .output()
+            .map_err(|e| e.to_string())?;
+        if !out.status.success() {
+            return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+        }
+        Ok(())
+    }).await.map_err(|e| e.to_string())?
+}
+
+/// 切换到指定分支
+#[tauri::command]
+async fn git_branch_switch(workdir: String, branch: String) -> Result<(), String> {
+    let expanded = expand_path(&workdir);
+    tokio::task::spawn_blocking(move || {
+        let out = Command::new("git")
+            .current_dir(&expanded)
+            .args(["checkout", &branch])
+            .output()
+            .map_err(|e| e.to_string())?;
+        if !out.status.success() {
+            return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+        }
+        Ok(())
+    }).await.map_err(|e| e.to_string())?
+}
+
+/// 删除指定分支（-D 强制删除）
+#[tauri::command]
+async fn git_branch_delete(workdir: String, branch: String) -> Result<(), String> {
+    let expanded = expand_path(&workdir);
+    tokio::task::spawn_blocking(move || {
+        let out = Command::new("git")
+            .current_dir(&expanded)
+            .args(["branch", "-D", &branch])
+            .output()
+            .map_err(|e| e.to_string())?;
+        if !out.status.success() {
+            return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+        }
+        Ok(())
+    }).await.map_err(|e| e.to_string())?
+}
+
+/// 将 session 分支 merge 回目标分支（--no-ff 保留分支历史）
+#[tauri::command]
+async fn git_branch_merge(workdir: String, target_branch: String, session_branch: String) -> Result<(), String> {
+    let expanded = expand_path(&workdir);
+    tokio::task::spawn_blocking(move || {
+        // 先切换到目标分支
+        let switch = Command::new("git")
+            .current_dir(&expanded)
+            .args(["checkout", &target_branch])
+            .output()
+            .map_err(|e| e.to_string())?;
+        if !switch.status.success() {
+            return Err(format!("切换到 {target_branch} 失败: {}",
+                String::from_utf8_lossy(&switch.stderr).trim()));
+        }
+        // 执行 merge
+        let merge = Command::new("git")
+            .current_dir(&expanded)
+            .args(["merge", "--no-ff", &session_branch])
+            .output()
+            .map_err(|e| e.to_string())?;
+        if !merge.status.success() {
+            return Err(format!("merge 失败: {}",
+                String::from_utf8_lossy(&merge.stderr).trim()));
+        }
+        Ok(())
+    }).await.map_err(|e| e.to_string())?
+}
+
+/// 获取两个分支之间的 diff（base..session），返回结构化文件列表
+#[tauri::command]
+async fn get_git_diff_branch(
+    app: tauri::AppHandle,
+    session_id: String,
+    workdir: String,
+    base_branch: String,
+    session_branch: String,
+) -> Result<(), String> {
+    let expanded = expand_path(&workdir);
+    let files = get_git_diff_between(&expanded, &base_branch, &session_branch)?;
+    let _ = app.emit(
+        "diff-update",
+        serde_json::json!({"session_id": session_id, "files": files}),
+    );
+    Ok(())
+}
+
+/// 计算 base_branch...session_branch 之间的变更文件（三点 diff，排除 base 上的变更）
+fn get_git_diff_between(workdir: &str, base: &str, session: &str) -> Result<Vec<serde_json::Value>, String> {
+    // 用 git diff --numstat base...session（三点：共同祖先到 session 的变更）
+    let range = format!("{base}...{session}");
+    let numstat = Command::new("git")
+        .current_dir(workdir)
+        .args(["diff", "--numstat", &range])
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    if !numstat.status.success() {
+        return Err(String::from_utf8_lossy(&numstat.stderr).trim().to_string());
+    }
+
+    let stdout = String::from_utf8_lossy(&numstat.stdout);
+    let mut files = vec![];
+
+    for line in stdout.lines() {
+        let parts: Vec<&str> = line.splitn(3, '\t').collect();
+        if parts.len() < 3 { continue; }
+
+        let path = parts[2].to_string();
+        let is_binary = parts[0] == "-" && parts[1] == "-";
+        let additions = if is_binary { 0 } else { parts[0].parse::<u32>().unwrap_or(0) };
+        let deletions = if is_binary { 0 } else { parts[1].parse::<u32>().unwrap_or(0) };
+
+        let file_type = if is_binary {
+            "modified"
+        } else if additions > 0 && deletions == 0 {
+            "added"
+        } else if additions == 0 && deletions > 0 {
+            "deleted"
+        } else {
+            "modified"
+        };
+
+        let (hunks, note) = if is_binary {
+            (vec![], None)
+        } else {
+            get_file_hunks_between(workdir, &range, &path)
+        };
+
+        let mut entry = serde_json::json!({
+            "path": path,
+            "type": file_type,
+            "additions": additions,
+            "deletions": deletions,
+            "binary": is_binary,
+            "hunks": hunks,
+        });
+        if let Some(n) = note {
+            entry["note"] = serde_json::Value::String(n);
+        }
+        files.push(entry);
+    }
+
+    Ok(files)
+}
+
+// ── Tauri Commands — Git Worktree 管理 ───────────────────────
+
+/// 创建 git worktree（基于当前 HEAD 创建新分支并 checkout 到指定路径）
+/// 返回 worktree 的绝对路径
+#[tauri::command]
+async fn git_worktree_create(
+    workdir: String,
+    branch: String,
+    worktree_path: String,
+) -> Result<String, String> {
+    let expanded_workdir = expand_path(&workdir);
+    let expanded_wt_path = expand_path(&worktree_path);
+
+    tokio::task::spawn_blocking(move || {
+        // 创建父目录（若不存在）
+        if let Some(parent) = std::path::Path::new(&expanded_wt_path).parent() {
+            fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {e}"))?;
+        }
+
+        // git worktree add -b <branch> <path> HEAD
+        let out = Command::new("git")
+            .current_dir(&expanded_workdir)
+            .args(["worktree", "add", "-b", &branch, &expanded_wt_path, "HEAD"])
+            .output()
+            .map_err(|e| e.to_string())?;
+
+        if !out.status.success() {
+            return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+        }
+
+        Ok(expanded_wt_path)
+    }).await.map_err(|e| e.to_string())?
+}
+
+/// 删除 git worktree（同时删除对应分支，可选）
+#[tauri::command]
+async fn git_worktree_remove(
+    workdir: String,
+    worktree_path: String,
+    branch: String,
+    delete_branch: bool,
+) -> Result<(), String> {
+    let expanded_workdir = expand_path(&workdir);
+    let expanded_wt_path = expand_path(&worktree_path);
+
+    tokio::task::spawn_blocking(move || {
+        // git worktree remove --force <path>
+        let out = Command::new("git")
+            .current_dir(&expanded_workdir)
+            .args(["worktree", "remove", "--force", &expanded_wt_path])
+            .output()
+            .map_err(|e| e.to_string())?;
+
+        if !out.status.success() {
+            // worktree remove 失败时尝试手动清理目录
+            let wt_path = std::path::Path::new(&expanded_wt_path);
+            if wt_path.exists() {
+                fs::remove_dir_all(wt_path)
+                    .map_err(|e| format!("清理 worktree 目录失败: {e}"))?;
+            }
+            // 修剪 worktree 引用
+            let _ = Command::new("git")
+                .current_dir(&expanded_workdir)
+                .args(["worktree", "prune"])
+                .output();
+        }
+
+        // 可选：删除对应分支
+        if delete_branch && !branch.is_empty() {
+            let _ = Command::new("git")
+                .current_dir(&expanded_workdir)
+                .args(["branch", "-D", &branch])
+                .output();
+        }
+
+        Ok(())
+    }).await.map_err(|e| e.to_string())?
+}
+
+/// 列出所有 git worktree（返回结构化信息）
+#[tauri::command]
+async fn git_worktree_list(workdir: String) -> Result<Vec<serde_json::Value>, String> {
+    let expanded = expand_path(&workdir);
+
+    tokio::task::spawn_blocking(move || {
+        let out = Command::new("git")
+            .current_dir(&expanded)
+            .args(["worktree", "list", "--porcelain"])
+            .output()
+            .map_err(|e| e.to_string())?;
+
+        if !out.status.success() {
+            return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+        }
+
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let mut worktrees = vec![];
+        let mut current: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
+
+        for line in stdout.lines() {
+            if line.is_empty() {
+                if !current.is_empty() {
+                    worktrees.push(serde_json::Value::Object(current.clone()));
+                    current.clear();
+                }
+            } else if let Some(path) = line.strip_prefix("worktree ") {
+                current.insert("path".to_string(), serde_json::Value::String(path.to_string()));
+            } else if let Some(hash) = line.strip_prefix("HEAD ") {
+                current.insert("head".to_string(), serde_json::Value::String(hash.to_string()));
+            } else if let Some(branch) = line.strip_prefix("branch refs/heads/") {
+                current.insert("branch".to_string(), serde_json::Value::String(branch.to_string()));
+            } else if line == "bare" {
+                current.insert("bare".to_string(), serde_json::Value::Bool(true));
+            } else if line == "detached" {
+                current.insert("detached".to_string(), serde_json::Value::Bool(true));
+            }
+        }
+        // 处理最后一个 worktree（文件末尾无空行时）
+        if !current.is_empty() {
+            worktrees.push(serde_json::Value::Object(current));
+        }
+
+        Ok(worktrees)
+    }).await.map_err(|e| e.to_string())?
+}
+
+/// 将 worktree 分支 merge 回目标分支，然后删除 worktree 和分支
+#[tauri::command]
+async fn git_worktree_merge(
+    workdir: String,
+    worktree_path: String,
+    branch: String,
+    target_branch: String,
+) -> Result<(), String> {
+    let expanded_workdir = expand_path(&workdir);
+    let expanded_wt_path = expand_path(&worktree_path);
+
+    tokio::task::spawn_blocking(move || {
+        // 先 checkout 到 target_branch（在主仓库中操作）
+        let switch = Command::new("git")
+            .current_dir(&expanded_workdir)
+            .args(["checkout", &target_branch])
+            .output()
+            .map_err(|e| e.to_string())?;
+        if !switch.status.success() {
+            return Err(format!(
+                "切换到 {} 失败: {}",
+                target_branch,
+                String::from_utf8_lossy(&switch.stderr).trim()
+            ));
+        }
+
+        // merge --no-ff
+        let merge = Command::new("git")
+            .current_dir(&expanded_workdir)
+            .args(["merge", "--no-ff", &branch])
+            .output()
+            .map_err(|e| e.to_string())?;
+        if !merge.status.success() {
+            return Err(format!(
+                "merge 失败: {}",
+                String::from_utf8_lossy(&merge.stderr).trim()
+            ));
+        }
+
+        // 删除 worktree
+        let _ = Command::new("git")
+            .current_dir(&expanded_workdir)
+            .args(["worktree", "remove", "--force", &expanded_wt_path])
+            .output();
+
+        // 若目录还在，手动清理
+        let wt = std::path::Path::new(&expanded_wt_path);
+        if wt.exists() {
+            let _ = fs::remove_dir_all(wt);
+            let _ = Command::new("git")
+                .current_dir(&expanded_workdir)
+                .args(["worktree", "prune"])
+                .output();
+        }
+
+        // 删除 worktree 分支
+        if !branch.is_empty() {
+            let _ = Command::new("git")
+                .current_dir(&expanded_workdir)
+                .args(["branch", "-D", &branch])
+                .output();
+        }
+
+        Ok(())
+    }).await.map_err(|e| e.to_string())?
+}
+
+/// 检查指定目录是否是 git 仓库，并返回当前分支名
+/// 返回 Some(branch_name) 表示是 git 仓库，None 表示不是
+#[tauri::command]
+async fn git_repo_info(workdir: String) -> Result<Option<String>, String> {
+    let expanded = expand_path(&workdir);
+    tokio::task::spawn_blocking(move || {
+        let out = Command::new("git")
+            .current_dir(&expanded)
+            .args(["rev-parse", "--abbrev-ref", "HEAD"])
+            .output()
+            .map_err(|e| e.to_string())?;
+        if out.status.success() {
+            let branch = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            Ok(Some(branch))
+        } else {
+            Ok(None)
+        }
+    }).await.map_err(|e| e.to_string())?
+}
+
+/// 为 session 创建独立的 git worktree
+/// 返回 { worktree_path, branch, base_branch }
+/// 若目录不是 git 仓库，返回 null（前端降级使用原始 workdir）
+#[tauri::command]
+async fn setup_session_worktree(
+    workdir: String,
+    session_id: String,
+) -> Result<Option<serde_json::Value>, String> {
+    let expanded_workdir = expand_path(&workdir);
+    let session_id_clone = session_id.clone();
+
+    tokio::task::spawn_blocking(move || {
+        // 1. 检测是否是 git 仓库
+        let branch_out = Command::new("git")
+            .current_dir(&expanded_workdir)
+            .args(["rev-parse", "--abbrev-ref", "HEAD"])
+            .output()
+            .map_err(|e| e.to_string())?;
+
+        if !branch_out.status.success() {
+            // 不是 git 仓库，返回 null
+            return Ok(None);
+        }
+
+        let base_branch = String::from_utf8_lossy(&branch_out.stdout).trim().to_string();
+        // 若处于 detached HEAD，跳过 worktree
+        if base_branch == "HEAD" {
+            return Ok(None);
+        }
+
+        // 2. 计算 worktree 路径和分支名
+        // worktree 放在 repo 同级的 .coding-island-worktrees/<session_id>
+        let repo_parent = std::path::Path::new(&expanded_workdir)
+            .parent()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|| expanded_workdir.clone());
+        let worktree_path = format!("{}/.coding-island-worktrees/session-{}", repo_parent, session_id_clone);
+        let branch = format!("ci/session-{}", session_id_clone);
+
+        // 3. 若同名 worktree/分支已存在，先清理（幂等）
+        let _ = Command::new("git")
+            .current_dir(&expanded_workdir)
+            .args(["worktree", "remove", "--force", &worktree_path])
+            .output();
+        let _ = Command::new("git")
+            .current_dir(&expanded_workdir)
+            .args(["branch", "-D", &branch])
+            .output();
+
+        // 4. 创建 worktree
+        if let Some(parent) = std::path::Path::new(&worktree_path).parent() {
+            fs::create_dir_all(parent).map_err(|e| format!("创建 worktree 父目录失败: {e}"))?;
+        }
+
+        let out = Command::new("git")
+            .current_dir(&expanded_workdir)
+            .args(["worktree", "add", "-b", &branch, &worktree_path, "HEAD"])
+            .output()
+            .map_err(|e| e.to_string())?;
+
+        if !out.status.success() {
+            return Err(format!(
+                "创建 worktree 失败: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            ));
+        }
+
+        Ok(Some(serde_json::json!({
+            "worktree_path": worktree_path,
+            "branch": branch,
+            "base_branch": base_branch,
+        })))
+    }).await.map_err(|e| e.to_string())?
+}
+
+/// 清理 session 的 git worktree（删除 worktree 目录和对应分支）
+/// 静默失败，不影响正常流程
+#[tauri::command]
+async fn teardown_session_worktree(
+    workdir: String,
+    worktree_path: String,
+    branch: String,
+) -> Result<(), String> {
+    let expanded_workdir = expand_path(&workdir);
+    let expanded_wt = expand_path(&worktree_path);
+
+    tokio::task::spawn_blocking(move || {
+        // 移除 worktree
+        let _ = Command::new("git")
+            .current_dir(&expanded_workdir)
+            .args(["worktree", "remove", "--force", &expanded_wt])
+            .output();
+
+        // 若目录还在，强制清理
+        let wt = std::path::Path::new(&expanded_wt);
+        if wt.exists() {
+            let _ = fs::remove_dir_all(wt);
+        }
+
+        // 修剪悬空 worktree 引用
+        let _ = Command::new("git")
+            .current_dir(&expanded_workdir)
+            .args(["worktree", "prune"])
+            .output();
+
+        // 删除分支
+        if !branch.is_empty() {
+            let _ = Command::new("git")
+                .current_dir(&expanded_workdir)
+                .args(["branch", "-D", &branch])
+                .output();
+        }
+
+        Ok(())
+    }).await.map_err(|e| e.to_string())?
+}
+
+/// 清理孤儿 worktree：扫描 .coding-island-worktrees/ 目录，
+/// 将不在 known_worktree_paths 列表中的 worktree 目录和对应分支全部删除。
+/// 用于应用启动时修复 session 数据丢失或异常退出导致的 worktree 泄漏。
+#[tauri::command]
+async fn prune_orphan_worktrees(
+    workdir: String,
+    known_worktree_paths: Vec<String>,
+) -> Result<Vec<String>, String> {
+    let expanded_workdir = expand_path(&workdir);
+
+    tokio::task::spawn_blocking(move || {
+        // .coding-island-worktrees 目录在 repo 父目录下
+        let repo_parent = std::path::Path::new(&expanded_workdir)
+            .parent()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|| expanded_workdir.clone());
+        let wt_base = format!("{}/.coding-island-worktrees", repo_parent);
+        let wt_base_path = std::path::Path::new(&wt_base);
+
+        if !wt_base_path.exists() {
+            return Ok(vec![]);
+        }
+
+        // 构建已知路径的规范化集合（统一去掉末尾斜杠）
+        let known: std::collections::HashSet<String> = known_worktree_paths
+            .iter()
+            .map(|p| expand_path(p).trim_end_matches('/').to_string())
+            .collect();
+
+        let mut pruned = vec![];
+
+        // 遍历 .coding-island-worktrees/ 下的所有子目录
+        let entries = match std::fs::read_dir(wt_base_path) {
+            Ok(e) => e,
+            Err(_) => return Ok(vec![]),
+        };
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_dir() { continue; }
+
+            let path_str = path.to_string_lossy().to_string();
+            let canonical = path_str.trim_end_matches('/').to_string();
+
+            if known.contains(&canonical) {
+                // 已知 worktree，跳过
+                continue;
+            }
+
+            // 孤儿 worktree：读取 .git 文件中的分支名
+            let branch = read_worktree_branch(&path);
+
+            // 移除 worktree
+            let _ = Command::new("git")
+                .current_dir(&expanded_workdir)
+                .args(["worktree", "remove", "--force", &canonical])
+                .output();
+
+            // 若目录还在，强制删除
+            if path.exists() {
+                let _ = std::fs::remove_dir_all(&path);
+            }
+
+            // 删除对应分支
+            if let Some(b) = &branch {
+                if !b.is_empty() {
+                    let _ = Command::new("git")
+                        .current_dir(&expanded_workdir)
+                        .args(["branch", "-D", b])
+                        .output();
+                }
+            }
+
+            pruned.push(canonical);
+        }
+
+        // 修剪悬空 worktree 引用
+        if !pruned.is_empty() {
+            let _ = Command::new("git")
+                .current_dir(&expanded_workdir)
+                .args(["worktree", "prune"])
+                .output();
+        }
+
+        Ok(pruned)
+    }).await.map_err(|e| e.to_string())?
+}
+
+/// 从 worktree 目录的 .git 文件读取分支名（用于 prune 时删除对应分支）
+fn read_worktree_branch(worktree_path: &std::path::Path) -> Option<String> {
+    // worktree 中 .git 是一个文件，内容为 "gitdir: <path>"
+    // 实际 HEAD 文件在主仓库的 .git/worktrees/<name>/HEAD
+    let head_path = worktree_path.join("HEAD");
+    let content = std::fs::read_to_string(&head_path).ok()?;
+    // HEAD 格式：ref: refs/heads/<branch>
+    let branch = content.trim().strip_prefix("ref: refs/heads/")?;
+    Some(branch.to_string())
+}
+
+/// 获取指定 diff range 中单个文件的 hunks
+fn get_file_hunks_between(workdir: &str, range: &str, path: &str) -> (Vec<serde_json::Value>, Option<String>) {
+    let output = Command::new("git")
+        .current_dir(workdir)
+        .args(["diff", range, "--", path])
+        .output();
+    let Ok(out) = output else { return (vec![], None) };
+    let diff_text = String::from_utf8_lossy(&out.stdout);
+    let hunks = parse_diff_hunks(&diff_text);
+    if !hunks.is_empty() {
+        return (hunks, None);
+    }
+    let note = parse_diff_note(&diff_text);
+    (vec![], note)
+}
+
 /// 调用系统文件夹选择对话框，返回用户选中的路径（取消返回空字符串）
 #[tauri::command]
 fn pick_folder() -> String {
@@ -727,6 +1404,36 @@ fn pty_master_map(app: &tauri::AppHandle) -> PtyMasterMap {
     app.state::<PtyMasterMap>().inner().clone()
 }
 
+/// 检测指定 CLI 是否在 PATH 中可用
+#[tauri::command]
+async fn check_cli(command: String) -> bool {
+    // 优先用完整路径直接检测
+    if command.contains('/') || command.contains('\\') {
+        return std::path::Path::new(&command).exists();
+    }
+    // 从 PATH 查找
+    if let Ok(path_var) = std::env::var("PATH") {
+        let sep = if cfg!(windows) { ';' } else { ':' };
+        for dir in path_var.split(sep) {
+            let full = std::path::PathBuf::from(dir).join(&command);
+            if full.exists() {
+                return true;
+            }
+            // macOS/Linux：也检查带可执行权限
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                if let Ok(meta) = std::fs::metadata(&full) {
+                    if meta.permissions().mode() & 0o111 != 0 {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
 /// 启动 PTY 会话（用于 Claude Code / 任意 CLI），原始字节流推送给前端
 #[tauri::command]
 async fn start_pty_session(
@@ -737,6 +1444,8 @@ async fn start_pty_session(
     args: Vec<String>,
     cols: u16,
     rows: u16,
+    // 调用方可注入额外的环境变量（如 CODING_ISLAND_* context 信息）
+    env: Option<Vec<(String, String)>>,
 ) -> Result<(), String> {
     use portable_pty::{native_pty_system, CommandBuilder, PtySize};
     use base64::Engine;
@@ -771,6 +1480,13 @@ async fn start_pty_session(
     }
     if let Ok(home) = std::env::var("HOME") {
         cmd.env("HOME", home);
+    }
+
+    // 注入调用方传入的额外环境变量（CODING_ISLAND_* context 信息）
+    if let Some(extra_env) = env {
+        for (k, v) in extra_env {
+            cmd.env(k, v);
+        }
     }
 
     let child = pair.slave.spawn_command(cmd)
@@ -864,6 +1580,235 @@ fn resize_pty(
     Ok(())
 }
 
+/// 自动检测系统中 Claude / OpenAI 相关配置
+/// 返回结构：{ anthropic_api_key, anthropic_base_url, openai_api_key, openai_base_url,
+///             claude_settings, claude_cli_path, codex_cli_path,
+///             claude_oauth_logged_in (bool), claude_oauth_email (str) }
+#[tauri::command]
+fn detect_cli_config() -> serde_json::Value {
+    let mut result = serde_json::json!({
+        "anthropic_api_key":     "",
+        "anthropic_base_url":    "",
+        "openai_api_key":        "",
+        "openai_base_url":       "",
+        "claude_settings":       {},
+        "claude_cli_path":       "",
+        "codex_cli_path":        "",
+        "claude_oauth_logged_in": false,
+        "claude_oauth_email":    "",
+    });
+
+    // ── 1. Tauri 进程直接继承的环境变量（macOS App Bundle 里通常为空）──
+    if let Ok(v) = std::env::var("ANTHROPIC_API_KEY") {
+        result["anthropic_api_key"] = serde_json::Value::String(v);
+    }
+    if let Ok(v) = std::env::var("ANTHROPIC_BASE_URL") {
+        result["anthropic_base_url"] = serde_json::Value::String(v);
+    }
+    if let Ok(v) = std::env::var("OPENAI_API_KEY") {
+        result["openai_api_key"] = serde_json::Value::String(v);
+    }
+    if let Ok(v) = std::env::var("OPENAI_BASE_URL") {
+        result["openai_base_url"] = serde_json::Value::String(v);
+    }
+
+    // ── 2. 通过交互式 Shell 获取环境变量（这才能读到 .zshrc 里的 export）──
+    // 按优先级尝试：zsh → bash
+    let shell_candidates = ["/bin/zsh", "/bin/bash"];
+    for shell in &shell_candidates {
+        if !std::path::Path::new(shell).exists() { continue; }
+        let script = r#"
+            source ~/.zshenv 2>/dev/null || true
+            source ~/.zshrc 2>/dev/null || true
+            source ~/.bashrc 2>/dev/null || true
+            source ~/.bash_profile 2>/dev/null || true
+            echo "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}"
+            echo "ANTHROPIC_BASE_URL=${ANTHROPIC_BASE_URL}"
+            echo "OPENAI_API_KEY=${OPENAI_API_KEY}"
+            echo "OPENAI_BASE_URL=${OPENAI_BASE_URL}"
+        "#;
+        let out = Command::new(shell)
+            .args(["-l", "-c", script])
+            .output();
+        if let Ok(out) = out {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            for line in stdout.lines() {
+                if let Some(val) = line.strip_prefix("ANTHROPIC_API_KEY=") {
+                    let val = val.trim();
+                    if !val.is_empty() && result["anthropic_api_key"].as_str().unwrap_or("").is_empty() {
+                        result["anthropic_api_key"] = serde_json::Value::String(val.to_string());
+                    }
+                } else if let Some(val) = line.strip_prefix("ANTHROPIC_BASE_URL=") {
+                    let val = val.trim();
+                    if !val.is_empty() && result["anthropic_base_url"].as_str().unwrap_or("").is_empty() {
+                        result["anthropic_base_url"] = serde_json::Value::String(val.to_string());
+                    }
+                } else if let Some(val) = line.strip_prefix("OPENAI_API_KEY=") {
+                    let val = val.trim();
+                    if !val.is_empty() && result["openai_api_key"].as_str().unwrap_or("").is_empty() {
+                        result["openai_api_key"] = serde_json::Value::String(val.to_string());
+                    }
+                } else if let Some(val) = line.strip_prefix("OPENAI_BASE_URL=") {
+                    let val = val.trim();
+                    if !val.is_empty() && result["openai_base_url"].as_str().unwrap_or("").is_empty() {
+                        result["openai_base_url"] = serde_json::Value::String(val.to_string());
+                    }
+                }
+            }
+            // 成功拿到 shell 输出就不再尝试其他 shell
+            if out.status.success() { break; }
+        }
+    }
+
+    // ── 3. ~/.claude/settings.json（读取 apiKey / apiBaseUrl 字段）──
+    if let Ok(home) = std::env::var("HOME") {
+        let settings_path = std::path::PathBuf::from(&home)
+            .join(".claude")
+            .join("settings.json");
+        if let Ok(content) = std::fs::read_to_string(&settings_path) {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                result["claude_settings"] = json.clone();
+                if let Some(base_url) = json.get("apiBaseUrl").and_then(|v| v.as_str()) {
+                    if !base_url.is_empty() && result["anthropic_base_url"].as_str().unwrap_or("").is_empty() {
+                        result["anthropic_base_url"] = serde_json::Value::String(base_url.to_string());
+                    }
+                }
+                if let Some(key) = json.get("apiKey").and_then(|v| v.as_str()) {
+                    if !key.is_empty() && result["anthropic_api_key"].as_str().unwrap_or("").is_empty() {
+                        result["anthropic_api_key"] = serde_json::Value::String(key.to_string());
+                    }
+                }
+            }
+        }
+
+        // ── 4. Claude Code OAuth 登录状态：通过 ~/.claude/projects 目录判断 ──
+        // 若存在 projects 目录且非空，说明曾经成功登录并使用过 Claude Code
+        // 更准确：尝试运行 `claude config get userEmail` 来获取登录邮箱
+        let claude_dir = std::path::PathBuf::from(&home).join(".claude");
+        if claude_dir.exists() {
+            // 查找 claude 可执行文件
+            let claude_bin = find_in_path("claude");
+            if let Some(bin) = claude_bin {
+                // 用 claude config get userEmail 检测登录状态（非交互，超时 3s）
+                let check = Command::new(&bin)
+                    .args(["config", "get", "userEmail"])
+                    .output();
+                if let Ok(out) = check {
+                    let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                    let stderr = String::from_utf8_lossy(&out.stderr);
+                    // 若 stderr 不含 "not logged in" 且 stdout 像邮箱，则已登录
+                    let not_logged = stderr.to_lowercase().contains("not logged")
+                        || stdout.to_lowercase().contains("not logged");
+                    if !not_logged && stdout.contains('@') {
+                        result["claude_oauth_logged_in"] = serde_json::Value::Bool(true);
+                        result["claude_oauth_email"] = serde_json::Value::String(stdout);
+                    } else if !not_logged && !stdout.is_empty() && out.status.success() {
+                        // 登录了但格式不是邮箱（如 claude.ai OAuth token）
+                        result["claude_oauth_logged_in"] = serde_json::Value::Bool(true);
+                    }
+                }
+            }
+
+            // 备用判断：检查 ~/.claude/projects 里是否有目录（曾经用过）
+            let projects_dir = claude_dir.join("projects");
+            if projects_dir.exists() {
+                if let Ok(entries) = std::fs::read_dir(&projects_dir) {
+                    let count = entries.filter_map(|e| e.ok()).count();
+                    if count > 0 && !result["claude_oauth_logged_in"].as_bool().unwrap_or(false) {
+                        // 有使用历史，可能是 OAuth 模式（token 已失效或需要重新登录）
+                        result["claude_oauth_logged_in"] = serde_json::Value::Bool(false);
+                    }
+                }
+            }
+        }
+    }
+
+    // ── 5. CLI 路径检测 ──
+    if let Ok(claude_path) = std::env::var("HOME").map(|h| {
+        // macOS: claude 可能在 /usr/local/bin 或 nvm/volta 管理的路径
+        // 通过 shell 的 which 更可靠
+        let out = Command::new("/bin/zsh")
+            .args(["-l", "-c", "which claude && which codex"])
+            .output();
+        out.ok().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .unwrap_or_default()
+            + &h
+    }) {
+        let _ = claude_path; // 仅用于触发 which 查询
+    }
+
+    // 直接 spawn shell 获取 which 结果
+    if let Ok(out) = Command::new("/bin/zsh")
+        .args(["-l", "-c", "printf '%s\\n%s' \"$(which claude 2>/dev/null)\" \"$(which codex 2>/dev/null)\""])
+        .output()
+    {
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let lines: Vec<&str> = stdout.lines().collect();
+        if let Some(p) = lines.first() {
+            let p = p.trim();
+            if !p.is_empty() && std::path::Path::new(p).exists() {
+                result["claude_cli_path"] = serde_json::Value::String(p.to_string());
+            }
+        }
+        if let Some(p) = lines.get(1) {
+            let p = p.trim();
+            if !p.is_empty() && std::path::Path::new(p).exists() {
+                result["codex_cli_path"] = serde_json::Value::String(p.to_string());
+            }
+        }
+    }
+
+    // PATH 回退检测
+    if result["claude_cli_path"].as_str().unwrap_or("").is_empty() {
+        if let Ok(path_var) = std::env::var("PATH") {
+            let sep = if cfg!(windows) { ';' } else { ':' };
+            for dir in path_var.split(sep) {
+                let claude = std::path::PathBuf::from(dir).join("claude");
+                let codex = std::path::PathBuf::from(dir).join("codex");
+                if claude.exists() && result["claude_cli_path"].as_str().unwrap_or("").is_empty() {
+                    result["claude_cli_path"] = serde_json::Value::String(claude.to_string_lossy().to_string());
+                }
+                if codex.exists() && result["codex_cli_path"].as_str().unwrap_or("").is_empty() {
+                    result["codex_cli_path"] = serde_json::Value::String(codex.to_string_lossy().to_string());
+                }
+            }
+        }
+    }
+
+    result
+}
+
+/// 在 PATH 中查找指定命令，返回完整路径
+fn find_in_path(cmd: &str) -> Option<String> {
+    if let Ok(path_var) = std::env::var("PATH") {
+        let sep = if cfg!(windows) { ';' } else { ':' };
+        for dir in path_var.split(sep) {
+            let full = std::path::PathBuf::from(dir).join(cmd);
+            if full.exists() { return Some(full.to_string_lossy().to_string()); }
+        }
+    }
+    // 也尝试常见路径
+    for prefix in &["/usr/local/bin", "/usr/bin", "/opt/homebrew/bin"] {
+        let full = std::path::PathBuf::from(prefix).join(cmd);
+        if full.exists() { return Some(full.to_string_lossy().to_string()); }
+    }
+    None
+}
+
+/// 从 shell 配置行中提取环境变量值
+/// 支持: export KEY="value", export KEY='value', export KEY=value
+fn extract_env_value(line: &str) -> Option<String> {
+    let line = line.trim_start_matches("export").trim();
+    let parts: Vec<&str> = line.splitn(2, '=').collect();
+    if parts.len() != 2 { return None; }
+    let mut val = parts[1].trim();
+    // 去引号
+    if (val.starts_with('"') && val.ends_with('"')) || (val.starts_with('\'') && val.ends_with('\'')) {
+        val = &val[1..val.len()-1];
+    }
+    Some(val.to_string())
+}
+
 /// 将目录写入 ~/.claude/settings.json 的 trustedDirectories，
 /// 避免 claude 启动时弹出"是否信任此文件夹"对话框。
 #[tauri::command]
@@ -907,6 +1852,27 @@ fn trust_workspace(path: String) -> Result<(), String> {
     std::fs::write(&settings_path, out).map_err(|e| e.to_string())?;
 
     Ok(())
+}
+
+/// 向 PTY 写入一行文本（预热模式下发送 query：附加换行符触发执行）
+#[tauri::command]
+fn send_pty_query(
+    app: tauri::AppHandle,
+    session_id: String,
+    query: String,
+) -> Result<(), String> {
+    let wm = pty_writer_map(&app);
+    let mut wm = wm.lock().unwrap();
+    if let Some(writer) = wm.get_mut(&session_id) {
+        // 写入 query + 换行（触发 CLI 执行）
+        let mut data = query.into_bytes();
+        data.push(b'\n');
+        writer.write_all(&data).map_err(|e| format!("send_pty_query write 失败: {e}"))?;
+        writer.flush().map_err(|e| format!("send_pty_query flush 失败: {e}"))?;
+        Ok(())
+    } else {
+        Err(format!("PTY session '{session_id}' 不存在或尚未就绪"))
+    }
 }
 
 /// 停止 PTY 会话
@@ -1026,13 +1992,35 @@ pub fn run() {
             harness_run_command,
             harness_git_diff,
             harness_confirm,
+            // CLI 检测
+            check_cli,
+            // Git 分支管理
+            git_current_branch,
+            git_branch_create,
+            git_branch_switch,
+            git_branch_delete,
+            git_branch_merge,
+            get_git_diff_branch,
             // PTY 终端
             start_pty_session,
             write_pty,
             resize_pty,
             stop_pty_session,
+            send_pty_query,
             // Claude 信任目录
             trust_workspace,
+            // CLI 配置自动检测
+            detect_cli_config,
+            // Git Worktree 管理
+            git_worktree_create,
+            git_worktree_remove,
+            git_worktree_list,
+            git_worktree_merge,
+            // Session Worktree 自动管理
+            git_repo_info,
+            setup_session_worktree,
+            teardown_session_worktree,
+            prune_orphan_worktrees,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

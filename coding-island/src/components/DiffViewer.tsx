@@ -50,7 +50,8 @@ function DiffLineRow({ line }: { line: DiffLine }) {
   );
 }
 
-function FileIcon({ type }: { type: DiffFile["type"] }) {
+function FileIcon({ type, binary }: { type: DiffFile["type"]; binary?: boolean }) {
+  if (binary) return <span style={{ color: "#a78bfa", fontSize: 9, marginRight: 6, flexShrink: 0 }}>⬡</span>;
   const map = { added: { icon: "✦", color: "#4ade80" }, modified: { icon: "◆", color: "#fbbf24" }, deleted: { icon: "✕", color: "#f87171" } };
   const { icon, color } = map[type];
   return <span style={{ color, fontSize: 9, marginRight: 6, flexShrink: 0 }}>{icon}</span>;
@@ -68,6 +69,7 @@ function FileStat({ additions, deletions }: { additions: number; deletions: numb
 // 展开状态改为组件本地 state，避免全局 store 导致的 session/workspace 切换干扰
 function DiffFileRow({ file }: { file: DiffFile }) {
   const [isOpen, setIsOpen] = useState(false);
+  const isBinary = !!file.binary;
 
   return (
     <div style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
@@ -86,11 +88,22 @@ function DiffFileRow({ file }: { file: DiffFile }) {
           transition={{ duration: 0.15 }}
           style={{ marginRight: 6, fontSize: 9, color: "rgba(255,255,255,0.3)", flexShrink: 0 }}
         >▶</motion.span>
-        <FileIcon type={file.type} />
+        <FileIcon type={file.type} binary={isBinary} />
         <span style={{ fontSize: 11, fontFamily: "monospace", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {file.path}
         </span>
-        <FileStat additions={file.additions} deletions={file.deletions} />
+        {isBinary ? (
+          <span style={{
+            fontSize: 9, padding: "1px 6px", borderRadius: 99, flexShrink: 0,
+            background: "rgba(167,139,250,0.12)",
+            border: "1px solid rgba(167,139,250,0.25)",
+            color: "#a78bfa",
+          }}>
+            二进制
+          </span>
+        ) : (
+          <FileStat additions={file.additions} deletions={file.deletions} />
+        )}
       </button>
 
       {/* 展开的 diff 内容 */}
@@ -109,14 +122,31 @@ function DiffFileRow({ file }: { file: DiffFile }) {
               borderTop: "1px solid rgba(255,255,255,0.06)",
               maxHeight: 320, overflowY: "auto",
             }}>
-              {file.hunks.length === 0 ? (
+              {isBinary ? (
+                <div style={{
+                  padding: "14px 16px",
+                  display: "flex", alignItems: "center", gap: 8,
+                }}>
+                  <span style={{ fontSize: 16 }}>⬡</span>
+                  <div>
+                    <div style={{ fontSize: 11, color: "#a78bfa", fontWeight: 600, marginBottom: 2 }}>
+                      二进制文件
+                    </div>
+                    <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", fontFamily: "monospace" }}>
+                      {file.path}
+                    </div>
+                  </div>
+                </div>
+              ) : file.hunks.length === 0 ? (
                 <div style={{
                   padding: "12px 16px",
                   fontSize: 11,
-                  color: "rgba(255,255,255,0.25)",
+                  color: "rgba(255,255,255,0.3)",
                   fontFamily: "monospace",
+                  display: "flex", alignItems: "center", gap: 6,
                 }}>
-                  二进制文件或无法显示的内容
+                  <span style={{ opacity: 0.5 }}>ℹ</span>
+                  {file.note ?? "无内容差异"}
                 </div>
               ) : (
                 file.hunks.map((hunk, hi) => (

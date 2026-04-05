@@ -1,4 +1,5 @@
 import { motion, AnimatePresence } from "framer-motion";
+import { invoke } from "@tauri-apps/api/core";
 import { ClaudeSession, SessionStatus, useSessionStore } from "../store/sessionStore";
 import { useWorkspaceStore, getWorkspaceColor } from "../store/workspaceStore";
 import { useSettingsStore, RUNNER_LABELS } from "../store/settingsStore";
@@ -188,9 +189,43 @@ function SessionCard({
           </p>
         )}
 
-        {session.diffFiles.length > 0 && (
-          <p style={{ margin: "2px 0 0", fontSize: 10, color: "rgba(255,255,255,0.22)" }}>
-            {session.diffFiles.length} 个变更 ·{" "}
+        {/* Worktree 分支 + diff 信息 */}
+        {session.branchName && (
+          <p style={{ margin: "2px 0 0", fontSize: 10, color: "rgba(255,255,255,0.22)", display: "flex", alignItems: "center", gap: 4 }}>
+            <span style={{
+              fontSize: 9, padding: "1px 5px", borderRadius: 99,
+              background: "rgba(167,139,250,0.1)",
+              border: "1px solid rgba(167,139,250,0.2)",
+              color: "rgba(167,139,250,0.7)",
+              fontFamily: "monospace",
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+              maxWidth: 80,
+            }}>
+              ⎇ {session.branchName.replace("ci/", "")}
+            </span>
+            {session.worktreePath && (
+              <span style={{
+                fontSize: 9, padding: "1px 5px", borderRadius: 99,
+                background: "rgba(74,222,128,0.08)",
+                border: "1px solid rgba(74,222,128,0.15)",
+                color: "rgba(74,222,128,0.55)",
+              }}>
+                worktree
+              </span>
+            )}
+            {session.diffFiles.length > 0 && (
+              <>
+                <span style={{ opacity: 0.4 }}>·</span>
+                <span style={{ color: "#4ade80" }}>+{session.diffFiles.reduce((s, f) => s + f.additions, 0)}</span>
+                <span style={{ color: "#f87171" }}>−{session.diffFiles.reduce((s, f) => s + f.deletions, 0)}</span>
+              </>
+            )}
+          </p>
+        )}
+
+        {!session.branchName && session.diffFiles.length > 0 && (
+          <p style={{ margin: "2px 0 0", fontSize: 10, color: "rgba(255,255,255,0.22)", display: "flex", alignItems: "center", gap: 4 }}>
+            {session.diffFiles.length} 变更{" "}
             <span style={{ color: "#4ade80" }}>+{session.diffFiles.reduce((s, f) => s + f.additions, 0)}</span>{" "}
             <span style={{ color: "#f87171" }}>−{session.diffFiles.reduce((s, f) => s + f.deletions, 0)}</span>
           </p>
@@ -239,7 +274,7 @@ function SessionCard({
 
 // ── 主组件：SessionList ───────────────────────────────────────
 export function SessionList() {
-  const { sessions, activeSessionId, removeSession, setActiveSession, setExpandedSession, addSession } = useSessionStore();
+  const { sessions, activeSessionId, removeSession, setActiveSession, setExpandedSession, addSession, markWorktreeReady } = useSessionStore();
   const { activeWorkspaceId } = useWorkspaceStore();
   const activeWorkspace = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === activeWorkspaceId)
@@ -252,11 +287,56 @@ export function SessionList() {
   const accentColor = getWorkspaceColor(activeWorkspace.color);
   const wsSessions = sessions.filter((s) => s.workspaceId === activeWorkspaceId);
 
-  // 新建 session：直接创建并展开终端，跳过命名表单
-  const handleNewSession = () => {
+  // 新建 session：先创建 worktree（等完成后再标记 ready），PTY 等 ready 后才启动
+  const handleNewSession = async () => {
     const id = addSession(activeWorkspace.id, activeWorkspace.path);
-    // 立即展开终端，用户在终端面板内输入 query
+
+    // 立即展开面板，用户看到 query 输入界面
     setExpandedSession(id);
+
+    if ("__TAURI_INTERNALS__" in window) {
+      try {
+        const result = await invoke<{
+          worktree_path: string;
+          branch: string;
+          base_branch: string;
+        } | null>("setup_session_worktree", {
+          workdir: activeWorkspace.path,
+          sessionId: id,
+        });
+
+        if (result) {
+          // 更新 session 的 workdir 为 worktree 路径，同时记录分支信息
+          useSessionStore.getState().updateSession(id, {
+            workdir: result.worktree_path,
+            worktreePath: result.worktree_path,
+            branchName: result.branch,
+            baseBranch: result.base_branch,
+          });
+        }
+      } catch (e) {
+        // worktree 创建失败时静默降级，继续使用原始 workdir
+        console.warn("[worktree] setup failed, fallback to workdir:", e);
+      }
+    }
+
+    // worktree 创建完成（或跳过），标记 ready → SessionPanel 此时才激活 PTY
+    markWorktreeReady(id);
+  };
+
+  // 删除 session：同时清理对应的 worktree
+  const handleRemoveSession = (session: ClaudeSession) => {
+    removeSession(session.id);
+
+    if ("__TAURI_INTERNALS__" in window && session.worktreePath && session.branchName) {
+      invoke("teardown_session_worktree", {
+        workdir: activeWorkspace.path,
+        worktreePath: session.worktreePath,
+        branch: session.branchName,
+      }).catch((e) => {
+        console.warn("[worktree] teardown failed:", e);
+      });
+    }
   };
 
   return (
@@ -317,7 +397,7 @@ export function SessionList() {
               setActiveSession(session.id);
               setExpandedSession(session.id);
             }}
-            onRemove={() => removeSession(session.id)}
+            onRemove={() => handleRemoveSession(session)}
           />
         ))}
       </AnimatePresence>

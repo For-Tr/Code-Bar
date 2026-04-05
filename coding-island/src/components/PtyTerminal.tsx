@@ -12,9 +12,11 @@ interface Props {
   workdir: string;
   active: boolean;     // 是否可见/激活
   onReady?: () => void; // PTY 进程启动成功后回调（用于透传初始 query）
+  // 额外注入的环境变量，透传给 start_pty_session（如 CODING_ISLAND_* context 信息）
+  env?: [string, string][];
 }
 
-export function PtyTerminal({ sessionId, command, args = [], workdir, active, onReady }: Props) {
+export function PtyTerminal({ sessionId, command, args = [], workdir, active, onReady, env }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -115,6 +117,14 @@ export function PtyTerminal({ sessionId, command, args = [], workdir, active, on
   }, [sessionId]);
 
   // ── 启动 PTY 进程（仅第一次，之后常驻直到 exit）────────
+  // 用 ref 保存最新的 args/onReady/env，避免加入依赖导致每次渲染重启
+  const argsRef = useRef(args);
+  argsRef.current = args;
+  const onReadyRef = useRef(onReady);
+  onReadyRef.current = onReady;
+  const envRef = useRef(env);
+  envRef.current = env;
+
   useEffect(() => {
     if (!active || startedRef.current) return;
     startedRef.current = true;
@@ -128,17 +138,21 @@ export function PtyTerminal({ sessionId, command, args = [], workdir, active, on
       const cols = Math.max(term?.cols ?? 80, 40);
       const rows = Math.max(term?.rows ?? 24, 12);
 
+      // 打印启动提示，方便调试确认实际启动的命令
+      const displayCmd = [command, ...argsRef.current].join(" ");
+      term?.writeln(`\x1b[90m$ ${displayCmd}\x1b[0m`);
+
       invoke("start_pty_session", {
         sessionId,
         workdir,
         command,
-        args,
+        args: argsRef.current,
         cols,
         rows,
+        env: envRef.current ?? null,
       })
         .then(() => {
-          // PTY 启动成功，通知父组件可以写入初始 query
-          onReady?.();
+          onReadyRef.current?.();
         })
         .catch((e) => {
           termRef.current?.writeln(`\x1b[31m启动失败: ${e}\x1b[0m`);
@@ -146,9 +160,7 @@ export function PtyTerminal({ sessionId, command, args = [], workdir, active, on
     }, 250);
 
     return () => clearTimeout(timer);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, sessionId, workdir, command]);
-  // 注意：args/onReady 故意不加入依赖，避免每次渲染重新启动
 
   // ── 重新启动（退出后用户点击重启）───────────────────────
   const handleRestart = () => {
@@ -163,16 +175,20 @@ export function PtyTerminal({ sessionId, command, args = [], workdir, active, on
     const rows = Math.max(term?.rows ?? 24, 12);
     startedRef.current = true;
 
+    const displayCmd = [command, ...argsRef.current].join(" ");
+    term?.writeln(`\x1b[90m$ ${displayCmd}\x1b[0m`);
+
     invoke("start_pty_session", {
       sessionId,
       workdir,
       command,
-      args,
+      args: argsRef.current,
       cols,
       rows,
+      env: envRef.current ?? null,
     })
       .then(() => {
-        onReady?.();
+        onReadyRef.current?.();
       })
       .catch((e) => {
         termRef.current?.writeln(`\x1b[31m启动失败: ${e}\x1b[0m`);
