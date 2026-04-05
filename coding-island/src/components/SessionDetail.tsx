@@ -167,6 +167,8 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
   sessionIdRef.current = sessionId;
 
   // PTY 就绪回调：仅在 query 已提交但 PTY 还没就绪时消费
+  // onReady 触发时机 = 首次 pty-data 事件（CLI 已真正输出内容），
+  // 但 CLI 此时可能仍在渲染欢迎界面，等待 800ms 让 CLI 稳定后再发 query。
   const pendingQueryRef = useRef<string | null>(null);
   const handlePtyReady = useCallback(() => {
     ptyReadyRef.current = true;
@@ -177,7 +179,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
       const bytes = new TextEncoder().encode(q + "\r");
       const b64 = btoa(String.fromCharCode(...bytes));
       invoke("write_pty", { sessionId: sessionIdRef.current, data: b64 }).catch(() => {});
-    }, 200);
+    }, 800);
   }, []); // 纯 ref 访问，永不更新引用
 
   // isOpen 变化：即将展开时立即取消隐藏

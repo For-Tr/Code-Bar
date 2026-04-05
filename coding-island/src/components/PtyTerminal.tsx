@@ -125,9 +125,13 @@ export function PtyTerminal({ sessionId, command, args = [], workdir, active, on
   const envRef = useRef(env);
   envRef.current = env;
 
+  // onReady 是否已触发过（避免重复触发）
+  const onReadyFiredRef = useRef(false);
+
   useEffect(() => {
     if (!active || startedRef.current) return;
     startedRef.current = true;
+    onReadyFiredRef.current = false;
     setExited(false);
 
     // 延迟 250ms：等 resize_popup_full 动画完成，容器达到目标尺寸
@@ -151,9 +155,6 @@ export function PtyTerminal({ sessionId, command, args = [], workdir, active, on
         rows,
         env: envRef.current ?? null,
       })
-        .then(() => {
-          onReadyRef.current?.();
-        })
         .catch((e) => {
           termRef.current?.writeln(`\x1b[31m启动失败: ${e}\x1b[0m`);
         });
@@ -161,6 +162,23 @@ export function PtyTerminal({ sessionId, command, args = [], workdir, active, on
 
     return () => clearTimeout(timer);
   }, [active, sessionId, workdir, command]);
+
+  // ── 监听首次 pty-data 输出作为「CLI 就绪」信号，再触发 onReady ──
+  // PTY 现在通过 shell 包装启动（zsh -i -l -c "claude ..."），
+  // start_pty_session 返回仅代表 shell 启动，不代表 claude 已就绪。
+  // 等到第一个 pty-data 事件，说明 shell 初始化完毕、CLI 已真正输出内容。
+  useEffect(() => {
+    const unlisten = listen<{ session_id: string; data: string }>(
+      "pty-data",
+      ({ payload }) => {
+        if (payload.session_id !== sessionId) return;
+        if (onReadyFiredRef.current) return;
+        onReadyFiredRef.current = true;
+        onReadyRef.current?.();
+      }
+    );
+    return () => { unlisten.then((f) => f()); };
+  }, [sessionId]);
 
   // ── 重新启动（退出后用户点击重启）───────────────────────
   const handleRestart = () => {
