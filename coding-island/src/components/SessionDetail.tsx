@@ -135,6 +135,7 @@ interface PanelProps {
 
 function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
   const session = useSessionStore((s) => s.sessions.find((x) => x.id === sessionId));
+  const worktreeReady = useSessionStore((s) => s.worktreeReadyIds.has(sessionId));
   const { updateSession, appendOutput, clearOutput } = useSessionStore();
   const { settings, patchRunner, openSettings } = useSettingsStore();
   const workspaces = useWorkspaceStore((s) => s.workspaces);
@@ -204,10 +205,12 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     }
   }, [isOpen]);
 
-  // 面板打开时 PTY 置为 active（之后一直保持 true，防止收起时重启）
+  // 面板打开 且 worktree 已就绪（创建完成或不是 git 仓库）时才激活 PTY
+  // worktreeReady 由 SessionList.handleNewSession 在 worktree 创建完毕后标记
+  // 持久化恢复的 session（已有 worktreePath）在 store 初始化时即标记为 ready
   useEffect(() => {
-    if (isOpen && !ptyEverActive) setPtyEverActive(true);
-  }, [isOpen, ptyEverActive]);
+    if (isOpen && worktreeReady && !ptyEverActive) setPtyEverActive(true);
+  }, [isOpen, worktreeReady, ptyEverActive]);
 
   // 展开且未发送 query 时自动聚焦输入框
   useEffect(() => {
@@ -276,6 +279,12 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
       ["CODING_ISLAND_WORKSPACE_NAME", workspace?.name ?? ""],
       ["CODING_ISLAND_CONCURRENT_SESSIONS", String(siblingSessions.length)],
       ["CODING_ISLAND_SUGGESTED_BRANCH", `ci/session-${session.id}`],
+      // Worktree 信息：告知 AI CLI 当前在独立 worktree 工作，不用自己创建分支
+      ...(session.worktreePath ? [
+        ["CODING_ISLAND_WORKTREE_PATH", session.worktreePath] as [string, string],
+        ["CODING_ISLAND_BASE_BRANCH", session.baseBranch ?? ""] as [string, string],
+        ["CODING_ISLAND_BRANCH", session.branchName ?? ""] as [string, string],
+      ] : []),
     ];
 
     // ── CLI 专用：注入 API Key 和 Base URL ──
@@ -421,8 +430,10 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
   const sessionOutput = session.output ?? [];
   const installCmd = CLI_INSTALL_CMD[runner.type];
 
-  // PTY key：runner/command 变化时重新挂载（切换 CLI 工具）
-  const ptyKey = `${sessionId}::${runner.type}::${cliCommand}`;
+  // PTY key：runner/command 或 workdir 变化时重新挂载
+  // workdir 变化场景：新建 session 时 worktree 在后台创建完成，workdir 从原路径更新为 worktree 路径
+  // 由于 worktree 完成前 PTY 还未启动（querySent=false），重挂载无副作用
+  const ptyKey = `${sessionId}::${runner.type}::${cliCommand}::${session.workdir}`;
 
   // CLI 基础 args（不含 task，task 通过 write_pty 写入）
   const cliBaseArgs: string[] =
@@ -801,7 +812,23 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
 
 // ── 主组件 ──
 export function SessionDetail() {
-  const { expandedSessionId, setExpandedSession } = useSessionStore();
+  const { expandedSessionId, setExpandedSession, sessions } = useSessionStore();
+
+  // 记录所有曾经被展开过的 session id，保持其 Panel 常驻以维持 PTY 进程
+  const [mountedIds, setMountedIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!expandedSessionId) return;
+    setMountedIds((prev) =>
+      prev.includes(expandedSessionId) ? prev : [...prev, expandedSessionId]
+    );
+  }, [expandedSessionId]);
+
+  // 当 session 被删除时，从 mountedIds 中移除，实现卸载销毁
+  useEffect(() => {
+    const sessionIds = new Set(sessions.map((s) => s.id));
+    setMountedIds((prev) => prev.filter((id) => sessionIds.has(id)));
+  }, [sessions]);
 
   useEffect(() => {
     if (!expandedSessionId) return;
@@ -812,14 +839,16 @@ export function SessionDetail() {
     return () => window.removeEventListener("keydown", handler);
   }, [expandedSessionId, setExpandedSession]);
 
-  if (!expandedSessionId) return null;
-
   return (
-    <SessionPanel
-      key={expandedSessionId}
-      sessionId={expandedSessionId}
-      isOpen={true}
-      onClose={() => setExpandedSession(null)}
-    />
+    <>
+      {mountedIds.map((sid) => (
+        <SessionPanel
+          key={sid}
+          sessionId={sid}
+          isOpen={expandedSessionId === sid}
+          onClose={() => setExpandedSession(null)}
+        />
+      ))}
+    </>
   );
 }

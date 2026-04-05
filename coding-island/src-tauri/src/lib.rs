@@ -1100,6 +1100,242 @@ async fn git_worktree_merge(
     }).await.map_err(|e| e.to_string())?
 }
 
+/// 检查指定目录是否是 git 仓库，并返回当前分支名
+/// 返回 Some(branch_name) 表示是 git 仓库，None 表示不是
+#[tauri::command]
+async fn git_repo_info(workdir: String) -> Result<Option<String>, String> {
+    let expanded = expand_path(&workdir);
+    tokio::task::spawn_blocking(move || {
+        let out = Command::new("git")
+            .current_dir(&expanded)
+            .args(["rev-parse", "--abbrev-ref", "HEAD"])
+            .output()
+            .map_err(|e| e.to_string())?;
+        if out.status.success() {
+            let branch = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            Ok(Some(branch))
+        } else {
+            Ok(None)
+        }
+    }).await.map_err(|e| e.to_string())?
+}
+
+/// 为 session 创建独立的 git worktree
+/// 返回 { worktree_path, branch, base_branch }
+/// 若目录不是 git 仓库，返回 null（前端降级使用原始 workdir）
+#[tauri::command]
+async fn setup_session_worktree(
+    workdir: String,
+    session_id: String,
+) -> Result<Option<serde_json::Value>, String> {
+    let expanded_workdir = expand_path(&workdir);
+    let session_id_clone = session_id.clone();
+
+    tokio::task::spawn_blocking(move || {
+        // 1. 检测是否是 git 仓库
+        let branch_out = Command::new("git")
+            .current_dir(&expanded_workdir)
+            .args(["rev-parse", "--abbrev-ref", "HEAD"])
+            .output()
+            .map_err(|e| e.to_string())?;
+
+        if !branch_out.status.success() {
+            // 不是 git 仓库，返回 null
+            return Ok(None);
+        }
+
+        let base_branch = String::from_utf8_lossy(&branch_out.stdout).trim().to_string();
+        // 若处于 detached HEAD，跳过 worktree
+        if base_branch == "HEAD" {
+            return Ok(None);
+        }
+
+        // 2. 计算 worktree 路径和分支名
+        // worktree 放在 repo 同级的 .coding-island-worktrees/<session_id>
+        let repo_parent = std::path::Path::new(&expanded_workdir)
+            .parent()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|| expanded_workdir.clone());
+        let worktree_path = format!("{}/.coding-island-worktrees/session-{}", repo_parent, session_id_clone);
+        let branch = format!("ci/session-{}", session_id_clone);
+
+        // 3. 若同名 worktree/分支已存在，先清理（幂等）
+        let _ = Command::new("git")
+            .current_dir(&expanded_workdir)
+            .args(["worktree", "remove", "--force", &worktree_path])
+            .output();
+        let _ = Command::new("git")
+            .current_dir(&expanded_workdir)
+            .args(["branch", "-D", &branch])
+            .output();
+
+        // 4. 创建 worktree
+        if let Some(parent) = std::path::Path::new(&worktree_path).parent() {
+            fs::create_dir_all(parent).map_err(|e| format!("创建 worktree 父目录失败: {e}"))?;
+        }
+
+        let out = Command::new("git")
+            .current_dir(&expanded_workdir)
+            .args(["worktree", "add", "-b", &branch, &worktree_path, "HEAD"])
+            .output()
+            .map_err(|e| e.to_string())?;
+
+        if !out.status.success() {
+            return Err(format!(
+                "创建 worktree 失败: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            ));
+        }
+
+        Ok(Some(serde_json::json!({
+            "worktree_path": worktree_path,
+            "branch": branch,
+            "base_branch": base_branch,
+        })))
+    }).await.map_err(|e| e.to_string())?
+}
+
+/// 清理 session 的 git worktree（删除 worktree 目录和对应分支）
+/// 静默失败，不影响正常流程
+#[tauri::command]
+async fn teardown_session_worktree(
+    workdir: String,
+    worktree_path: String,
+    branch: String,
+) -> Result<(), String> {
+    let expanded_workdir = expand_path(&workdir);
+    let expanded_wt = expand_path(&worktree_path);
+
+    tokio::task::spawn_blocking(move || {
+        // 移除 worktree
+        let _ = Command::new("git")
+            .current_dir(&expanded_workdir)
+            .args(["worktree", "remove", "--force", &expanded_wt])
+            .output();
+
+        // 若目录还在，强制清理
+        let wt = std::path::Path::new(&expanded_wt);
+        if wt.exists() {
+            let _ = fs::remove_dir_all(wt);
+        }
+
+        // 修剪悬空 worktree 引用
+        let _ = Command::new("git")
+            .current_dir(&expanded_workdir)
+            .args(["worktree", "prune"])
+            .output();
+
+        // 删除分支
+        if !branch.is_empty() {
+            let _ = Command::new("git")
+                .current_dir(&expanded_workdir)
+                .args(["branch", "-D", &branch])
+                .output();
+        }
+
+        Ok(())
+    }).await.map_err(|e| e.to_string())?
+}
+
+/// 清理孤儿 worktree：扫描 .coding-island-worktrees/ 目录，
+/// 将不在 known_worktree_paths 列表中的 worktree 目录和对应分支全部删除。
+/// 用于应用启动时修复 session 数据丢失或异常退出导致的 worktree 泄漏。
+#[tauri::command]
+async fn prune_orphan_worktrees(
+    workdir: String,
+    known_worktree_paths: Vec<String>,
+) -> Result<Vec<String>, String> {
+    let expanded_workdir = expand_path(&workdir);
+
+    tokio::task::spawn_blocking(move || {
+        // .coding-island-worktrees 目录在 repo 父目录下
+        let repo_parent = std::path::Path::new(&expanded_workdir)
+            .parent()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|| expanded_workdir.clone());
+        let wt_base = format!("{}/.coding-island-worktrees", repo_parent);
+        let wt_base_path = std::path::Path::new(&wt_base);
+
+        if !wt_base_path.exists() {
+            return Ok(vec![]);
+        }
+
+        // 构建已知路径的规范化集合（统一去掉末尾斜杠）
+        let known: std::collections::HashSet<String> = known_worktree_paths
+            .iter()
+            .map(|p| expand_path(p).trim_end_matches('/').to_string())
+            .collect();
+
+        let mut pruned = vec![];
+
+        // 遍历 .coding-island-worktrees/ 下的所有子目录
+        let entries = match std::fs::read_dir(wt_base_path) {
+            Ok(e) => e,
+            Err(_) => return Ok(vec![]),
+        };
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_dir() { continue; }
+
+            let path_str = path.to_string_lossy().to_string();
+            let canonical = path_str.trim_end_matches('/').to_string();
+
+            if known.contains(&canonical) {
+                // 已知 worktree，跳过
+                continue;
+            }
+
+            // 孤儿 worktree：读取 .git 文件中的分支名
+            let branch = read_worktree_branch(&path);
+
+            // 移除 worktree
+            let _ = Command::new("git")
+                .current_dir(&expanded_workdir)
+                .args(["worktree", "remove", "--force", &canonical])
+                .output();
+
+            // 若目录还在，强制删除
+            if path.exists() {
+                let _ = std::fs::remove_dir_all(&path);
+            }
+
+            // 删除对应分支
+            if let Some(b) = &branch {
+                if !b.is_empty() {
+                    let _ = Command::new("git")
+                        .current_dir(&expanded_workdir)
+                        .args(["branch", "-D", b])
+                        .output();
+                }
+            }
+
+            pruned.push(canonical);
+        }
+
+        // 修剪悬空 worktree 引用
+        if !pruned.is_empty() {
+            let _ = Command::new("git")
+                .current_dir(&expanded_workdir)
+                .args(["worktree", "prune"])
+                .output();
+        }
+
+        Ok(pruned)
+    }).await.map_err(|e| e.to_string())?
+}
+
+/// 从 worktree 目录的 .git 文件读取分支名（用于 prune 时删除对应分支）
+fn read_worktree_branch(worktree_path: &std::path::Path) -> Option<String> {
+    // worktree 中 .git 是一个文件，内容为 "gitdir: <path>"
+    // 实际 HEAD 文件在主仓库的 .git/worktrees/<name>/HEAD
+    let head_path = worktree_path.join("HEAD");
+    let content = std::fs::read_to_string(&head_path).ok()?;
+    // HEAD 格式：ref: refs/heads/<branch>
+    let branch = content.trim().strip_prefix("ref: refs/heads/")?;
+    Some(branch.to_string())
+}
+
 /// 获取指定 diff range 中单个文件的 hunks
 fn get_file_hunks_between(workdir: &str, range: &str, path: &str) -> (Vec<serde_json::Value>, Option<String>) {
     let output = Command::new("git")
@@ -1780,6 +2016,11 @@ pub fn run() {
             git_worktree_remove,
             git_worktree_list,
             git_worktree_merge,
+            // Session Worktree 自动管理
+            git_repo_info,
+            setup_session_worktree,
+            teardown_session_worktree,
+            prune_orphan_worktrees,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
