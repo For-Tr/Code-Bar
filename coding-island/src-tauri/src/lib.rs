@@ -1435,6 +1435,11 @@ async fn check_cli(command: String) -> bool {
     false
 }
 
+/// 将字符串用单引号包裹，内部的单引号做 '\"'\"' 转义，用于安全地拼接 shell 命令
+fn shell_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\"'\"'"))
+}
+
 /// 启动 PTY 会话（用于 Claude Code / 任意 CLI），原始字节流推送给前端
 #[tauri::command]
 async fn start_pty_session(
@@ -1467,20 +1472,30 @@ async fn start_pty_session(
         .openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
         .map_err(|e| format!("openpty 失败: {e}"))?;
 
-    let mut cmd = CommandBuilder::new(&command);
-    for arg in &args {
-        cmd.arg(arg);
-    }
+    // 通过 user 的 interactive login shell 启动命令，确保 nvm/mise/pyenv 等
+    // 版本管理器的 PATH 和环境变量被正确初始化（源自 ~/.zshrc / ~/.bashrc）。
+    // 等价于在终端里直接运行命令，彻底解决 GUI .app 启动时 PATH 不完整的问题。
+    let user_shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+
+    // 把 command + args 拼成 shell 命令字符串，特殊字符用单引号保护
+    let shell_cmd = {
+        let mut parts = vec![shell_quote(&command)];
+        for a in &args {
+            parts.push(shell_quote(a));
+        }
+        parts.join(" ")
+    };
+
+    let mut cmd = CommandBuilder::new(&user_shell);
+    // -i：interactive（加载 ~/.zshrc），-l：login（加载 ~/.zprofile）
+    cmd.args(["-i", "-l", "-c", &shell_cmd]);
     cmd.cwd(&expanded);
 
-    // 继承常用环境变量（确保 CLI 工具可用）
+    // 继承基础环境变量
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
-    if let Ok(path) = std::env::var("PATH") {
-        cmd.env("PATH", path);
-    }
     if let Ok(home) = std::env::var("HOME") {
-        cmd.env("HOME", home);
+        cmd.env("HOME", &home);
     }
 
     // 注入调用方传入的额外环境变量（CODING_ISLAND_* context 信息）
@@ -1905,55 +1920,21 @@ fn stop_pty_session(
 
 // ── 入口 ─────────────────────────────────────────────────────
 
-/// 修复打包后 macOS GUI 进程 PATH 不含 Homebrew/nvm/mise 等目录的问题。
-/// GUI 启动的 .app 只有 /usr/bin:/bin:/usr/sbin:/sbin，
-/// 导致 claude/codex/node 等找不到。
-/// 策略：从用户 shell 的 login 环境读取完整 PATH，合并后写回。
+/// macOS GUI .app 启动时 PATH 极度精简，仅做最基础兜底（Homebrew 等）。
+/// nvm/mise/pyenv 等版本管理器路径依赖 ~/.zshrc 懒加载，
+/// 无法在进程级别静态注入，改为在 start_pty_session 时通过 shell 包装处理。
 #[cfg(target_os = "macos")]
 fn fix_path_env() {
     use std::env;
-
-    // 先把常见路径直接加进来（兜底，不依赖 shell）
-    let extra_dirs = [
-        "/opt/homebrew/bin",
-        "/opt/homebrew/sbin",
-        "/usr/local/bin",
-        "/usr/local/sbin",
-        // nvm 默认路径
-        &format!("{}/.nvm/versions/node/bin", env::var("HOME").unwrap_or_default()),
-        // mise / asdf shims
-        &format!("{}/.local/share/mise/shims", env::var("HOME").unwrap_or_default()),
-        &format!("{}/.asdf/shims", env::var("HOME").unwrap_or_default()),
-    ];
-
-    let current_path = env::var("PATH").unwrap_or_default();
-    let mut parts: Vec<&str> = current_path.split(':').collect();
-
-    for dir in extra_dirs.iter().rev() {
-        if !dir.is_empty() && !parts.contains(dir) {
+    let current = env::var("PATH").unwrap_or_default();
+    let extra = ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin"];
+    let mut parts: Vec<&str> = current.split(':').collect();
+    for dir in extra.iter().rev() {
+        if !parts.contains(dir) {
             parts.insert(0, dir);
         }
     }
-
-    // 再用 login shell 读取一次，获取用户完整环境（含 nvm/mise 动态路径）
-    let shell_path_owned: String;
-    if let Ok(shell) = env::var("SHELL") {
-        if let Ok(out) = std::process::Command::new(&shell)
-            .args(["-l", "-c", "echo $PATH"])
-            .output()
-        {
-            shell_path_owned = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            for dir in shell_path_owned.split(':') {
-                if !dir.is_empty() && !parts.contains(&dir) {
-                    parts.push(dir);
-                }
-            }
-        }
-    }
-
-    let new_path = parts.join(":");
-    env::set_var("PATH", &new_path);
-    eprintln!("[fix_path_env] PATH={new_path}");
+    env::set_var("PATH", parts.join(":"));
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
