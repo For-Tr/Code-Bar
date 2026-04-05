@@ -1405,22 +1405,34 @@ fn pty_master_map(app: &tauri::AppHandle) -> PtyMasterMap {
     app.state::<PtyMasterMap>().inner().clone()
 }
 
-/// 检测指定 CLI 是否在 PATH 中可用
+/// 检测指定 CLI 是否可用。
+/// 优先通过 interactive login shell 查找（确保 nvm/mise/pyenv 等路径也能命中），
+/// 降级到进程当前 PATH 扫描。
 #[tauri::command]
 async fn check_cli(command: String) -> bool {
-    // 优先用完整路径直接检测
+    // 完整路径：直接检测文件是否存在
     if command.contains('/') || command.contains('\\') {
         return std::path::Path::new(&command).exists();
     }
-    // 从 PATH 查找
+
+    // 通过 interactive login shell 执行 `which`，可以命中 nvm/mise/pyenv 等动态路径
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    let which_cmd = format!("which {} 2>/dev/null", shell_quote(&command));
+    if let Ok(out) = std::process::Command::new(&shell)
+        .args(["-i", "-l", "-c", &which_cmd])
+        .output()
+    {
+        let result = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if !result.is_empty() && std::path::Path::new(&result).exists() {
+            return true;
+        }
+    }
+
+    // 降级：扫描进程当前 PATH（兜底）
     if let Ok(path_var) = std::env::var("PATH") {
         let sep = if cfg!(windows) { ';' } else { ':' };
         for dir in path_var.split(sep) {
             let full = std::path::PathBuf::from(dir).join(&command);
-            if full.exists() {
-                return true;
-            }
-            // macOS/Linux：也检查带可执行权限
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
@@ -1430,6 +1442,8 @@ async fn check_cli(command: String) -> bool {
                     }
                 }
             }
+            #[cfg(not(unix))]
+            if full.exists() { return true; }
         }
     }
     false
