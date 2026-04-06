@@ -508,19 +508,14 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
       }}
       style={{
         position: "fixed",
-        top: 0, left: 0, right: 0, bottom: 0,
+        top: 6, left: 6, right: 6, bottom: 6,
         zIndex: hidden ? -1 : 200,
-        borderRadius: 18,
+        borderRadius: 14,
         overflow: "hidden",
         background: "var(--ci-pty-panel-bg)",
         backdropFilter: "blur(48px) saturate(1.5)",
         WebkitBackdropFilter: "blur(48px) saturate(1.5)",
         border: "1px solid var(--ci-pty-panel-border)",
-        boxShadow: [
-          "0 8px 24px rgba(0,0,0,0.35)",
-          "0 32px 72px rgba(0,0,0,0.5)",
-          "inset 0 0 0 0.5px rgba(0,0,0,0.05)",
-        ].join(", "),
         display: "flex",
         flexDirection: "column",
         visibility: hidden ? "hidden" : "visible",

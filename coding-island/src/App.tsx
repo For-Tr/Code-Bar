@@ -465,7 +465,7 @@ export default function App() {
     <div style={{
       width: "100vw",
       height: "100vh",
-      padding: "8px 8px 0 8px",
+      padding: "6px",
       boxSizing: "border-box",
       background: "transparent",
     }}>
@@ -473,18 +473,13 @@ export default function App() {
         transition={spring}
         style={{
           width: "100%",
-          height: "calc(100vh - 8px)",
+          height: "calc(100vh - 12px)",
           position: "relative",
           background: "var(--ci-bg)",
           backdropFilter: "blur(48px) saturate(1.8)",
           WebkitBackdropFilter: "blur(48px) saturate(1.8)",
-          borderRadius: 16,
+          borderRadius: 14,
           border: "1px solid var(--ci-border)",
-          boxShadow: [
-            "0 2px 4px rgba(0,0,0,0.06)",
-            "0 8px 24px rgba(0,0,0,0.10)",
-            "0 24px 48px rgba(0,0,0,0.08)",
-          ].join(", "),
           overflow: "hidden",
           display: "flex",
           flexDirection: "column",
