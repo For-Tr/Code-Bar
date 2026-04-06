@@ -41,8 +41,14 @@ fn save_bounds_to_file(app: &tauri::AppHandle, bounds: &PopupBounds) {
 // ── Tauri 命令：bounds 持久化 ─────────────────────────────────
 
 /// 保存浮窗位置与大小（仅在基础状态/非展开时由前端调用）
+/// 收起动画保护期（600ms）内调用时静默忽略，防止动画触发的 onResized 误写盘。
 #[tauri::command]
 pub fn save_popup_bounds(app: tauri::AppHandle, x: f64, y: f64, width: f64, height: f64) {
+    // 收起保护期内拒绝写盘
+    if app.state::<crate::state::RestoringLock>().is_locked() {
+        eprintln!("[popup] save_popup_bounds ignored (restoring lock active)");
+        return;
+    }
     let bounds = PopupBounds { x, y, width, height };
     save_bounds_to_file(&app, &bounds);
     eprintln!("[popup] bounds saved => x={x} y={y} w={width} h={height}");
@@ -124,10 +130,104 @@ pub fn setup_popup_window(win: &tauri::WebviewWindow) {
     }
 }
 
+// ── macOS 原生窗口动画 ────────────────────────────────────────────
+//
+// 使用 NSAnimationContext + [[window animator] setFrame:display:]
+// 实现系统级弹性窗口动画（与 Spotlight、Raycast 同款）。
+//
+// 坐标系说明：
+//   macOS NSWindow/NSScreen 使用「左下角为原点、Y 轴向上」的坐标系。
+//   Tauri logical 坐标使用「左上角为原点、Y 轴向下」。
+//   转换公式：ns_y = screen_h - tauri_y - window_height
+//
+// 线程安全：
+//   NSAnimationContext 必须在主线程调用。
+//   我们将 NSWindow 指针以 usize 形式传入 run_on_main_thread 闭包（'static + Send）。
+//   因为 run_on_main_thread 保证在主线程执行，此时访问 NSWindow 是安全的。
+
+#[cfg(target_os = "macos")]
+unsafe fn do_animated_set_frame(
+    ns_window_ptr: usize,
+    target_x: f64,
+    target_y: f64,
+    target_w: f64,
+    target_h: f64,
+    screen_h: f64,
+    duration: f64,
+) {
+    use objc::{class, msg_send, sel, sel_impl};
+
+    let ns_window = ns_window_ptr as cocoa::base::id;
+
+    // NSRect 结构体（与 CoreGraphics CGRect 内存布局相同）
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct NSPoint { x: f64, y: f64 }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct NSSize  { width: f64, height: f64 }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct NSRect  { origin: NSPoint, size: NSSize }
+
+    // Tauri(左上角, Y↓) → macOS NSRect(左下角, Y↑)
+    let ns_x = target_x;
+    let ns_y = screen_h - target_y - target_h;
+
+    // ── 步骤 1：读取当前窗口 frame ──────────────────────────────────
+    // 获取当前窗口的宽高（macOS 坐标系）
+    let cur_frame: NSRect = msg_send![ns_window, frame];
+    let cur_w = cur_frame.size.width;
+    let cur_h = cur_frame.size.height;
+
+    // ── 步骤 2：瞬时把位置对齐到目标 origin（保持当前 size，display:NO 不重绘）──
+    //
+    // 关键思路：NSAnimationContext setFrame: 对 origin 和 size 同时做线性插值。
+    // 若动画的起始 origin == 终止 origin，则动画全程 origin 不变，只有 size 变化，
+    // 视觉效果是"窗口原地扩展/收缩"，无任何平移感。
+    //
+    // 做法：
+    //   1. 瞬时 setFrame 到 (target_origin, cur_size)，display:NO 不触发重绘
+    //      → 窗口内存位置已到目标 origin，但屏幕上还显示原来的像素
+    //   2. 动画 setFrame 到 (target_origin, target_size)
+    //      → origin 起止相同，动画中 origin = 常数，只有 size 在插值
+    //      → 用户看到的是"从当前 size 平滑扩展到目标 size，位置不动"
+    let pre_frame = NSRect {
+        origin: NSPoint { x: ns_x, y: ns_y },   // ← 与动画终点相同的 origin
+        size:   NSSize  { width: cur_w, height: cur_h },
+    };
+    // display:NO → 仅更新内部 frame，不重绘屏幕，用户看不到这次跳变
+    let _: () = msg_send![ns_window, setFrame: pre_frame display: cocoa::base::NO];
+
+    // ── 步骤 3：动画 frame 到目标（origin 不变，只有 size 变化）────
+    let target_frame = NSRect {
+        origin: NSPoint { x: ns_x, y: ns_y },
+        size:   NSSize  { width: target_w, height: target_h },
+    };
+
+    let ctx_class = class!(NSAnimationContext);
+    let _: () = msg_send![ctx_class, beginGrouping];
+    let ctx: cocoa::base::id = msg_send![ctx_class, currentContext];
+    let _: () = msg_send![ctx, setDuration: duration];
+
+    let animator: cocoa::base::id = msg_send![ns_window, animator];
+    let _: () = msg_send![animator, setFrame: target_frame display: cocoa::base::YES];
+
+    let _: () = msg_send![ctx_class, endGrouping];
+
+    eprintln!(
+        "[popup] center-expand → tauri({target_x:.0},{target_y:.0}) \
+         ns_origin=({ns_x:.0},{ns_y:.0}) size={target_w:.0}×{target_h:.0} \
+         cur={cur_w:.0}×{cur_h:.0} dur={duration}"
+    );
+}
+
 // ── 显示 / 隐藏 / 切换弹窗 ────────────────────────────────────────
 
 pub fn show_popup(app: &tauri::AppHandle, win: &tauri::WebviewWindow) {
-    position_popup(app, win);
+    // 注意：不在这里调用 position_popup。
+    // 窗口隐藏时位置不会改变，下次 show 时原地显示即可，无需重新定位。
+    // position_popup 只在 create_popup（首次创建）时调用一次。
     let _ = win.show();
 
     #[cfg(target_os = "macos")]
@@ -205,54 +305,114 @@ pub fn close_popup(app: tauri::AppHandle, window: tauri::WebviewWindow) {
     let _ = window.hide();
 }
 
-/// 根据窗口在屏幕中的位置，计算展开/收起时的锚点坐标（右上角绝对坐标）。
+// ── 展开位置计算 ──────────────────────────────────────────────────
+//
+// 策略：以当前小窗口「中心」为基准，向四周等量扩展（原地放大）。
+// 空间不足时，以最小位移将展开后的大窗口推回屏幕内。
+//
+// 这样在绝大多数情况下小窗口完全不移位，展开像"从内部长出来"。
+// 只有真正贴近屏幕边缘且空间不够时，才会发生整体平移。
+//
+// 收起时用同样的中心点逆推：以大窗口中心收缩回小窗口。
+// 大窗口中心 = 展开时的中心（若展开期间未拖动），故收起后位置天然还原。
+
+/// 根据小窗口当前位置和目标展开尺寸，计算展开后大窗口的左上角坐标。
 ///
-/// 策略——检测小窗口「靠近哪条边」，就把那条边作为展开锚边，向内散射：
-///   - 靠右（右边距 < 阈值）→ 锚右边：anchor_x = orig_x + orig_w（不变），向左展开
-///   - 靠左（左边距 < 阈值）→ 锚左边：anchor_x = orig_x（不变），向右展开
-///   - 两侧都不靠边（或都靠边）→ 默认锚右边（同「靠右」）
+/// 参数：
+///   (orig_x, orig_y, orig_w, orig_h)  — 当前小窗口（逻辑像素）
+///   (exp_w,  exp_h)                   — 展开后目标尺寸
+///   (screen_x, screen_y, screen_w, screen_h) — 显示器可用区域（逻辑像素）
 ///
-/// 垂直方向同理：
-///   - 靠下（下边距 < 阈值）→ 锚底边：anchor_y = orig_y + orig_h，向上展开
-///   - 否则            → 锚顶边：anchor_y = orig_y，向下展开
-///
-/// 返回 (anchor_x, anchor_y, snap_right, snap_bottom)：
-///   snap_right  = true 表示展开时以右边为基准（new_x = anchor_x - new_w）
-///   snap_bottom = true 表示展开时以底边为基准（new_y = anchor_y - new_h）
-fn calc_expand_anchor(
+/// 返回 (new_x, new_y)：展开后大窗口的左上角坐标
+fn calc_expand_pos(
     orig_x: f64, orig_y: f64, orig_w: f64, orig_h: f64,
+    exp_w:  f64, exp_h:  f64,
     screen_x: f64, screen_y: f64, screen_w: f64, screen_h: f64,
-) -> (f64, f64, bool, bool) {
-    const EDGE_THRESHOLD: f64 = 120.0; // 逻辑像素，距边缘多近算「靠边」
+) -> (f64, f64) {
+    // 小窗口中心
+    let cx = orig_x + orig_w * 0.5;
+    let cy = orig_y + orig_h * 0.5;
 
-    let dist_left   = orig_x - screen_x;
-    let dist_right  = (screen_x + screen_w) - (orig_x + orig_w);
-    let dist_top    = orig_y - (screen_y + 28.0); // macOS menubar
-    let dist_bottom = (screen_y + screen_h) - (orig_y + orig_h);
+    // 理想展开：以中心为基准，大窗口居中
+    let ideal_x = cx - exp_w * 0.5;
+    let ideal_y = cy - exp_h * 0.5;
 
-    // 水平：靠右优先（默认行为），靠左次之
-    let snap_right = dist_right < EDGE_THRESHOLD || dist_left >= EDGE_THRESHOLD;
-    let anchor_x = if snap_right { orig_x + orig_w } else { orig_x };
+    // 屏幕有效区域（macOS 顶部 28px 为菜单栏）
+    let safe_top    = screen_y + 28.0;
+    let safe_left   = screen_x;
+    let safe_right  = screen_x + screen_w;
+    let safe_bottom = screen_y + screen_h;
 
-    // 垂直：靠下时向上展开，否则向下展开
-    let snap_bottom = dist_bottom < EDGE_THRESHOLD && dist_top >= 0.0;
-    let anchor_y = if snap_bottom { orig_y + orig_h } else { orig_y };
+    // 边界修正：超出哪边就往反方向推，取最小位移
+    let mut x = ideal_x;
+    let mut y = ideal_y;
+
+    // 右边溢出 → 向左推
+    if x + exp_w > safe_right  { x = safe_right  - exp_w; }
+    // 左边溢出 → 向右推
+    if x < safe_left            { x = safe_left; }
+    // 下边溢出 → 向上推
+    if y + exp_h > safe_bottom  { y = safe_bottom - exp_h; }
+    // 上边溢出（含菜单栏）→ 向下推
+    if y < safe_top             { y = safe_top; }
 
     eprintln!(
-        "[popup] anchor dist(L={dist_left:.0} R={dist_right:.0} T={dist_top:.0} B={dist_bottom:.0}) \
-         snap_right={snap_right} snap_bottom={snap_bottom} anchor=({anchor_x:.0},{anchor_y:.0})"
+        "[popup] expand center=({cx:.0},{cy:.0}) ideal=({ideal_x:.0},{ideal_y:.0}) \
+         clamped=({x:.0},{y:.0}) size={exp_w:.0}×{exp_h:.0}"
     );
 
-    (anchor_x, anchor_y, snap_right, snap_bottom)
+    (x, y)
 }
 
-/// 展开终端面板：根据靠近的屏幕边缘自动选择展开方向（向内散射）。
-/// - 靠右 → 以右边为锚，向左展开；靠左 → 以左边为锚，向右展开
-/// - 靠下 → 以底边为锚，向上展开；否则以顶边为锚，向下展开
-/// - 收起时使用 restore_popup_bounds 镜像还原，右上角/锚点完全一致
+/// 封装动画/瞬时调整的公共逻辑，避免重复代码
+fn apply_window_frame(
+    window: &tauri::WebviewWindow,
+    new_x: f64, new_y: f64, new_w: f64, new_h: f64,
+    screen_h: f64,
+    duration: f64,
+) {
+    // ── macOS：NSAnimationContext 原生动画 ──────────────────────────
+    #[cfg(target_os = "macos")]
+    {
+        let ns_window_ptr: usize = match window.ns_window() {
+            Ok(ptr) => ptr as usize,
+            Err(_) => {
+                // ns_window 获取失败，降级为瞬时调整
+                let _ = window.set_position(tauri::Position::Logical(
+                    tauri::LogicalPosition { x: new_x, y: new_y }
+                ));
+                let _ = window.set_size(tauri::Size::Logical(
+                    tauri::LogicalSize { width: new_w, height: new_h }
+                ));
+                return;
+            }
+        };
+        let _ = window.run_on_main_thread(move || {
+            unsafe { do_animated_set_frame(ns_window_ptr, new_x, new_y, new_w, new_h, screen_h, duration) };
+        });
+    }
+
+    // ── 非 macOS：瞬时调整 ─────────────────────────────────────────
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = window.set_position(tauri::Position::Logical(
+            tauri::LogicalPosition { x: new_x, y: new_y }
+        ));
+        let _ = window.set_size(tauri::Size::Logical(
+            tauri::LogicalSize { width: new_w, height: new_h }
+        ));
+    }
+}
+
+/// 展开终端面板。
+///
+/// 默认以小窗口中心为基准向四周等量扩展（小窗口原地不动，PTY 从内部长出）。
+/// 仅在展开后会超出屏幕边界时，才以最小位移整体平移使其完全可见。
+///
+/// macOS 使用 NSAnimationContext 原生动画（0.22s ease）；其他平台瞬时调整。
 /// 不写盘——展开是临时状态，收起后恢复磁盘记忆的基础尺寸。
 #[tauri::command]
-pub fn resize_popup_full(window: tauri::WebviewWindow, width: f64, height: f64) {
+pub fn resize_popup_full(app: tauri::AppHandle, window: tauri::WebviewWindow, width: f64, height: f64) {
     let scale = window.scale_factor().unwrap_or(1.0);
 
     // 当前窗口位置和尺寸（逻辑像素）
@@ -263,126 +423,87 @@ pub fn resize_popup_full(window: tauri::WebviewWindow, width: f64, height: f64) 
             return;
         }
     };
-    let orig_size = window.outer_size().map(|s| (
-        s.width as f64 / scale,
-        s.height as f64 / scale,
-    )).unwrap_or((376.0, 600.0));
-    let (orig_w, orig_h) = orig_size;
+    let (orig_w, orig_h) = window.outer_size()
+        .map(|s| (s.width as f64 / scale, s.height as f64 / scale))
+        .unwrap_or((376.0, 600.0));
+
+    // ★ 展开前把小窗口位置快照存入内存缓存，收起时精确还原
+    app.state::<crate::state::PreExpandPos>().set(crate::state::Bounds4 {
+        x: orig_x, y: orig_y, w: orig_w, h: orig_h,
+    });
 
     // 获取显示器信息
     let monitor_opt = window.current_monitor().ok().flatten()
         .or_else(|| window.primary_monitor().ok().flatten());
-    let (screen_x, screen_y, screen_w, screen_h) = match monitor_opt {
-        Some(m) => {
-            let s = m.scale_factor();
-            let sz = m.size();
-            let mp = m.position();
-            (mp.x as f64 / s, mp.y as f64 / s,
-             sz.width as f64 / s, sz.height as f64 / s)
-        }
+    let monitor = match monitor_opt {
+        Some(m) => m,
         None => {
-            // 无显示器信息，降级：以右上角为锚向左下展开
+            // 无显示器信息，降级：原地展开，不做边界检测
+            let cx = orig_x + orig_w * 0.5;
+            let cy = orig_y + orig_h * 0.5;
             let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition {
-                x: orig_x + orig_w - width,
-                y: orig_y,
+                x: cx - width * 0.5, y: cy - height * 0.5,
             }));
             let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize { width, height }));
             return;
         }
     };
+    let ms       = monitor.scale_factor();
+    let screen_x = monitor.position().x as f64 / ms;
+    let screen_y = monitor.position().y as f64 / ms;
+    let screen_w = monitor.size().width  as f64 / ms;
+    let screen_h = monitor.size().height as f64 / ms;
 
-    let (anchor_x, anchor_y, snap_right, snap_bottom) =
-        calc_expand_anchor(orig_x, orig_y, orig_w, orig_h, screen_x, screen_y, screen_w, screen_h);
+    let (new_x, new_y) = calc_expand_pos(
+        orig_x, orig_y, orig_w, orig_h,
+        width, height,
+        screen_x, screen_y, screen_w, screen_h,
+    );
 
-    let new_x = if snap_right  { anchor_x - width  } else { anchor_x };
-    let new_y = if snap_bottom { anchor_y - height } else { anchor_y };
-
-    eprintln!("[popup] resize_popup_full new_pos=({new_x:.0},{new_y:.0}) size({width}x{height})");
-
-    // 先移位（窗口还是小尺寸），再扩大 → 无闪烁
-    let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition { x: new_x, y: new_y }));
-    let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize { width, height }));
+    apply_window_frame(&window, new_x, new_y, width, height, screen_h, 0.18);
 }
 
-/// 终端面板收起后恢复菜单态：
-/// - 与展开方向完全镜像：用同样的 calc_expand_anchor 计算锚点，
-///   再将大窗口「归位」到小窗口所在的锚点位置
-/// - 尺寸恢复到磁盘记忆的基础尺寸（或默认 376×600）
-/// 先移位（向锚点收拢），再缩小 → 无闪烁
+/// 终端面板收起后，将窗口恢复到展开前的精确位置和尺寸。
+///
+/// 策略（优先级降序）：
+///   1. 内存缓存（PreExpandPos）：展开时快照的小窗口坐标，最精确，与碰撞检测完全兼容。
+///   2. 磁盘记忆（popup_bounds.json）：冷启动/异常时的兜底。
+///   3. 默认值 376×600。
+///
+/// 采用上一个 commit 的直接赋值方式（set_position + set_size），
+/// 不使用 NSAnimationContext，避免坐标系转换引入偏差。
+/// 同时加 RestoringLock 防止收起期间的 onResized 误写盘。
 #[tauri::command]
 pub fn restore_popup_bounds(app: tauri::AppHandle, window: tauri::WebviewWindow) {
-    let scale = window.scale_factor().unwrap_or(1.0);
+    // ★ 立即加锁：阻止接下来 600ms 内前端 onResized 误写盘
+    app.state::<crate::state::RestoringLock>().arm();
 
-    // 目标尺寸：从磁盘读取，否则默认
-    let (target_w, target_h) = load_bounds(&app)
-        .map(|b| (b.width, b.height))
-        .unwrap_or((376.0, 600.0));
-
-    // 当前（展开态）窗口左上角和尺寸（逻辑像素）
-    let (cur_x, cur_y) = match window.outer_position() {
-        Ok(p) => (p.x as f64 / scale, p.y as f64 / scale),
-        Err(_) => {
-            let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
-                width: target_w, height: target_h,
-            }));
-            return;
-        }
-    };
-    let (cur_w, cur_h) = window
-        .outer_size()
-        .map(|s| (s.width as f64 / scale, s.height as f64 / scale))
-        .unwrap_or((target_w, target_h));
-
-    // 获取显示器信息（用于 calc_expand_anchor）
-    let monitor_opt = window.current_monitor().ok().flatten()
-        .or_else(|| window.primary_monitor().ok().flatten());
-    let (screen_x, screen_y, screen_w, screen_h) = match monitor_opt {
-        Some(m) => {
-            let s = m.scale_factor();
-            let sz = m.size();
-            let mp = m.position();
-            (mp.x as f64 / s, mp.y as f64 / s,
-             sz.width as f64 / s, sz.height as f64 / s)
-        }
-        None => {
-            // 无显示器信息，降级：保持右上角
-            let new_x = cur_x + cur_w - target_w;
-            let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition { x: new_x, y: cur_y }));
-            let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize { width: target_w, height: target_h }));
-            save_bounds_to_file(&app, &PopupBounds { x: new_x, y: cur_y, width: target_w, height: target_h });
-            return;
-        }
+    // ── 确定目标位置和尺寸（优先缓存，其次磁盘，最后默认）────────
+    let (x, y, w, h) = if let Some(snap) = app.state::<crate::state::PreExpandPos>().take() {
+        // ★ 最精确：展开前的精确快照
+        eprintln!("[popup] restore: cache hit ({:.0},{:.0}) {:.0}×{:.0}",
+            snap.x, snap.y, snap.w, snap.h);
+        (snap.x, snap.y, snap.w, snap.h)
+    } else if let Some(disk) = load_bounds(&app) {
+        // 磁盘兜底
+        eprintln!("[popup] restore: disk fallback ({:.0},{:.0}) {:.0}×{:.0}",
+            disk.x, disk.y, disk.width, disk.height);
+        (disk.x, disk.y, disk.width, disk.height)
+    } else {
+        // 默认值（首次运行，无任何记忆）
+        eprintln!("[popup] restore: using defaults");
+        return; // 没有位置记忆时什么都不做，窗口停在原处
     };
 
-    // 用「收起后的小窗口」反推 calc_expand_anchor 里的 snap 方向。
-    // 展开时用的是小窗口的位置来判断靠边——现在大窗口的锚点就是小窗口锚点的映射。
-    // 大窗口展开后：anchor_x、anchor_y 是固定的，所以：
-    //   snap_right  → anchor_x = cur_x + cur_w（大窗口右边）→ 小窗口 new_x = anchor_x - target_w
-    //   !snap_right → anchor_x = cur_x（大窗口左边）        → 小窗口 new_x = anchor_x
-    //   snap_bottom → anchor_y = cur_y + cur_h              → 小窗口 new_y = anchor_y - target_h
-    //   !snap_bottom→ anchor_y = cur_y                      → 小窗口 new_y = anchor_y
-    //
-    // 但我们不知道展开时的 snap 方向，需要从大窗口当前位置重新判断。
-    // 关键：展开后大窗口的「小窗口对应的锚边」与大窗口本身的边重合，
-    // 所以用大窗口当前位置对屏幕的相对关系，同样能推断出正确 snap 方向。
-    let (anchor_x, anchor_y, snap_right, snap_bottom) =
-        calc_expand_anchor(cur_x, cur_y, cur_w, cur_h, screen_x, screen_y, screen_w, screen_h);
-
-    let new_x = if snap_right  { anchor_x - target_w  } else { anchor_x };
-    let new_y = if snap_bottom { anchor_y - target_h  } else { anchor_y };
-
-    eprintln!("[popup] restore_popup_bounds new_pos=({new_x:.0},{new_y:.0}) size→{target_w}x{target_h}");
-
-    // 先移位（窗口还是大的，但新位置已是收起后的左上角），再缩小
-    let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition { x: new_x, y: new_y }));
+    // ── 直接 set_position + set_size（参照上一个 commit，简单可靠）──
     let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
-        width: target_w, height: target_h,
+        width: w, height: h,
+    }));
+    let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition {
+        x, y,
     }));
 
-    // 更新磁盘记录
-    save_bounds_to_file(&app, &PopupBounds {
-        x: new_x, y: new_y, width: target_w, height: target_h,
-    });
+    eprintln!("[popup] restore done => ({x:.0},{y:.0}) {w:.0}×{h:.0}");
 }
 
 /// （兼容旧调用）调整弹窗高度，保持当前宽度和位置，同时写盘持久化。
@@ -395,20 +516,14 @@ pub fn resize_popup(app: tauri::AppHandle, window: tauri::WebviewWindow, height:
         .map(|s| s.to_logical::<f64>(scale))
         .unwrap_or(tauri::LogicalSize { width: 376.0, height: h });
     let w = cur_size.width.max(300.0);
-    let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
-        width: w,
-        height: h,
-    }));
+    let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize { width: w, height: h }));
     if let Ok(pos) = window.outer_position() {
-        save_bounds_to_file(
-            &app,
-            &PopupBounds {
-                x: pos.x as f64 / scale,
-                y: pos.y as f64 / scale,
-                width: w,
-                height: h,
-            },
-        );
+        save_bounds_to_file(&app, &PopupBounds {
+            x: pos.x as f64 / scale,
+            y: pos.y as f64 / scale,
+            width: w,
+            height: h,
+        });
     }
 }
 

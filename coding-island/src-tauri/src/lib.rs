@@ -10,7 +10,7 @@ mod state;
 mod util;
 mod window;
 
-use state::{PopupVisible, ProcessMap, PtyKillerMap, PtyMasterMap, PtyWriterMap};
+use state::{PopupVisible, PreExpandPos, RestoringLock, ProcessMap, PtyKillerMap, PtyMasterMap, PtyWriterMap};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -49,6 +49,8 @@ pub fn run() {
         .manage(PtyKillerMap::default())
         .manage(PtyMasterMap::default())
         .manage(PopupVisible::new(false))
+        .manage(PreExpandPos::new())
+        .manage(RestoringLock::new())
         .setup(|app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
