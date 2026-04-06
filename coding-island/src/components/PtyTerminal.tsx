@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
+import { useSettingsStore } from "../store/settingsStore";
 
 interface Props {
   sessionId: string;
@@ -20,6 +21,63 @@ interface Props {
   env?: [string, string][];
 }
 
+// ── xterm 主题定义 ─────────────────────────────────────────────
+const TERM_THEME_DARK = {
+  background:           "#0a0a0c",
+  foreground:           "#e2e8f0",
+  cursor:               "#60a5fa",
+  cursorAccent:         "#0a0a0c",
+  selectionBackground:  "rgba(96,165,250,0.3)",
+  black:                "#1e1e2e",
+  red:                  "#f87171",
+  green:                "#4ade80",
+  yellow:               "#fbbf24",
+  blue:                 "#60a5fa",
+  magenta:              "#c084fc",
+  cyan:                 "#34d399",
+  white:                "#e2e8f0",
+  brightBlack:          "#374151",
+  brightRed:            "#fc8181",
+  brightGreen:          "#6ee7b7",
+  brightYellow:         "#fde68a",
+  brightBlue:           "#93c5fd",
+  brightMagenta:        "#d8b4fe",
+  brightCyan:           "#6ee7b7",
+  brightWhite:          "#f1f5f9",
+};
+
+// 浅色模式：终端背景改为暖白/米色，前景改为深色，但保留足够对比度
+const TERM_THEME_LIGHT = {
+  background:           "#1e1e2e",   // 浅色模式也保持深色终端背景（可读性好）
+  foreground:           "#e2e8f0",
+  cursor:               "#007AFF",
+  cursorAccent:         "#1e1e2e",
+  selectionBackground:  "rgba(0,122,255,0.25)",
+  black:                "#1e1e2e",
+  red:                  "#f87171",
+  green:                "#4ade80",
+  yellow:               "#fbbf24",
+  blue:                 "#60a5fa",
+  magenta:              "#c084fc",
+  cyan:                 "#34d399",
+  white:                "#e2e8f0",
+  brightBlack:          "#4b5563",
+  brightRed:            "#fc8181",
+  brightGreen:          "#6ee7b7",
+  brightYellow:         "#fde68a",
+  brightBlue:           "#93c5fd",
+  brightMagenta:        "#d8b4fe",
+  brightCyan:           "#6ee7b7",
+  brightWhite:          "#f1f5f9",
+};
+
+// 根据 settings.theme + 系统媒体查询，计算是否为深色模式
+function getIsDark(theme: "light" | "dark" | "system"): boolean {
+  if (theme === "dark") return true;
+  if (theme === "light") return false;
+  return window.matchMedia("(prefers-color-scheme: dark)").matches;
+}
+
 export function PtyTerminal({ sessionId, command, args = [], workdir, active, onReady, onWaiting, onRunning, onError, onNotification, env }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -27,34 +85,19 @@ export function PtyTerminal({ sessionId, command, args = [], workdir, active, on
   const startedRef = useRef(false);
   const [exited, setExited] = useState(false);
 
+  // 读取当前主题
+  const theme = useSettingsStore((s) => s.settings.theme);
+
   // ── 初始化 xterm ──────────────────────────────────────────
   useEffect(() => {
     if (!containerRef.current) return;
 
+    const isDark = getIsDark(theme);
+    const termTheme = isDark ? TERM_THEME_DARK : TERM_THEME_LIGHT;
+    const termBg = isDark ? "#0a0a0c" : "#1e1e2e";
+
     const term = new Terminal({
-      theme: {
-        background:           "#0a0a0c",
-        foreground:           "#e2e8f0",
-        cursor:               "#60a5fa",
-        cursorAccent:         "#0a0a0c",
-        selectionBackground:  "rgba(96,165,250,0.3)",
-        black:                "#1e1e2e",
-        red:                  "#f87171",
-        green:                "#4ade80",
-        yellow:               "#fbbf24",
-        blue:                 "#60a5fa",
-        magenta:              "#c084fc",
-        cyan:                 "#34d399",
-        white:                "#e2e8f0",
-        brightBlack:          "#374151",
-        brightRed:            "#fc8181",
-        brightGreen:          "#6ee7b7",
-        brightYellow:         "#fde68a",
-        brightBlue:           "#93c5fd",
-        brightMagenta:        "#d8b4fe",
-        brightCyan:           "#6ee7b7",
-        brightWhite:          "#f1f5f9",
-      },
+      theme: termTheme,
       fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
       fontSize: 13,
       lineHeight: 1.4,
@@ -73,6 +116,11 @@ export function PtyTerminal({ sessionId, command, args = [], workdir, active, on
     termRef.current = term;
     fitRef.current = fit;
 
+    // 更新容器背景色
+    if (containerRef.current) {
+      containerRef.current.style.background = termBg;
+    }
+
     // 键盘输入 → 发给 PTY（base64 编码）
     term.onData((data: string) => {
       const bytes = new TextEncoder().encode(data);
@@ -85,7 +133,39 @@ export function PtyTerminal({ sessionId, command, args = [], workdir, active, on
       termRef.current = null;
       fitRef.current = null;
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
+
+  // ── 主题切换时动态更新 xterm 颜色 ────────────────────────
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term) return;
+
+    const isDark = getIsDark(theme);
+    const termTheme = isDark ? TERM_THEME_DARK : TERM_THEME_LIGHT;
+    const termBg = isDark ? "#0a0a0c" : "#1e1e2e";
+
+    // xterm 5.x 支持直接更新 options.theme
+    term.options.theme = termTheme;
+
+    if (containerRef.current) {
+      containerRef.current.style.background = termBg;
+    }
+
+    // system 模式：监听系统颜色变化
+    if (theme === "system") {
+      const mq = window.matchMedia("(prefers-color-scheme: dark)");
+      const listener = (e: MediaQueryListEvent) => {
+        const t = termRef.current;
+        if (!t) return;
+        t.options.theme = e.matches ? TERM_THEME_DARK : TERM_THEME_LIGHT;
+        const bg = e.matches ? "#0a0a0c" : "#1e1e2e";
+        if (containerRef.current) containerRef.current.style.background = bg;
+      };
+      mq.addEventListener("change", listener);
+      return () => mq.removeEventListener("change", listener);
+    }
+  }, [theme]);
 
   // 用 ref 保存最新回调，避免闭包过时（不加入依赖数组）
   const onWaitingRef = useRef(onWaiting);
@@ -285,12 +365,15 @@ export function PtyTerminal({ sessionId, command, args = [], workdir, active, on
     return () => ro.disconnect();
   }, [sessionId]);
 
+  const isDark = getIsDark(theme);
+  const termBg = isDark ? "#0a0a0c" : "#1e1e2e";
+
   return (
     <div style={{ position: "relative", width: "100%", height: "100%" }}>
       {/* xterm canvas */}
       <div
         ref={containerRef}
-        style={{ width: "100%", height: "100%", background: "#0a0a0c" }}
+        style={{ width: "100%", height: "100%", background: termBg }}
       />
 
       {/* 退出后的重启覆盖层 */}
@@ -298,7 +381,7 @@ export function PtyTerminal({ sessionId, command, args = [], workdir, active, on
         <div style={{
           position: "absolute", bottom: 0, left: 0, right: 0,
           padding: "12px 16px",
-          background: "linear-gradient(to top, rgba(10,10,12,0.98) 70%, transparent)",
+          background: `linear-gradient(to top, ${termBg} 70%, transparent)`,
           display: "flex", alignItems: "center", justifyContent: "center", gap: 12,
         }}>
           <span style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", fontFamily: "monospace" }}>

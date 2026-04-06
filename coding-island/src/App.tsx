@@ -73,6 +73,29 @@ export default function App() {
         root.style.setProperty("--ci-btn-ghost-hover","rgba(255,255,255,0.12)");
         root.style.setProperty("--ci-close-bg",      "rgba(255,255,255,0.07)");
         root.style.setProperty("--ci-close-border",  "rgba(255,255,255,0.10)");
+        // PTY 面板专用（深色模式保持深色终端风格）
+        root.style.setProperty("--ci-pty-panel-bg",    "rgba(10,10,14,0.97)");
+        root.style.setProperty("--ci-pty-panel-border","rgba(255,255,255,0.09)");
+        root.style.setProperty("--ci-pty-titlebar-bg", "rgba(255,255,255,0.03)");
+        root.style.setProperty("--ci-pty-titlebar-bdr","rgba(255,255,255,0.06)");
+        root.style.setProperty("--ci-pty-title-color", "rgba(255,255,255,0.75)");
+        root.style.setProperty("--ci-pty-mask-bg",     "rgba(12,12,16,0.96)");
+        root.style.setProperty("--ci-pty-mask-title",  "rgba(240,240,248,0.88)");
+        root.style.setProperty("--ci-pty-mask-hint",   "rgba(200,200,210,0.4)");
+        root.style.setProperty("--ci-pty-mask-footer", "rgba(180,180,195,0.3)");
+        root.style.setProperty("--ci-pty-input-bg",    "rgba(255,255,255,0.06)");
+        root.style.setProperty("--ci-pty-input-border","rgba(255,255,255,0.13)");
+        root.style.setProperty("--ci-pty-input-text",  "rgba(235,235,242,0.88)");
+        root.style.setProperty("--ci-pty-btn-bg",      "rgba(255,255,255,0.07)");
+        root.style.setProperty("--ci-pty-btn-border",  "rgba(255,255,255,0.12)");
+        root.style.setProperty("--ci-pty-btn-text",    "rgba(255,255,255,0.42)");
+        root.style.setProperty("--ci-pty-btn-hover-bg", "rgba(255,255,255,0.13)");
+        root.style.setProperty("--ci-pty-btn-hover-text","rgba(255,255,255,0.85)");
+        root.style.setProperty("--ci-pty-runner-bg",       "rgba(0,122,255,0.14)");
+        root.style.setProperty("--ci-pty-runner-bg-hover",  "rgba(0,122,255,0.24)");
+        root.style.setProperty("--ci-pty-runner-border",    "rgba(0,122,255,0.28)");
+        root.style.setProperty("--ci-pty-runner-text",      "#60a5fa");
+        root.style.setProperty("--ci-pty-term-bg",          "#0a0a0c");
         root.setAttribute("data-theme", "dark");
       } else {
         // Light mode tokens
@@ -111,6 +134,29 @@ export default function App() {
         root.style.setProperty("--ci-btn-ghost-hover","rgba(0,0,0,0.08)");
         root.style.setProperty("--ci-close-bg",      "rgba(0,0,0,0.05)");
         root.style.setProperty("--ci-close-border",  "rgba(0,0,0,0.08)");
+        // PTY 面板专用（浅色模式：外壳用毛玻璃浅色，终端本体仍保持深色）
+        root.style.setProperty("--ci-pty-panel-bg",    "rgba(242,242,247,0.97)");
+        root.style.setProperty("--ci-pty-panel-border","rgba(0,0,0,0.09)");
+        root.style.setProperty("--ci-pty-titlebar-bg", "rgba(255,255,255,0.60)");
+        root.style.setProperty("--ci-pty-titlebar-bdr","rgba(0,0,0,0.07)");
+        root.style.setProperty("--ci-pty-title-color", "rgba(28,28,30,0.85)");
+        root.style.setProperty("--ci-pty-mask-bg",     "rgba(246,246,248,0.97)");
+        root.style.setProperty("--ci-pty-mask-title",  "#1c1c1e");
+        root.style.setProperty("--ci-pty-mask-hint",   "rgba(60,60,67,0.45)");
+        root.style.setProperty("--ci-pty-mask-footer", "rgba(60,60,67,0.28)");
+        root.style.setProperty("--ci-pty-input-bg",    "rgba(255,255,255,0.80)");
+        root.style.setProperty("--ci-pty-input-border","rgba(0,0,0,0.10)");
+        root.style.setProperty("--ci-pty-input-text",  "#1c1c1e");
+        root.style.setProperty("--ci-pty-btn-bg",      "rgba(0,0,0,0.04)");
+        root.style.setProperty("--ci-pty-btn-border",  "rgba(0,0,0,0.09)");
+        root.style.setProperty("--ci-pty-btn-text",    "rgba(60,60,67,0.55)");
+        root.style.setProperty("--ci-pty-btn-hover-bg", "rgba(0,0,0,0.08)");
+        root.style.setProperty("--ci-pty-btn-hover-text","rgba(28,28,30,0.9)");
+        root.style.setProperty("--ci-pty-runner-bg",       "rgba(0,122,255,0.08)");
+        root.style.setProperty("--ci-pty-runner-bg-hover",  "rgba(0,122,255,0.15)");
+        root.style.setProperty("--ci-pty-runner-border",    "rgba(0,122,255,0.22)");
+        root.style.setProperty("--ci-pty-runner-text",      "#007AFF");
+        root.style.setProperty("--ci-pty-term-bg",          "#0a0a0c");
         root.setAttribute("data-theme", "light");
       }
     };

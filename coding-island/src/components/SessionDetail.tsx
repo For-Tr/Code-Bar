@@ -497,14 +497,14 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
         zIndex: hidden ? -1 : 200,
         borderRadius: 18,
         overflow: "hidden",
-        background: "rgba(10,10,14,0.97)",
+        background: "var(--ci-pty-panel-bg)",
         backdropFilter: "blur(48px) saturate(1.5)",
         WebkitBackdropFilter: "blur(48px) saturate(1.5)",
-        border: "1px solid rgba(255,255,255,0.09)",
+        border: "1px solid var(--ci-pty-panel-border)",
         boxShadow: [
           "0 8px 24px rgba(0,0,0,0.35)",
           "0 32px 72px rgba(0,0,0,0.5)",
-          "inset 0 0 0 0.5px rgba(255,255,255,0.05)",
+          "inset 0 0 0 0.5px rgba(0,0,0,0.05)",
         ].join(", "),
         display: "flex",
         flexDirection: "column",
@@ -517,12 +517,12 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
         style={{
           display: "flex", alignItems: "center", gap: 10,
           padding: "12px 16px 10px",
-          borderBottom: "1px solid rgba(255,255,255,0.06)",
+          borderBottom: "1px solid var(--ci-pty-titlebar-bdr)",
           flexShrink: 0,
           cursor: "grab",
           userSelect: "none",
           WebkitUserSelect: "none",
-          background: "rgba(255,255,255,0.03)",
+          background: "var(--ci-pty-titlebar-bg)",
         }}
       >
         <div data-tauri-drag-region style={{ display: "flex", gap: 6 }}>
@@ -543,7 +543,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
 
         <span data-tauri-drag-region style={{
           flex: 1, fontSize: 12, fontWeight: 600,
-          color: "rgba(255,255,255,0.75)",
+          color: "var(--ci-pty-title-color)",
           overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
           cursor: "grab",
           letterSpacing: -0.2,
@@ -558,14 +558,14 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
           title="切换 Runner"
           style={{
             fontSize: 10, padding: "2px 8px", borderRadius: 99,
-            background: "rgba(0,122,255,0.14)",
-            border: "1px solid rgba(0,122,255,0.28)",
-            color: "#60a5fa", fontFamily: "monospace",
+            background: "var(--ci-pty-runner-bg)",
+            border: "1px solid var(--ci-pty-runner-border)",
+            color: "var(--ci-pty-runner-text)", fontFamily: "monospace",
             cursor: "pointer",
             transition: "background 0.15s",
           }}
-          onMouseEnter={e => (e.currentTarget.style.background = "rgba(0,122,255,0.24)")}
-          onMouseLeave={e => (e.currentTarget.style.background = "rgba(0,122,255,0.14)")}
+          onMouseEnter={e => (e.currentTarget.style.background = "var(--ci-pty-runner-bg-hover)")}
+          onMouseLeave={e => (e.currentTarget.style.background = "var(--ci-pty-runner-bg)")}
         >
           {runnerBadge}
         </button>
@@ -592,10 +592,10 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
             data-tauri-drag-region
             onClick={() => { setInstalling(false); recheckCli(); }}
             style={{
-              background: "rgba(255,255,255,0.07)",
-              border: "1px solid rgba(255,255,255,0.12)",
+              background: "var(--ci-pty-btn-bg)",
+              border: "1px solid var(--ci-pty-btn-border)",
               borderRadius: 6, padding: "2px 8px",
-              color: "rgba(255,255,255,0.45)", fontSize: 11, cursor: "pointer",
+              color: "var(--ci-pty-btn-text)", fontSize: 11, cursor: "pointer",
             }}
           >
             取消
@@ -607,19 +607,19 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
             data-tauri-drag-region
             onClick={onClose}
             style={{
-              background: "rgba(255,255,255,0.07)",
-              border: "1px solid rgba(255,255,255,0.12)",
+              background: "var(--ci-pty-btn-bg)",
+              border: "1px solid var(--ci-pty-btn-border)",
               borderRadius: 6, padding: "2px 8px",
-              color: "rgba(255,255,255,0.42)", fontSize: 11, cursor: "pointer",
+              color: "var(--ci-pty-btn-text)", fontSize: 11, cursor: "pointer",
               transition: "background 0.15s, color 0.15s",
             }}
             onMouseEnter={e => {
-              e.currentTarget.style.background = "rgba(255,255,255,0.13)";
-              e.currentTarget.style.color = "rgba(255,255,255,0.85)";
+              e.currentTarget.style.background = "var(--ci-pty-btn-hover-bg)";
+              e.currentTarget.style.color = "var(--ci-pty-btn-hover-text)";
             }}
             onMouseLeave={e => {
-              e.currentTarget.style.background = "rgba(255,255,255,0.07)";
-              e.currentTarget.style.color = "rgba(255,255,255,0.42)";
+              e.currentTarget.style.background = "var(--ci-pty-btn-bg)";
+              e.currentTarget.style.color = "var(--ci-pty-btn-text)";
             }}
           >
             收起
@@ -642,16 +642,16 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
               style={{
                 position: "absolute", inset: 0, zIndex: 10,
                 display: "flex", flexDirection: "column",
-                background: "rgba(10,10,12,0.98)",
+                background: "var(--ci-pty-panel-bg)",
               }}
             >
               <div style={{
                 flexShrink: 0,
                 padding: "8px 14px",
-                borderBottom: "1px solid rgba(255,255,255,0.06)",
+                borderBottom: "1px solid var(--ci-pty-titlebar-bdr)",
                 display: "flex", alignItems: "center", gap: 8,
               }}>
-                <span style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", fontFamily: "monospace" }}>$</span>
+                <span style={{ fontSize: 10, color: "var(--ci-pty-mask-footer)", fontFamily: "monospace" }}>$</span>
                 <code style={{
                   flex: 1, fontSize: 11,
                   color: "rgba(251,191,36,0.8)",
@@ -676,7 +676,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
           <div style={{
             flex: 1, overflow: "auto",
             padding: "12px 16px",
-            background: "rgba(8,8,10,0.98)",
+            background: "var(--ci-pty-term-bg)",
           }}>
             <pre style={{
               fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
@@ -734,7 +734,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
                 alignItems: "center", justifyContent: "center",
                 padding: "24px 32px", gap: 16,
                 overflowY: "auto",
-                background: "rgba(12,12,16,0.96)",
+                background: "var(--ci-pty-mask-bg)",
               }}
             >
               <div style={{
@@ -749,10 +749,10 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
               </div>
 
               <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: "rgba(240,240,248,0.88)", marginBottom: 4 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ci-pty-mask-title)", marginBottom: 4 }}>
                   描述你的任务
                 </div>
-                <div style={{ fontSize: 11, color: "rgba(200,200,210,0.4)" }}>
+                <div style={{ fontSize: 11, color: "var(--ci-pty-mask-hint)" }}>
                   {isNativeMode
                     ? `使用内置 Harness 调用 ${settings.model.model}`
                     : `回车后将自动启动 ${runnerBadge} 并透传给 AI`}
@@ -769,9 +769,9 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
                       onClick={() => patchRunner({ type })}
                       style={{
                         fontSize: 10, padding: "3px 10px", borderRadius: 99,
-                        background: active ? "rgba(0,122,255,0.18)" : "rgba(255,255,255,0.06)",
-                        border: `1px solid ${active ? "rgba(0,122,255,0.38)" : "rgba(255,255,255,0.1)"}`,
-                        color: active ? "#60a5fa" : "rgba(210,210,220,0.4)",
+                        background: active ? "var(--ci-pty-runner-bg)" : "var(--ci-pty-btn-bg)",
+                        border: `1px solid ${active ? "var(--ci-pty-runner-border)" : "var(--ci-pty-btn-border)"}`,
+                        color: active ? "var(--ci-pty-runner-text)" : "var(--ci-pty-btn-text)",
                         cursor: "pointer",
                         transition: "all 0.15s",
                         fontWeight: active ? 600 : 400,
@@ -835,13 +835,13 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
 
               <div style={{
                 width: "100%",
-                background: "rgba(255,255,255,0.06)",
-                border: "1px solid rgba(255,255,255,0.13)",
+                background: "var(--ci-pty-input-bg)",
+                border: "1px solid var(--ci-pty-input-border)",
                 borderRadius: 12,
                 display: "flex", alignItems: "flex-start", gap: 8,
                 padding: "10px 14px",
                 backdropFilter: "blur(8px)",
-                boxShadow: "0 1px 6px rgba(0,0,0,0.2), inset 0 0 0 0.5px rgba(255,255,255,0.06)",
+                boxShadow: "0 1px 6px rgba(0,0,0,0.1), inset 0 0 0 0.5px rgba(0,0,0,0.04)",
                 transition: "border-color 0.15s, box-shadow 0.15s",
               }}
               onFocus={() => {}}
@@ -855,13 +855,13 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
                   rows={3}
                   style={{
                     flex: 1, background: "none", border: "none", outline: "none",
-                    color: "rgba(235,235,242,0.88)", fontSize: 13, lineHeight: "1.6",
+                    color: "var(--ci-pty-input-text)", fontSize: 13, lineHeight: "1.6",
                     resize: "none", fontFamily: "inherit",
                   }}
                 />
               </div>
 
-              <div style={{ fontSize: 10, color: "rgba(180,180,195,0.3)" }}>
+              <div style={{ fontSize: 10, color: "var(--ci-pty-mask-footer)" }}>
                 Enter 发送 · Shift+Enter 换行 · Esc 关闭
               </div>
             </motion.div>
