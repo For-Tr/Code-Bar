@@ -6,6 +6,7 @@ import { useSessionStore } from "../store/sessionStore";
 import { useSettingsStore, RUNNER_LABELS, type RunnerType } from "../store/settingsStore";
 import { useWorkspaceStore } from "../store/workspaceStore";
 import { PtyTerminal } from "./PtyTerminal";
+import { TrafficLights } from "./TrafficLights";
 import { startRunner } from "../harness/runnerRouter";
 import type { RunnerHandle } from "../harness/runnerRouter";
 
@@ -539,21 +540,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
           background: "var(--ci-pty-titlebar-bg)",
         }}
       >
-        <div data-tauri-drag-region style={{ display: "flex", gap: 6 }}>
-          <button
-            onClick={onClose}
-            style={{
-              width: 12, height: 12, borderRadius: "50%",
-              background: "#FF5F57", border: "0.5px solid rgba(0,0,0,0.15)",
-              cursor: "pointer", padding: 0,
-              transition: "opacity 0.15s",
-            }}
-            onMouseEnter={e => (e.currentTarget.style.opacity = "0.8")}
-            onMouseLeave={e => (e.currentTarget.style.opacity = "1")}
-          />
-          <div data-tauri-drag-region style={{ width: 12, height: 12, borderRadius: "50%", background: "#FEBC2E", border: "0.5px solid rgba(0,0,0,0.12)" }} />
-          <div data-tauri-drag-region style={{ width: 12, height: 12, borderRadius: "50%", background: "#28C840", border: "0.5px solid rgba(0,0,0,0.12)" }} />
-        </div>
+        <TrafficLights onClose={onClose} size={12} gap={6} />
 
         <span data-tauri-drag-region style={{
           flex: 1, fontSize: 12, fontWeight: 600,

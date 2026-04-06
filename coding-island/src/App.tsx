@@ -463,15 +463,17 @@ export default function App() {
     <SessionDetail />
 
     <div style={{
-      width: "360px",
+      width: "100vw",
+      height: "100vh",
       padding: "8px 8px 0 8px",
+      boxSizing: "border-box",
       background: "transparent",
     }}>
       <motion.div
         transition={spring}
         style={{
           width: "100%",
-          maxHeight: "calc(100vh - 40px)",
+          height: "calc(100vh - 8px)",
           position: "relative",
           background: "var(--ci-bg)",
           backdropFilter: "blur(48px) saturate(1.8)",

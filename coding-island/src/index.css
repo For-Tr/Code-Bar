@@ -8,18 +8,17 @@
   box-sizing: border-box;
 }
 
-/* 根节点必须完全透明，不能有任何尺寸撑开背景 */
+/* 根节点必须完全透明，跟随窗口尺寸铺满，以响应用户拖动调整大小 */
 html,
 body,
 #root {
   background: transparent !important;
   background-color: transparent !important;
-  overflow: visible;
+  overflow: hidden;
   user-select: none;
   -webkit-user-select: none;
-  /* 关键：高度不要铺满，跟随内容 */
-  width: fit-content;
-  height: fit-content;
+  width: 100vw;
+  height: 100vh;
 }
 
 /* 全局隐藏 WebKit 滚动条（保留滚动功能，只隐藏视觉滚动条轨道） */

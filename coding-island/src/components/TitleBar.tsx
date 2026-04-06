@@ -1,12 +1,11 @@
-import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useSessionStore } from "../store/sessionStore";
 import { useSettingsStore } from "../store/settingsStore";
+import { TrafficLights } from "./TrafficLights";
 
 export function TitleBar() {
   const sessions = useSessionStore((s) => s.sessions);
   const { openSettings } = useSettingsStore();
-  const [hoverClose, setHoverClose] = useState(false);
 
   return (
     <div
@@ -24,49 +23,7 @@ export function TitleBar() {
       }}
     >
       {/* 左侧：交通灯按钮区 */}
-      <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-        {/* 关闭按钮（红色） */}
-        <button
-          onClick={() => invoke("close_popup").catch(() => {})}
-          onMouseEnter={() => setHoverClose(true)}
-          onMouseLeave={() => setHoverClose(false)}
-          title="关闭"
-          style={{
-            width: 13, height: 13,
-            borderRadius: "50%",
-            background: "#ff5f57",
-            border: "0.5px solid rgba(0,0,0,0.12)",
-            cursor: "pointer",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            padding: 0,
-            transition: "filter 0.1s",
-            filter: hoverClose ? "brightness(0.85)" : "none",
-            flexShrink: 0,
-          }}
-        >
-          {hoverClose && (
-            <svg width="6" height="6" viewBox="0 0 6 6" fill="none">
-              <path d="M1 1l4 4M5 1L1 5" stroke="rgba(100,0,0,0.6)" strokeWidth="1.2" strokeLinecap="round"/>
-            </svg>
-          )}
-        </button>
-
-        {/* 最小化（黄色，装饰性） */}
-        <div style={{
-          width: 13, height: 13, borderRadius: "50%",
-          background: "#febc2e",
-          border: "0.5px solid rgba(0,0,0,0.1)",
-          flexShrink: 0,
-        }} />
-
-        {/* 最大化（绿色，装饰性） */}
-        <div style={{
-          width: 13, height: 13, borderRadius: "50%",
-          background: "#28c840",
-          border: "0.5px solid rgba(0,0,0,0.1)",
-          flexShrink: 0,
-        }} />
-      </div>
+      <TrafficLights onClose={() => invoke("close_popup").catch(() => {})} />
 
       {/* 中间：标题 */}
       <div style={{
@@ -112,8 +69,8 @@ export function TitleBar() {
           background: "var(--ci-btn-ghost-bg)",
           border: "0.5px solid var(--ci-border)",
           color: "var(--ci-text-muted)",
-          borderRadius: 6, width: 24, height: 24,
-          cursor: "pointer", fontSize: 12,
+          borderRadius: 6, width: 26, height: 26,
+          cursor: "pointer",
           display: "flex", alignItems: "center", justifyContent: "center",
           transition: "all 0.15s",
         }}
@@ -126,7 +83,10 @@ export function TitleBar() {
           e.currentTarget.style.color = "var(--ci-text-muted)";
         }}
       >
-        ⚙
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
       </button>
     </div>
   );
