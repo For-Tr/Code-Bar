@@ -36,7 +36,7 @@ pub mod macos {
             // 绑定应用 Bundle ID，避免系统弹出 "choose application" 对话框。
             // 优先使用应用自身的 Bundle ID（打包后可用），
             // dev 模式下 .app 不存在时自动降级到 com.apple.Finder。
-            let bundle_id = get_bundle_identifier_or_default("coding-island");
+            let bundle_id = get_bundle_identifier_or_default("code-bar");
             let _ = set_application(&bundle_id);
 
             // 使用 Notification builder API：

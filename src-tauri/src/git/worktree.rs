@@ -218,13 +218,13 @@ pub async fn setup_session_worktree(
             return Ok(None); // detached HEAD，跳过
         }
 
-        // 计算 worktree 路径（放在 repo 同级的 .coding-island-worktrees/）
+        // 计算 worktree 路径（放在 repo 同级的 .code-bar-worktrees/）
         let repo_parent = Path::new(&expanded_workdir)
             .parent()
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|| expanded_workdir.clone());
         let worktree_path = format!(
-            "{}/.coding-island-worktrees/session-{}",
+            "{}/.code-bar-worktrees/session-{}",
             repo_parent, session_id_clone
         );
         let branch = format!("ci/session-{}", session_id_clone);
@@ -312,7 +312,7 @@ pub async fn prune_orphan_worktrees(
             .parent()
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|| expanded_workdir.clone());
-        let wt_base = format!("{}/.coding-island-worktrees", repo_parent);
+        let wt_base = format!("{}/.code-bar-worktrees", repo_parent);
         let wt_base_path = Path::new(&wt_base);
 
         if !wt_base_path.exists() {

@@ -17,7 +17,7 @@ interface Props {
   onRunning?: () => void; // CLI 开始处理 query 时回调
   onError?: (error: string) => void; // API 错误中断回调
   onNotification?: (title: string, message: string, notification_type: string) => void; // Claude Code hook 通知回调
-  // 额外注入的环境变量，透传给 start_pty_session（如 CODING_ISLAND_* context 信息）
+  // 额外注入的环境变量，透传给 start_pty_session（如 CODE_BAR_* context 信息）
   env?: [string, string][];
 }
 

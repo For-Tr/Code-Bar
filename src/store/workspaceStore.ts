@@ -105,7 +105,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           ),
         })),
     }),
-    { name: "coding-island-workspaces" }
+    { name: "code-bar-workspaces" }
   )
 );
 

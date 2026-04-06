@@ -10,7 +10,7 @@ import { executeTool, getAvailableTools } from "./tools";
 import type { HarnessMessage, ContentBlock, ToolCall } from "./types";
 import type { ModelConfig, HarnessPermissions } from "../store/settingsStore";
 
-const SYSTEM_PROMPT = `你是 Coding Island 内置的编程助手，运行在用户的 Mac 电脑上。
+const SYSTEM_PROMPT = `你是 Code Bar 内置的编程助手，运行在用户的 Mac 电脑上。
 
 你的工作方式：
 1. 分析用户的任务需求

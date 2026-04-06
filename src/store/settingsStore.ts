@@ -185,7 +185,7 @@ export const useSettingsStore = create<SettingsStore>()(
       },
     }),
     {
-      name: "coding-island-settings",
+      name: "code-bar-settings",
       // API Key 不存 localStorage，只存 Rust keychain
       partialize: (s) => ({
         settings: {

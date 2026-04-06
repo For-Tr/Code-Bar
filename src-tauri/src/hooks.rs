@@ -6,7 +6,7 @@ use crate::state::PtyKillerMap;
 
 // ── Claude Code hooks 配置 ────────────────────────────────────────
 
-const HOOK_CMD: &str = "nc -U /tmp/coding-island-hook.sock";
+const HOOK_CMD: &str = "nc -U /tmp/code-bar-hook.sock";
 
 /// 检查某个 hook event 数组里是否已包含我们的 nc 命令
 fn already_has_hook(arr: &serde_json::Value) -> bool {
@@ -126,7 +126,7 @@ pub fn trust_workspace(path: String) -> Result<(), String> {
 pub fn start_hook_socket_server(app: tauri::AppHandle) {
     use std::os::unix::net::UnixListener;
 
-    let socket_path = "/tmp/coding-island-hook.sock";
+    let socket_path = "/tmp/code-bar-hook.sock";
     let _ = fs::remove_file(socket_path); // 清理旧 socket
 
     let listener = match UnixListener::bind(socket_path) {
@@ -174,7 +174,7 @@ pub fn start_hook_socket_server(app: tauri::AppHandle) {
 
             eprintln!("[hook-socket] received: {event_name} claude_session={claude_sid}");
 
-            // 取出所有活跃的 Coding Island session ID（广播）
+            // 取出所有活跃的 Code Bar session ID（广播）
             let active_sessions: Vec<String> = {
                 let km_arc = app.state::<PtyKillerMap>().inner().clone();
                 let km = km_arc.lock().unwrap();

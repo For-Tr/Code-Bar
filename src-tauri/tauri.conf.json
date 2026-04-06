@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "coding-island",
+  "productName": "Code Bar",
   "version": "0.1.1",
-  "identifier": "com.xiangbingzhou.coding-island",
+  "identifier": "com.xiangbingzhou.code-bar",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "coding-island",
+        "title": "Code Bar",
         "width": 360,
         "height": 220,
         "decorations": false,

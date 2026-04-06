@@ -47,7 +47,7 @@ export function TitleBar() {
           fontWeight: 600,
           letterSpacing: "-0.02em",
         }}>
-          Coding Island
+          Code Bar
         </span>
         {sessions.length > 0 && (
           <span style={{

@@ -172,7 +172,7 @@ export const useSessionStore = create<SessionStore>()(
         }),
     }),
     {
-      name: "coding-island-sessions",
+      name: "code-bar-sessions",
       // expandedSessionId 和 worktreeReadyIds 不持久化
       partialize: (state) => ({
         sessions: state.sessions.map((s) => ({

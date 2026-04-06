@@ -674,11 +674,11 @@ function ApiKeysTab() {
             const { invoke } = await import("@tauri-apps/api/core");
             try {
               await invoke("send_notification", {
-                title: "Coding Island",
+                title: "Code Bar",
                 body: "🔔 通知权限正常，任务完成时会弹出此提示",
               });
             } catch (e) {
-              alert(`通知发送失败: ${e}\n\n请在「系统设置 → 通知 → Coding Island」中开启通知权限`);
+              alert(`通知发送失败: ${e}\n\n请在「系统设置 → 通知 → Code Bar」中开启通知权限`);
             }
           }}
           style={{

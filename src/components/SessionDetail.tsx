@@ -195,7 +195,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     // 发系统通知
     const taskName = s?.currentTask?.slice(0, 40) || "任务";
     invoke("send_notification", {
-      title: "Coding Island",
+      title: "Code Bar",
       body: `✅ ${taskName} — 已完成，等待下一步指令`,
     }).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -311,7 +311,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
   }, []);
 
   // ── 构建注入给 PTY 进程的环境变量 ──
-  // 包含：CODING_ISLAND_* 上下文信息 + CLI 所需的 API Key / Base URL
+  // 包含：CODE_BAR_* 上下文信息 + CLI 所需的 API Key / Base URL
   const buildContextEnv = useCallback((): [string, string][] => {
     if (!session) return [];
     const workspace = workspaces.find((w) => w.id === session.workspaceId);
@@ -321,18 +321,18 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     );
 
     const env: [string, string][] = [
-      ["CODING_ISLAND_SESSION_ID", session.id],
-      ["CODING_ISLAND_SESSION_NAME", session.name],
-      ["CODING_ISLAND_WORKDIR", session.workdir],
-      ["CODING_ISLAND_WORKSPACE_ID", session.workspaceId],
-      ["CODING_ISLAND_WORKSPACE_NAME", workspace?.name ?? ""],
-      ["CODING_ISLAND_CONCURRENT_SESSIONS", String(siblingSessions.length)],
-      ["CODING_ISLAND_SUGGESTED_BRANCH", `ci/session-${session.id}`],
+      ["CODE_BAR_SESSION_ID", session.id],
+      ["CODE_BAR_SESSION_NAME", session.name],
+      ["CODE_BAR_WORKDIR", session.workdir],
+      ["CODE_BAR_WORKSPACE_ID", session.workspaceId],
+      ["CODE_BAR_WORKSPACE_NAME", workspace?.name ?? ""],
+      ["CODE_BAR_CONCURRENT_SESSIONS", String(siblingSessions.length)],
+      ["CODE_BAR_SUGGESTED_BRANCH", `ci/session-${session.id}`],
       // Worktree 信息：告知 AI CLI 当前在独立 worktree 工作，不用自己创建分支
       ...(session.worktreePath ? [
-        ["CODING_ISLAND_WORKTREE_PATH", session.worktreePath] as [string, string],
-        ["CODING_ISLAND_BASE_BRANCH", session.baseBranch ?? ""] as [string, string],
-        ["CODING_ISLAND_BRANCH", session.branchName ?? ""] as [string, string],
+        ["CODE_BAR_WORKTREE_PATH", session.worktreePath] as [string, string],
+        ["CODE_BAR_BASE_BRANCH", session.baseBranch ?? ""] as [string, string],
+        ["CODE_BAR_BRANCH", session.branchName ?? ""] as [string, string],
       ] : []),
     ];
 
@@ -399,7 +399,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     }
 
     // ── PTY 模式：PTY 已预启动，直接写入 query ──
-    // CODING_ISLAND_* 环境变量已在 PTY 启动时注入，claude 可感知 session 上下文
+    // CODE_BAR_* 环境变量已在 PTY 启动时注入，claude 可感知 session 上下文
     const sendQuery = () => {
       const bytes = new TextEncoder().encode(trimmed + "\r");
       const b64 = btoa(String.fromCharCode(...bytes));
