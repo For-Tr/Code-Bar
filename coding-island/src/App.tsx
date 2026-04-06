@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -6,8 +6,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import { TitleBar } from "./components/TitleBar";
 import { WorkspaceStack } from "./components/WorkspaceStack";
 import { SessionList } from "./components/SessionList";
-import { Toolbar } from "./components/Toolbar";
-import { OutputConsole } from "./components/OutputConsole";
 import { DiffViewer } from "./components/DiffViewer";
 import { StatusBar } from "./components/StatusBar";
 import { SessionDetail } from "./components/SessionDetail";
@@ -288,10 +286,6 @@ export default function App() {
     return () => { unlisten.then((f) => f()); };
   }, [setExpandedSession]);
 
-  // 暴露给 Toolbar 的焦点回调（保留接口，不再触发窗口 resize）
-  const onTaskInputFocus = useCallback(() => {}, []);
-  const onTaskInputBlur  = useCallback(() => {}, []);
-
   // ── 启动时批量信任所有已有 workspace 目录（写入 claude settings）──
   useEffect(() => {
     if (!("__TAURI_INTERNALS__" in window)) return;
@@ -524,69 +518,50 @@ export default function App() {
             <SessionList />
           </div>
 
-          {/* 当前 Session 详情 */}
-          <AnimatePresence mode="wait">
-            {activeSession && (
+          {/* 当前 Session Diff */}
+          <AnimatePresence>
+            {hasDiff && (
               <motion.div
-                key={activeSession.id}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.15 }}
+                key="diff"
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.2 }}
+                style={{
+                  borderTop: "1px solid var(--ci-border)",
+                  overflow: "hidden",
+                }}
               >
-                <Toolbar
-                  session={activeSession}
-                  onInputFocus={onTaskInputFocus}
-                  onInputBlur={onTaskInputBlur}
-                />
-                <OutputConsole session={activeSession} />
-
-                <AnimatePresence>
-                  {hasDiff && (
-                    <motion.div
-                      key="diff"
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: "auto" }}
-                      exit={{ opacity: 0, height: 0 }}
-                      transition={{ duration: 0.2 }}
-                      style={{
-                        borderTop: "1px solid var(--ci-border)",
-                        overflow: "hidden",
-                      }}
-                    >
-                      <div style={{
-                        display: "flex", alignItems: "center", gap: 8,
-                        padding: "8px 12px 4px",
-                      }}>
-                        <span style={{
-                          fontSize: 10, fontWeight: 600,
-                          letterSpacing: "0.07em", textTransform: "uppercase",
-                          color: "var(--ci-text-dim)",
-                        }}>
-                          变更
-                        </span>
-                        <span style={{
-                          fontSize: 10, padding: "1px 6px", borderRadius: 99,
-                          background: "var(--ci-green-bg)",
-                          border: "1px solid var(--ci-green-bdr)",
-                          color: "var(--ci-green-dark)",
-                        }}>
-                          +{activeSession.diffFiles.reduce((s, f) => s + f.additions, 0)}
-                        </span>
-                        <span style={{
-                          fontSize: 10, padding: "1px 6px", borderRadius: 99,
-                          background: "var(--ci-deleted-bg)",
-                          border: "1px solid var(--ci-border-med)",
-                          color: "var(--ci-deleted-text)",
-                        }}>
-                          −{activeSession.diffFiles.reduce((s, f) => s + f.deletions, 0)}
-                        </span>
-                        <div style={{ flex: 1, height: 1, background: "var(--ci-border)" }} />
-                      </div>
-                      <DiffViewer files={activeSession.diffFiles} />
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                <div style={{
+                  display: "flex", alignItems: "center", gap: 8,
+                  padding: "8px 12px 4px",
+                }}>
+                  <span style={{
+                    fontSize: 10, fontWeight: 600,
+                    letterSpacing: "0.07em", textTransform: "uppercase",
+                    color: "var(--ci-text-dim)",
+                  }}>
+                    变更
+                  </span>
+                  <span style={{
+                    fontSize: 10, padding: "1px 6px", borderRadius: 99,
+                    background: "var(--ci-green-bg)",
+                    border: "1px solid var(--ci-green-bdr)",
+                    color: "var(--ci-green-dark)",
+                  }}>
+                    +{activeSession!.diffFiles.reduce((s, f) => s + f.additions, 0)}
+                  </span>
+                  <span style={{
+                    fontSize: 10, padding: "1px 6px", borderRadius: 99,
+                    background: "var(--ci-deleted-bg)",
+                    border: "1px solid var(--ci-border-med)",
+                    color: "var(--ci-deleted-text)",
+                  }}>
+                    −{activeSession!.diffFiles.reduce((s, f) => s + f.deletions, 0)}
+                  </span>
+                  <div style={{ flex: 1, height: 1, background: "var(--ci-border)" }} />
+                </div>
+                <DiffViewer files={activeSession!.diffFiles} />
               </motion.div>
             )}
           </AnimatePresence>
