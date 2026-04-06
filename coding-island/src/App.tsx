@@ -32,6 +32,101 @@ export default function App() {
   const { settings } = useSettingsStore();
   const { activeWorkspaceId } = useWorkspaceStore();
 
+  // ── 主题注入：根据 settings.theme 向 :root 写入 CSS 变量 ──────
+  useEffect(() => {
+    const applyTheme = (isDark: boolean) => {
+      const root = document.documentElement;
+      if (isDark) {
+        // Dark mode tokens
+        root.style.setProperty("--ci-bg",          "rgba(28,28,30,0.96)");
+        root.style.setProperty("--ci-bg-grad",      "rgba(28,28,30,0.96)");
+        root.style.setProperty("--ci-surface",      "rgba(44,44,46,0.80)");
+        root.style.setProperty("--ci-surface-hi",   "rgba(58,58,60,0.95)");
+        root.style.setProperty("--ci-border",       "rgba(255,255,255,0.10)");
+        root.style.setProperty("--ci-border-med",   "rgba(255,255,255,0.14)");
+        root.style.setProperty("--ci-border-hi",    "rgba(10,132,255,0.50)");
+        root.style.setProperty("--ci-text",         "#f2f2f7");
+        root.style.setProperty("--ci-text-muted",   "rgba(235,235,245,0.60)");
+        root.style.setProperty("--ci-text-dim",     "rgba(235,235,245,0.35)");
+        root.style.setProperty("--ci-accent",       "#0A84FF");
+        root.style.setProperty("--ci-accent-bg",    "rgba(10,132,255,0.15)");
+        root.style.setProperty("--ci-accent-bdr",   "rgba(10,132,255,0.30)");
+        root.style.setProperty("--ci-green",        "#30D158");
+        root.style.setProperty("--ci-green-dark",   "#4cd964");
+        root.style.setProperty("--ci-green-bg",     "rgba(48,209,88,0.15)");
+        root.style.setProperty("--ci-green-bdr",    "rgba(48,209,88,0.28)");
+        root.style.setProperty("--ci-red",          "#FF453A");
+        root.style.setProperty("--ci-yellow",       "#FFD60A");
+        root.style.setProperty("--ci-yellow-dark",  "#ffd600");
+        root.style.setProperty("--ci-yellow-bg",    "rgba(255,214,10,0.12)");
+        root.style.setProperty("--ci-yellow-bdr",   "rgba(255,214,10,0.25)");
+        root.style.setProperty("--ci-purple",       "#7D7AFF");
+        root.style.setProperty("--ci-purple-bg",    "rgba(125,122,255,0.12)");
+        root.style.setProperty("--ci-purple-bdr",   "rgba(125,122,255,0.25)");
+        root.style.setProperty("--ci-code-bg",      "rgba(44,44,46,0.90)");
+        root.style.setProperty("--ci-added-bg",     "rgba(48,209,88,0.12)");
+        root.style.setProperty("--ci-added-text",   "#4cd964");
+        root.style.setProperty("--ci-deleted-bg",   "rgba(255,69,58,0.10)");
+        root.style.setProperty("--ci-deleted-text", "#ff6b6b");
+        root.style.setProperty("--ci-scrollbar",    "rgba(255,255,255,0.15)");
+        root.style.setProperty("--ci-btn-ghost-bg",  "rgba(255,255,255,0.07)");
+        root.style.setProperty("--ci-btn-ghost-hover","rgba(255,255,255,0.12)");
+        root.style.setProperty("--ci-close-bg",      "rgba(255,255,255,0.07)");
+        root.style.setProperty("--ci-close-border",  "rgba(255,255,255,0.10)");
+        root.setAttribute("data-theme", "dark");
+      } else {
+        // Light mode tokens
+        root.style.setProperty("--ci-bg",          "rgba(246,246,248,0.92)");
+        root.style.setProperty("--ci-bg-grad",      "rgba(246,246,248,0.92)");
+        root.style.setProperty("--ci-surface",      "rgba(255,255,255,0.70)");
+        root.style.setProperty("--ci-surface-hi",   "rgba(255,255,255,0.95)");
+        root.style.setProperty("--ci-border",       "rgba(0,0,0,0.07)");
+        root.style.setProperty("--ci-border-med",   "rgba(0,0,0,0.10)");
+        root.style.setProperty("--ci-border-hi",    "rgba(0,122,255,0.45)");
+        root.style.setProperty("--ci-text",         "#1c1c1e");
+        root.style.setProperty("--ci-text-muted",   "rgba(60,60,67,0.60)");
+        root.style.setProperty("--ci-text-dim",     "rgba(60,60,67,0.36)");
+        root.style.setProperty("--ci-accent",       "#007AFF");
+        root.style.setProperty("--ci-accent-bg",    "rgba(0,122,255,0.08)");
+        root.style.setProperty("--ci-accent-bdr",   "rgba(0,122,255,0.20)");
+        root.style.setProperty("--ci-green",        "#34C759");
+        root.style.setProperty("--ci-green-dark",   "#1a7f37");
+        root.style.setProperty("--ci-green-bg",     "rgba(52,199,89,0.10)");
+        root.style.setProperty("--ci-green-bdr",    "rgba(52,199,89,0.22)");
+        root.style.setProperty("--ci-red",          "#FF3B30");
+        root.style.setProperty("--ci-yellow",       "#FF9F0A");
+        root.style.setProperty("--ci-yellow-dark",  "#b36a00");
+        root.style.setProperty("--ci-yellow-bg",    "rgba(255,159,10,0.08)");
+        root.style.setProperty("--ci-yellow-bdr",   "rgba(255,159,10,0.22)");
+        root.style.setProperty("--ci-purple",       "#5856d6");
+        root.style.setProperty("--ci-purple-bg",    "rgba(88,86,214,0.08)");
+        root.style.setProperty("--ci-purple-bdr",   "rgba(88,86,214,0.20)");
+        root.style.setProperty("--ci-code-bg",      "rgba(242,242,247,0.90)");
+        root.style.setProperty("--ci-added-bg",     "rgba(52,199,89,0.10)");
+        root.style.setProperty("--ci-added-text",   "#1a7f37");
+        root.style.setProperty("--ci-deleted-bg",   "rgba(255,59,48,0.08)");
+        root.style.setProperty("--ci-deleted-text", "#c0392b");
+        root.style.setProperty("--ci-scrollbar",    "rgba(0,0,0,0.12)");
+        root.style.setProperty("--ci-btn-ghost-bg",  "rgba(0,0,0,0.04)");
+        root.style.setProperty("--ci-btn-ghost-hover","rgba(0,0,0,0.08)");
+        root.style.setProperty("--ci-close-bg",      "rgba(0,0,0,0.05)");
+        root.style.setProperty("--ci-close-border",  "rgba(0,0,0,0.08)");
+        root.setAttribute("data-theme", "light");
+      }
+    };
+
+    if (settings.theme === "system") {
+      // 跟随系统
+      const mq = window.matchMedia("(prefers-color-scheme: dark)");
+      applyTheme(mq.matches);
+      const listener = (e: MediaQueryListEvent) => applyTheme(e.matches);
+      mq.addEventListener("change", listener);
+      return () => mq.removeEventListener("change", listener);
+    } else {
+      applyTheme(settings.theme === "dark");
+    }
+  }, [settings.theme]);
+
   // ── 切换 Workspace 时自动将 activeSession 切换到该 Workspace 的第一个 session ──
   useEffect(() => {
     const currentActive = useSessionStore.getState().activeSessionId;
@@ -332,15 +427,15 @@ export default function App() {
           width: "100%",
           maxHeight: "calc(100vh - 40px)",
           position: "relative",
-          background: "rgba(14,14,16,0.96)",
-          backdropFilter: "blur(56px)",
-          WebkitBackdropFilter: "blur(56px)",
+          background: "var(--ci-bg)",
+          backdropFilter: "blur(48px) saturate(1.8)",
+          WebkitBackdropFilter: "blur(48px) saturate(1.8)",
           borderRadius: 16,
-          border: "1px solid rgba(255,255,255,0.07)",
+          border: "1px solid var(--ci-border)",
           boxShadow: [
-            "0 4px 6px rgba(0,0,0,0.3)",
-            "0 24px 48px rgba(0,0,0,0.5)",
-            "inset 0 0 0 0.5px rgba(255,255,255,0.04)",
+            "0 2px 4px rgba(0,0,0,0.06)",
+            "0 8px 24px rgba(0,0,0,0.10)",
+            "0 24px 48px rgba(0,0,0,0.08)",
           ].join(", "),
           overflow: "hidden",
           display: "flex",
@@ -359,7 +454,6 @@ export default function App() {
           overflowY: "auto",
           overflowX: "hidden",
           position: "relative",
-          // 自定义滚动条样式
           scrollbarWidth: "none",
         }}>
           {/* Workspace 堆叠卡片 */}
@@ -398,7 +492,7 @@ export default function App() {
                       exit={{ opacity: 0, height: 0 }}
                       transition={{ duration: 0.2 }}
                       style={{
-                        borderTop: "1px solid rgba(255,255,255,0.05)",
+                        borderTop: "1px solid var(--ci-border)",
                         overflow: "hidden",
                       }}
                     >
@@ -409,27 +503,27 @@ export default function App() {
                         <span style={{
                           fontSize: 10, fontWeight: 600,
                           letterSpacing: "0.07em", textTransform: "uppercase",
-                          color: "rgba(255,255,255,0.22)",
+                          color: "var(--ci-text-dim)",
                         }}>
                           变更
                         </span>
                         <span style={{
                           fontSize: 10, padding: "1px 6px", borderRadius: 99,
-                          background: "rgba(74,222,128,0.12)",
-                          border: "1px solid rgba(74,222,128,0.25)",
-                          color: "#4ade80",
+                          background: "var(--ci-green-bg)",
+                          border: "1px solid var(--ci-green-bdr)",
+                          color: "var(--ci-green-dark)",
                         }}>
                           +{activeSession.diffFiles.reduce((s, f) => s + f.additions, 0)}
                         </span>
                         <span style={{
                           fontSize: 10, padding: "1px 6px", borderRadius: 99,
-                          background: "rgba(239,68,68,0.1)",
-                          border: "1px solid rgba(239,68,68,0.22)",
-                          color: "#f87171",
+                          background: "var(--ci-deleted-bg)",
+                          border: "1px solid var(--ci-border-med)",
+                          color: "var(--ci-deleted-text)",
                         }}>
                           −{activeSession.diffFiles.reduce((s, f) => s + f.deletions, 0)}
                         </span>
-                        <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.05)" }} />
+                        <div style={{ flex: 1, height: 1, background: "var(--ci-border)" }} />
                       </div>
                       <DiffViewer files={activeSession.diffFiles} />
                     </motion.div>
@@ -439,14 +533,14 @@ export default function App() {
             )}
           </AnimatePresence>
 
-          {/* 底部淡出遮罩：解决滚动到底部内容透明看不清的问题 */}
+          {/* 底部淡出遮罩 */}
           <div style={{
             position: "sticky",
             bottom: 0,
             left: 0,
             right: 0,
-            height: 24,
-            background: "linear-gradient(to bottom, transparent, rgba(14,14,16,0.96))",
+            height: 20,
+            background: "linear-gradient(to bottom, transparent, var(--ci-bg))",
             pointerEvents: "none",
             flexShrink: 0,
           }} />

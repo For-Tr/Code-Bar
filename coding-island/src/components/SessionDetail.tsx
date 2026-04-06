@@ -497,14 +497,14 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
         zIndex: hidden ? -1 : 200,
         borderRadius: 18,
         overflow: "hidden",
-        background: "rgba(10,10,12,0.97)",
-        backdropFilter: "blur(48px)",
-        WebkitBackdropFilter: "blur(48px)",
-        border: "1px solid rgba(255,255,255,0.1)",
+        background: "rgba(10,10,14,0.97)",
+        backdropFilter: "blur(48px) saturate(1.5)",
+        WebkitBackdropFilter: "blur(48px) saturate(1.5)",
+        border: "1px solid rgba(255,255,255,0.09)",
         boxShadow: [
-          "0 8px 16px rgba(0,0,0,0.4)",
-          "0 40px 80px rgba(0,0,0,0.6)",
-          "inset 0 0 0 0.5px rgba(255,255,255,0.06)",
+          "0 8px 24px rgba(0,0,0,0.35)",
+          "0 32px 72px rgba(0,0,0,0.5)",
+          "inset 0 0 0 0.5px rgba(255,255,255,0.05)",
         ].join(", "),
         display: "flex",
         flexDirection: "column",
@@ -517,11 +517,12 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
         style={{
           display: "flex", alignItems: "center", gap: 10,
           padding: "12px 16px 10px",
-          borderBottom: "1px solid rgba(255,255,255,0.07)",
+          borderBottom: "1px solid rgba(255,255,255,0.06)",
           flexShrink: 0,
           cursor: "grab",
           userSelect: "none",
           WebkitUserSelect: "none",
+          background: "rgba(255,255,255,0.03)",
         }}
       >
         <div data-tauri-drag-region style={{ display: "flex", gap: 6 }}>
@@ -529,21 +530,23 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
             onClick={onClose}
             style={{
               width: 12, height: 12, borderRadius: "50%",
-              background: "#f87171", border: "none", cursor: "pointer", padding: 0,
+              background: "#FF5F57", border: "0.5px solid rgba(0,0,0,0.15)",
+              cursor: "pointer", padding: 0,
               transition: "opacity 0.15s",
             }}
-            onMouseEnter={e => (e.currentTarget.style.opacity = "0.7")}
+            onMouseEnter={e => (e.currentTarget.style.opacity = "0.8")}
             onMouseLeave={e => (e.currentTarget.style.opacity = "1")}
           />
-          <div data-tauri-drag-region style={{ width: 12, height: 12, borderRadius: "50%", background: "rgba(255,255,255,0.1)" }} />
-          <div data-tauri-drag-region style={{ width: 12, height: 12, borderRadius: "50%", background: "rgba(255,255,255,0.1)" }} />
+          <div data-tauri-drag-region style={{ width: 12, height: 12, borderRadius: "50%", background: "#FEBC2E", border: "0.5px solid rgba(0,0,0,0.12)" }} />
+          <div data-tauri-drag-region style={{ width: 12, height: 12, borderRadius: "50%", background: "#28C840", border: "0.5px solid rgba(0,0,0,0.12)" }} />
         </div>
 
         <span data-tauri-drag-region style={{
           flex: 1, fontSize: 12, fontWeight: 600,
-          color: "rgba(255,255,255,0.8)",
+          color: "rgba(255,255,255,0.75)",
           overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
           cursor: "grab",
+          letterSpacing: -0.2,
         }}>
           {installing ? `正在安装 ${runnerBadge}…` : session.name}
         </span>
@@ -555,14 +558,14 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
           title="切换 Runner"
           style={{
             fontSize: 10, padding: "2px 8px", borderRadius: 99,
-            background: "rgba(96,165,250,0.12)",
-            border: "1px solid rgba(96,165,250,0.22)",
+            background: "rgba(0,122,255,0.14)",
+            border: "1px solid rgba(0,122,255,0.28)",
             color: "#60a5fa", fontFamily: "monospace",
             cursor: "pointer",
             transition: "background 0.15s",
           }}
-          onMouseEnter={e => (e.currentTarget.style.background = "rgba(96,165,250,0.22)")}
-          onMouseLeave={e => (e.currentTarget.style.background = "rgba(96,165,250,0.12)")}
+          onMouseEnter={e => (e.currentTarget.style.background = "rgba(0,122,255,0.24)")}
+          onMouseLeave={e => (e.currentTarget.style.background = "rgba(0,122,255,0.14)")}
         >
           {runnerBadge}
         </button>
@@ -571,14 +574,14 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
           <button
             onClick={handleStopNative}
             style={{
-              background: "rgba(239,68,68,0.12)",
-              border: "1px solid rgba(239,68,68,0.28)",
+              background: "rgba(255,59,48,0.12)",
+              border: "1px solid rgba(255,59,48,0.28)",
               borderRadius: 6, padding: "2px 10px",
-              color: "#f87171", fontSize: 11, cursor: "pointer",
+              color: "#ff6b6b", fontSize: 11, cursor: "pointer",
               transition: "background 0.15s",
             }}
-            onMouseEnter={e => (e.currentTarget.style.background = "rgba(239,68,68,0.2)")}
-            onMouseLeave={e => (e.currentTarget.style.background = "rgba(239,68,68,0.12)")}
+            onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,59,48,0.22)")}
+            onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,59,48,0.12)")}
           >
             停止
           </button>
@@ -589,10 +592,10 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
             data-tauri-drag-region
             onClick={() => { setInstalling(false); recheckCli(); }}
             style={{
-              background: "rgba(255,255,255,0.06)",
-              border: "1px solid rgba(255,255,255,0.1)",
+              background: "rgba(255,255,255,0.07)",
+              border: "1px solid rgba(255,255,255,0.12)",
               borderRadius: 6, padding: "2px 8px",
-              color: "rgba(255,255,255,0.4)", fontSize: 11, cursor: "pointer",
+              color: "rgba(255,255,255,0.45)", fontSize: 11, cursor: "pointer",
             }}
           >
             取消
@@ -604,19 +607,19 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
             data-tauri-drag-region
             onClick={onClose}
             style={{
-              background: "rgba(255,255,255,0.06)",
-              border: "1px solid rgba(255,255,255,0.1)",
+              background: "rgba(255,255,255,0.07)",
+              border: "1px solid rgba(255,255,255,0.12)",
               borderRadius: 6, padding: "2px 8px",
-              color: "rgba(255,255,255,0.4)", fontSize: 11, cursor: "pointer",
+              color: "rgba(255,255,255,0.42)", fontSize: 11, cursor: "pointer",
               transition: "background 0.15s, color 0.15s",
             }}
             onMouseEnter={e => {
-              e.currentTarget.style.background = "rgba(255,255,255,0.1)";
-              e.currentTarget.style.color = "rgba(255,255,255,0.8)";
+              e.currentTarget.style.background = "rgba(255,255,255,0.13)";
+              e.currentTarget.style.color = "rgba(255,255,255,0.85)";
             }}
             onMouseLeave={e => {
-              e.currentTarget.style.background = "rgba(255,255,255,0.06)";
-              e.currentTarget.style.color = "rgba(255,255,255,0.4)";
+              e.currentTarget.style.background = "rgba(255,255,255,0.07)";
+              e.currentTarget.style.color = "rgba(255,255,255,0.42)";
             }}
           >
             收起
@@ -673,13 +676,13 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
           <div style={{
             flex: 1, overflow: "auto",
             padding: "12px 16px",
-            background: "rgba(0,0,0,0.2)",
+            background: "rgba(8,8,10,0.98)",
           }}>
             <pre style={{
               fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
               fontSize: 12,
               lineHeight: "1.6",
-              color: "rgba(255,255,255,0.75)",
+              color: "rgba(230,230,235,0.82)",
               whiteSpace: "pre-wrap",
               wordBreak: "break-word",
               margin: 0,
@@ -731,23 +734,25 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
                 alignItems: "center", justifyContent: "center",
                 padding: "24px 32px", gap: 16,
                 overflowY: "auto",
+                background: "rgba(12,12,16,0.96)",
               }}
             >
               <div style={{
                 width: 40, height: 40, borderRadius: 12,
-                background: "rgba(96,165,250,0.12)",
-                border: "1px solid rgba(96,165,250,0.22)",
+                background: "rgba(0,122,255,0.14)",
+                border: "1px solid rgba(0,122,255,0.28)",
                 display: "flex", alignItems: "center", justifyContent: "center",
                 fontSize: 20, flexShrink: 0,
+                color: "#60a5fa",
               }}>
                 ✦
               </div>
 
               <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: "rgba(255,255,255,0.8)", marginBottom: 4 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "rgba(240,240,248,0.88)", marginBottom: 4 }}>
                   描述你的任务
                 </div>
-                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>
+                <div style={{ fontSize: 11, color: "rgba(200,200,210,0.4)" }}>
                   {isNativeMode
                     ? `使用内置 Harness 调用 ${settings.model.model}`
                     : `回车后将自动启动 ${runnerBadge} 并透传给 AI`}
@@ -764,9 +769,9 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
                       onClick={() => patchRunner({ type })}
                       style={{
                         fontSize: 10, padding: "3px 10px", borderRadius: 99,
-                        background: active ? "rgba(124,109,240,0.18)" : "rgba(255,255,255,0.05)",
-                        border: `1px solid ${active ? "rgba(124,109,240,0.4)" : "rgba(255,255,255,0.1)"}`,
-                        color: active ? "#a89ff5" : "rgba(255,255,255,0.35)",
+                        background: active ? "rgba(0,122,255,0.18)" : "rgba(255,255,255,0.06)",
+                        border: `1px solid ${active ? "rgba(0,122,255,0.38)" : "rgba(255,255,255,0.1)"}`,
+                        color: active ? "#60a5fa" : "rgba(210,210,220,0.4)",
                         cursor: "pointer",
                         transition: "all 0.15s",
                         fontWeight: active ? 600 : 400,
@@ -782,23 +787,23 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
               {!isNativeMode && cliAvailable === false && (
                 <div style={{
                   width: "100%",
-                  background: "rgba(251,191,36,0.08)",
-                  border: "1px solid rgba(251,191,36,0.25)",
+                  background: "rgba(255,159,10,0.10)",
+                  border: "1px solid rgba(255,159,10,0.28)",
                   borderRadius: 9,
                   padding: "10px 14px",
                   fontSize: 11,
-                  color: "rgba(251,191,36,0.85)",
+                  color: "rgba(255,195,80,0.92)",
                   lineHeight: "1.6",
                 }}>
                   <div style={{ fontWeight: 600, marginBottom: 4 }}>
                     ⚠️  找不到 {cliCommand}
                   </div>
-                  <div style={{ color: "rgba(255,255,255,0.4)", marginBottom: 8 }}>
+                  <div style={{ color: "rgba(220,210,180,0.55)", marginBottom: 8 }}>
                     {runner.type === "claude-code" && (
-                      <>安装命令：<code style={{ color: "rgba(251,191,36,0.7)" }}>npm install -g @anthropic-ai/claude-code</code></>
+                      <>安装命令：<code style={{ color: "rgba(255,195,80,0.8)", fontFamily: "'JetBrains Mono', monospace", fontSize: 10 }}>npm install -g @anthropic-ai/claude-code</code></>
                     )}
                     {runner.type === "codex" && (
-                      <>安装命令：<code style={{ color: "rgba(251,191,36,0.7)" }}>npm install -g @openai/codex</code></>
+                      <>安装命令：<code style={{ color: "rgba(255,195,80,0.8)", fontFamily: "'JetBrains Mono', monospace", fontSize: 10 }}>npm install -g @openai/codex</code></>
                     )}
                     {runner.type === "custom-cli" && (
                       <>请在设置中配置正确的可执行文件路径</>
@@ -811,16 +816,16 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
                         width: "100%",
                         padding: "8px 0",
                         borderRadius: 6,
-                        background: "rgba(251,191,36,0.15)",
-                        border: "1px solid rgba(251,191,36,0.35)",
-                        color: "#fbbf24",
+                        background: "rgba(255,159,10,0.16)",
+                        border: "1px solid rgba(255,159,10,0.36)",
+                        color: "#ffbf40",
                         fontSize: 11,
                         fontWeight: 600,
                         cursor: "pointer",
                         transition: "background 0.15s",
                       }}
-                      onMouseEnter={e => (e.currentTarget.style.background = "rgba(251,191,36,0.25)")}
-                      onMouseLeave={e => (e.currentTarget.style.background = "rgba(251,191,36,0.15)")}
+                      onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,159,10,0.26)")}
+                      onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,159,10,0.16)")}
                     >
                       一键安装
                     </button>
@@ -830,13 +835,18 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
 
               <div style={{
                 width: "100%",
-                background: "rgba(255,255,255,0.05)",
-                border: "1px solid rgba(255,255,255,0.12)",
-                borderRadius: 10,
+                background: "rgba(255,255,255,0.06)",
+                border: "1px solid rgba(255,255,255,0.13)",
+                borderRadius: 12,
                 display: "flex", alignItems: "flex-start", gap: 8,
                 padding: "10px 14px",
-              }}>
-                <span style={{ color: "rgba(96,165,250,0.7)", fontSize: 13, marginTop: 1, flexShrink: 0 }}>›</span>
+                backdropFilter: "blur(8px)",
+                boxShadow: "0 1px 6px rgba(0,0,0,0.2), inset 0 0 0 0.5px rgba(255,255,255,0.06)",
+                transition: "border-color 0.15s, box-shadow 0.15s",
+              }}
+              onFocus={() => {}}
+              >
+                <span style={{ color: "rgba(0,122,255,0.7)", fontSize: 13, marginTop: 1, flexShrink: 0 }}>›</span>
                 <textarea
                   ref={queryInputRef}
                   value={pendingQuery}
@@ -845,13 +855,13 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
                   rows={3}
                   style={{
                     flex: 1, background: "none", border: "none", outline: "none",
-                    color: "rgba(255,255,255,0.85)", fontSize: 13, lineHeight: "1.6",
+                    color: "rgba(235,235,242,0.88)", fontSize: 13, lineHeight: "1.6",
                     resize: "none", fontFamily: "inherit",
                   }}
                 />
               </div>
 
-              <div style={{ fontSize: 10, color: "rgba(255,255,255,0.2)" }}>
+              <div style={{ fontSize: 10, color: "rgba(180,180,195,0.3)" }}>
                 Enter 发送 · Shift+Enter 换行 · Esc 关闭
               </div>
             </motion.div>

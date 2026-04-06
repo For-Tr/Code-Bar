@@ -4,6 +4,51 @@ import { ClaudeSession, SessionStatus, useSessionStore } from "../store/sessionS
 import { useWorkspaceStore, getWorkspaceColor } from "../store/workspaceStore";
 import { useSettingsStore, RUNNER_LABELS } from "../store/settingsStore";
 
+// ── 状态配置（使用 CSS 变量）────────────────────────────────
+const STATUS_CONFIG: Record<SessionStatus, {
+  dotColor: string;
+  pulse: boolean;
+  label: string;
+  badgeBg: string;
+  badgeBorder: string;
+  badgeText: string;
+  leftAccent?: string;
+}> = {
+  running: {
+    dotColor: "#34C759", pulse: true, label: "运行中",
+    badgeBg: "var(--ci-green-bg)",
+    badgeBorder: "var(--ci-green-bdr)",
+    badgeText: "var(--ci-green-dark)",
+    leftAccent: "#34C759",
+  },
+  waiting: {
+    dotColor: "#FF9F0A", pulse: true, label: "需要操作",
+    badgeBg: "var(--ci-yellow-bg)",
+    badgeBorder: "var(--ci-yellow-bdr)",
+    badgeText: "var(--ci-yellow-dark)",
+    leftAccent: "#FF9F0A",
+  },
+  idle: {
+    dotColor: "rgba(120,120,128,0.3)", pulse: false, label: "空闲",
+    badgeBg: "var(--ci-btn-ghost-bg)",
+    badgeBorder: "var(--ci-border)",
+    badgeText: "var(--ci-text-dim)",
+  },
+  done: {
+    dotColor: "#007AFF", pulse: false, label: "已完成",
+    badgeBg: "var(--ci-accent-bg)",
+    badgeBorder: "var(--ci-accent-bdr)",
+    badgeText: "var(--ci-accent)",
+  },
+  error: {
+    dotColor: "#FF3B30", pulse: false, label: "出错",
+    badgeBg: "var(--ci-deleted-bg)",
+    badgeBorder: "var(--ci-border-med)",
+    badgeText: "var(--ci-deleted-text)",
+    leftAccent: "#FF3B30",
+  },
+};
+
 // ── 展开图标 ─────────────────────────────────────────────────
 const ExpandIcon = () => (
   <svg width="11" height="11" viewBox="0 0 11 11" fill="none" style={{ display: "block" }}>
@@ -12,51 +57,22 @@ const ExpandIcon = () => (
   </svg>
 );
 
-// ── 状态配置 ────────────────────────────────────────────────
-const STATUS_CONFIG: Record<SessionStatus, {
-  color: string;
-  pulse: boolean;
-  label: string;
-  badgeBg: string;
-  badgeBorder: string;
-  badgeText: string;
-  leftBorder?: string;
-}> = {
-  running: {
-    color: "#4ade80", pulse: true,  label: "运行中",
-    badgeBg: "rgba(74,222,128,0.12)", badgeBorder: "rgba(74,222,128,0.3)", badgeText: "#4ade80",
-    leftBorder: "#4ade80",
-  },
-  waiting: {
-    color: "#fbbf24", pulse: true,  label: "需要操作",
-    badgeBg: "rgba(251,191,36,0.18)", badgeBorder: "rgba(251,191,36,0.5)", badgeText: "#fbbf24",
-    leftBorder: "#fbbf24",
-  },
-  idle:    {
-    color: "rgba(255,255,255,0.2)", pulse: false, label: "空闲",
-    badgeBg: "rgba(255,255,255,0.05)", badgeBorder: "rgba(255,255,255,0.1)", badgeText: "rgba(255,255,255,0.25)",
-  },
-  done:    {
-    color: "#60a5fa", pulse: false, label: "已完成",
-    badgeBg: "rgba(96,165,250,0.12)", badgeBorder: "rgba(96,165,250,0.3)", badgeText: "#60a5fa",
-  },
-  error:   {
-    color: "#f87171", pulse: false, label: "出错",
-    badgeBg: "rgba(248,113,113,0.15)", badgeBorder: "rgba(248,113,113,0.4)", badgeText: "#f87171",
-    leftBorder: "#f87171",
-  },
-};
-
 function StatusDot({ status }: { status: SessionStatus }) {
-  const { color, pulse } = STATUS_CONFIG[status];
+  const { dotColor, pulse } = STATUS_CONFIG[status];
   return (
-    <div style={{ position: "relative", width: 8, height: 8, flexShrink: 0 }}>
-      <div style={{ width: 8, height: 8, borderRadius: "50%", background: color, position: "absolute" }} />
+    <div style={{ position: "relative", width: 9, height: 9, flexShrink: 0 }}>
+      <div style={{
+        width: 9, height: 9, borderRadius: "50%",
+        background: dotColor, position: "absolute",
+      }} />
       {pulse && (
         <motion.div
-          animate={{ scale: [1, 2.2], opacity: [0.7, 0] }}
-          transition={{ duration: 1.4, repeat: Infinity, ease: "easeOut" }}
-          style={{ width: 8, height: 8, borderRadius: "50%", background: color, position: "absolute" }}
+          animate={{ scale: [1, 2.0], opacity: [0.6, 0] }}
+          transition={{ duration: 1.5, repeat: Infinity, ease: "easeOut" }}
+          style={{
+            width: 9, height: 9, borderRadius: "50%",
+            background: dotColor, position: "absolute",
+          }}
         />
       )}
     </div>
@@ -77,60 +93,61 @@ function SessionCard({
   const cfg = STATUS_CONFIG[session.status];
   const isWaiting = session.status === "waiting";
   const isRunning = session.status === "running";
-  const isError = session.status === "error";
+  const isError   = session.status === "error";
 
   return (
     <motion.div
       layout
       layoutId={`session-card-${session.id}`}
-      initial={{ opacity: 0, x: -8 }}
+      initial={{ opacity: 0, x: -6 }}
       animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: -8, height: 0 }}
+      exit={{ opacity: 0, x: -6, height: 0 }}
       transition={{ duration: 0.16 }}
       onClick={onClick}
       style={{
         display: "flex", alignItems: "center", gap: 10,
-        padding: "8px 11px",
-        borderRadius: 9,
+        padding: "9px 11px",
+        borderRadius: 10,
         background: isActive
-          ? `linear-gradient(135deg, ${accentColor}12 0%, rgba(255,255,255,0.05) 100%)`
+          ? "var(--ci-surface-hi)"
           : isWaiting
-          ? "rgba(251,191,36,0.06)"
+          ? "var(--ci-yellow-bg)"
           : isError
-          ? "rgba(248,113,113,0.06)"
-          : "rgba(255,255,255,0.03)",
+          ? "var(--ci-deleted-bg)"
+          : "var(--ci-surface)",
         border: isActive
-          ? `1px solid ${accentColor}30`
+          ? `1px solid ${accentColor}35`
           : isWaiting
-          ? "1px solid rgba(251,191,36,0.3)"
+          ? "1px solid var(--ci-yellow-bdr)"
           : isError
-          ? "1px solid rgba(248,113,113,0.25)"
-          : "1px solid rgba(255,255,255,0.06)",
+          ? "1px solid var(--ci-border-med)"
+          : "1px solid var(--ci-border)",
         cursor: "pointer",
         position: "relative",
         overflow: "hidden",
         transition: "background 0.15s, border-color 0.15s",
+        boxShadow: isActive ? "0 1px 6px rgba(0,0,0,0.07)" : "none",
       }}
     >
       {/* 左侧状态色条 */}
-      {cfg.leftBorder && (
+      {cfg.leftAccent && (
         <div style={{
           position: "absolute",
-          left: 0, top: 4, bottom: 4,
-          width: 2.5, borderRadius: 99,
-          background: cfg.leftBorder,
-          opacity: isRunning ? 0.8 : isWaiting ? 1 : 0.6,
+          left: 0, top: 5, bottom: 5,
+          width: 3, borderRadius: 99,
+          background: cfg.leftAccent,
+          opacity: 0.8,
         }} />
       )}
 
-      {/* waiting 状态：整体微脉冲边框效果 */}
+      {/* waiting 状态：脉冲边框 */}
       {isWaiting && (
         <motion.div
-          animate={{ opacity: [0.4, 0.9, 0.4] }}
+          animate={{ opacity: [0.3, 0.7, 0.3] }}
           transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
           style={{
-            position: "absolute", inset: 0, borderRadius: 9,
-            border: "1px solid rgba(251,191,36,0.5)",
+            position: "absolute", inset: 0, borderRadius: 10,
+            border: "1px solid var(--ci-yellow-bdr)",
             pointerEvents: "none",
           }}
         />
@@ -141,16 +158,16 @@ function SessionCard({
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{
-            color: isActive ? "#fff" : isWaiting ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.65)",
-            fontSize: 11, fontWeight: isWaiting ? 700 : 600,
+            color: isActive ? "var(--ci-text)" : isWaiting ? "var(--ci-text)" : "var(--ci-text-muted)",
+            fontSize: 12, fontWeight: isWaiting ? 700 : 600,
             overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
           }}>
             {session.name}
           </span>
-          {/* 状态 badge：idle 时不显示（减少噪音） */}
+          {/* 状态 badge：idle 时不显示 */}
           {session.status !== "idle" && (
             <span style={{
-              fontSize: 9, padding: "1px 6px", borderRadius: 99,
+              fontSize: 9.5, padding: "1px 6px", borderRadius: 99,
               background: cfg.badgeBg,
               border: `1px solid ${cfg.badgeBorder}`,
               color: cfg.badgeText,
@@ -161,27 +178,31 @@ function SessionCard({
           )}
         </div>
 
-        {/* waiting 状态：醒目的操作提示行 */}
+        {/* waiting：操作提示 */}
         {isWaiting && (
           <motion.p
-            animate={{ opacity: [0.7, 1, 0.7] }}
+            animate={{ opacity: [0.6, 1, 0.6] }}
             transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
             style={{
-              margin: "2px 0 0", fontSize: 10,
-              color: "#fbbf24",
+              margin: "2px 0 0", fontSize: 11,
+              color: "var(--ci-yellow-dark)",
               display: "flex", alignItems: "center", gap: 4,
             }}
           >
-            <span style={{ fontSize: 9 }}>⚡</span>
+            <span style={{ fontSize: 10 }}>⚡</span>
             点击展开终端查看并输入
           </motion.p>
         )}
 
-        {/* 运行中：显示当前任务 */}
+        {/* 运行中：当前任务 */}
         {!isWaiting && session.currentTask && (
           <p style={{
-            margin: "2px 0 0", fontSize: 10,
-            color: isRunning ? "rgba(74,222,128,0.6)" : isError ? "rgba(248,113,113,0.6)" : "rgba(255,255,255,0.3)",
+            margin: "2px 0 0", fontSize: 11,
+            color: isRunning
+              ? "var(--ci-green-dark)"
+              : isError
+              ? "var(--ci-deleted-text)"
+              : "var(--ci-text-dim)",
             overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
           }}>
             {isRunning && <span style={{ marginRight: 3 }}>›</span>}
@@ -189,14 +210,18 @@ function SessionCard({
           </p>
         )}
 
-        {/* Worktree 分支 + diff 信息 */}
+        {/* Worktree 分支信息 */}
         {session.branchName && (
-          <p style={{ margin: "2px 0 0", fontSize: 10, color: "rgba(255,255,255,0.22)", display: "flex", alignItems: "center", gap: 4 }}>
+          <p style={{
+            margin: "3px 0 0", fontSize: 10,
+            color: "var(--ci-text-dim)",
+            display: "flex", alignItems: "center", gap: 4,
+          }}>
             <span style={{
               fontSize: 9, padding: "1px 5px", borderRadius: 99,
-              background: "rgba(167,139,250,0.1)",
-              border: "1px solid rgba(167,139,250,0.2)",
-              color: "rgba(167,139,250,0.7)",
+              background: "var(--ci-purple-bg)",
+              border: "1px solid var(--ci-purple-bdr)",
+              color: "var(--ci-purple)",
               fontFamily: "monospace",
               overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
               maxWidth: 80,
@@ -206,28 +231,40 @@ function SessionCard({
             {session.worktreePath && (
               <span style={{
                 fontSize: 9, padding: "1px 5px", borderRadius: 99,
-                background: "rgba(74,222,128,0.08)",
-                border: "1px solid rgba(74,222,128,0.15)",
-                color: "rgba(74,222,128,0.55)",
+                background: "var(--ci-green-bg)",
+                border: "1px solid var(--ci-green-bdr)",
+                color: "var(--ci-green-dark)",
               }}>
                 worktree
               </span>
             )}
             {session.diffFiles.length > 0 && (
               <>
-                <span style={{ opacity: 0.4 }}>·</span>
-                <span style={{ color: "#4ade80" }}>+{session.diffFiles.reduce((s, f) => s + f.additions, 0)}</span>
-                <span style={{ color: "#f87171" }}>−{session.diffFiles.reduce((s, f) => s + f.deletions, 0)}</span>
+                <span style={{ opacity: 0.35 }}>·</span>
+                <span style={{ color: "var(--ci-green-dark)", fontWeight: 600 }}>
+                  +{session.diffFiles.reduce((s, f) => s + f.additions, 0)}
+                </span>
+                <span style={{ color: "var(--ci-deleted-text)", fontWeight: 600 }}>
+                  −{session.diffFiles.reduce((s, f) => s + f.deletions, 0)}
+                </span>
               </>
             )}
           </p>
         )}
 
         {!session.branchName && session.diffFiles.length > 0 && (
-          <p style={{ margin: "2px 0 0", fontSize: 10, color: "rgba(255,255,255,0.22)", display: "flex", alignItems: "center", gap: 4 }}>
+          <p style={{
+            margin: "2px 0 0", fontSize: 10,
+            color: "var(--ci-text-dim)",
+            display: "flex", alignItems: "center", gap: 4,
+          }}>
             {session.diffFiles.length} 变更{" "}
-            <span style={{ color: "#4ade80" }}>+{session.diffFiles.reduce((s, f) => s + f.additions, 0)}</span>{" "}
-            <span style={{ color: "#f87171" }}>−{session.diffFiles.reduce((s, f) => s + f.deletions, 0)}</span>
+            <span style={{ color: "var(--ci-green-dark)", fontWeight: 600 }}>
+              +{session.diffFiles.reduce((s, f) => s + f.additions, 0)}
+            </span>{" "}
+            <span style={{ color: "var(--ci-deleted-text)", fontWeight: 600 }}>
+              −{session.diffFiles.reduce((s, f) => s + f.deletions, 0)}
+            </span>
           </p>
         )}
       </div>
@@ -237,20 +274,26 @@ function SessionCard({
         onClick={(e) => { e.stopPropagation(); onExpand(); }}
         title="展开终端"
         style={{
-          background: isWaiting ? "rgba(251,191,36,0.12)" : "none",
-          border: isWaiting ? "1px solid rgba(251,191,36,0.3)" : "none",
-          color: isWaiting ? "#fbbf24" : "rgba(255,255,255,0.18)",
-          cursor: "pointer", padding: "4px 6px", borderRadius: 5,
+          background: isWaiting ? "var(--ci-yellow-bg)" : "var(--ci-btn-ghost-bg)",
+          border: isWaiting ? "1px solid var(--ci-yellow-bdr)" : "1px solid transparent",
+          color: isWaiting ? "var(--ci-yellow-dark)" : "var(--ci-text-dim)",
+          cursor: "pointer", padding: "4px 6px", borderRadius: 6,
           flexShrink: 0, display: "flex", alignItems: "center",
-          transition: "color 0.12s, background 0.12s",
+          transition: "color 0.12s, background 0.12s, border-color 0.12s",
         }}
         onMouseEnter={e => {
-          e.currentTarget.style.color = isWaiting ? "#fde68a" : accentColor;
-          e.currentTarget.style.background = isWaiting ? "rgba(251,191,36,0.22)" : `${accentColor}18`;
+          e.currentTarget.style.color = isWaiting ? "var(--ci-yellow)" : accentColor;
+          e.currentTarget.style.background = isWaiting
+            ? "rgba(255,159,10,0.18)"
+            : `${accentColor}15`;
+          e.currentTarget.style.borderColor = isWaiting
+            ? "rgba(255,159,10,0.4)"
+            : `${accentColor}30`;
         }}
         onMouseLeave={e => {
-          e.currentTarget.style.color = isWaiting ? "#fbbf24" : "rgba(255,255,255,0.18)";
-          e.currentTarget.style.background = isWaiting ? "rgba(251,191,36,0.12)" : "none";
+          e.currentTarget.style.color = isWaiting ? "var(--ci-yellow-dark)" : "var(--ci-text-dim)";
+          e.currentTarget.style.background = isWaiting ? "var(--ci-yellow-bg)" : "var(--ci-btn-ghost-bg)";
+          e.currentTarget.style.borderColor = isWaiting ? "var(--ci-yellow-bdr)" : "transparent";
         }}
       >
         <ExpandIcon />
@@ -261,12 +304,18 @@ function SessionCard({
         onClick={(e) => { e.stopPropagation(); onRemove(); }}
         style={{
           background: "none", border: "none",
-          color: "rgba(255,255,255,0.18)", fontSize: 11,
+          color: "var(--ci-text-dim)", fontSize: 11,
           cursor: "pointer", padding: "2px 4px", borderRadius: 4,
-          flexShrink: 0, transition: "color 0.12s",
+          flexShrink: 0, transition: "color 0.12s, background 0.12s",
         }}
-        onMouseEnter={e => (e.currentTarget.style.color = "#f87171")}
-        onMouseLeave={e => (e.currentTarget.style.color = "rgba(255,255,255,0.18)")}
+        onMouseEnter={e => {
+          e.currentTarget.style.color = "var(--ci-red)";
+          e.currentTarget.style.background = "var(--ci-deleted-bg)";
+        }}
+        onMouseLeave={e => {
+          e.currentTarget.style.color = "var(--ci-text-dim)";
+          e.currentTarget.style.background = "none";
+        }}
       >✕</button>
     </motion.div>
   );
@@ -287,11 +336,8 @@ export function SessionList() {
   const accentColor = getWorkspaceColor(activeWorkspace.color);
   const wsSessions = sessions.filter((s) => s.workspaceId === activeWorkspaceId);
 
-  // 新建 session：先创建 worktree（等完成后再标记 ready），PTY 等 ready 后才启动
   const handleNewSession = async () => {
     const id = addSession(activeWorkspace.id, activeWorkspace.path);
-
-    // 立即展开面板，用户看到 query 输入界面
     setExpandedSession(id);
 
     if ("__TAURI_INTERNALS__" in window) {
@@ -306,7 +352,6 @@ export function SessionList() {
         });
 
         if (result) {
-          // 更新 session 的 workdir 为 worktree 路径，同时记录分支信息
           useSessionStore.getState().updateSession(id, {
             workdir: result.worktree_path,
             worktreePath: result.worktree_path,
@@ -315,16 +360,12 @@ export function SessionList() {
           });
         }
       } catch (e) {
-        // worktree 创建失败时静默降级，继续使用原始 workdir
         console.warn("[worktree] setup failed, fallback to workdir:", e);
       }
     }
-
-    // worktree 创建完成（或跳过），标记 ready → SessionPanel 此时才激活 PTY
     markWorktreeReady(id);
   };
 
-  // 删除 session：同时清理对应的 worktree
   const handleRemoveSession = (session: ClaudeSession) => {
     removeSession(session.id);
 
@@ -341,19 +382,25 @@ export function SessionList() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-      {/* 分隔线 + 区域头 */}
+      {/* 区域头 */}
       <div style={{
         display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "4px 2px 5px",
-        borderTop: "1px solid rgba(255,255,255,0.05)",
-        marginTop: 2,
+        padding: "6px 2px 6px",
+        borderTop: "1px solid var(--ci-border)",
+        marginTop: 4,
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <div style={{
-            width: 6, height: 6, borderRadius: "50%",
+            width: 7, height: 7, borderRadius: "50%",
             background: accentColor, flexShrink: 0,
+            boxShadow: `0 1px 3px ${accentColor}60`,
           }} />
-          <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", fontWeight: 500, letterSpacing: 0.3 }}>
+          <span style={{
+            fontSize: 11, color: "var(--ci-text-dim)",
+            fontWeight: 600,
+            letterSpacing: "0.03em",
+            textTransform: "uppercase",
+          }}>
             {runnerLabel} 会话
           </span>
         </div>
@@ -361,26 +408,23 @@ export function SessionList() {
         <button
           onClick={handleNewSession}
           style={{
-            background: "rgba(255,255,255,0.06)",
-            border: "1px solid rgba(255,255,255,0.09)",
-            borderRadius: 6, padding: "2px 7px",
-            color: "rgba(255,255,255,0.45)",
-            fontSize: 11, cursor: "pointer",
+            background: "var(--ci-accent-bg)",
+            border: "1px solid var(--ci-accent-bdr)",
+            borderRadius: 7, padding: "3px 10px",
+            color: "var(--ci-accent)",
+            fontSize: 12, cursor: "pointer",
             display: "flex", alignItems: "center", gap: 3,
-            transition: "background 0.12s, color 0.12s",
+            fontWeight: 600,
+            transition: "background 0.12s, border-color 0.12s",
           }}
           onMouseEnter={e => {
-            e.currentTarget.style.background = `${accentColor}20`;
-            e.currentTarget.style.borderColor = `${accentColor}40`;
-            e.currentTarget.style.color = accentColor;
+            e.currentTarget.style.filter = "brightness(0.9)";
           }}
           onMouseLeave={e => {
-            e.currentTarget.style.background = "rgba(255,255,255,0.06)";
-            e.currentTarget.style.borderColor = "rgba(255,255,255,0.09)";
-            e.currentTarget.style.color = "rgba(255,255,255,0.45)";
+            e.currentTarget.style.filter = "none";
           }}
         >
-          <span style={{ fontSize: 13, lineHeight: 1 }}>+</span> 新建
+          <span style={{ fontSize: 14, lineHeight: 1 }}>+</span> 新建
         </button>
       </div>
 
@@ -404,8 +448,8 @@ export function SessionList() {
 
       {wsSessions.length === 0 && (
         <div style={{
-          textAlign: "center", padding: "12px 0 6px",
-          color: "rgba(255,255,255,0.18)", fontSize: 11,
+          textAlign: "center", padding: "14px 0 8px",
+          color: "var(--ci-text-dim)", fontSize: 12,
         }}>
           点击「+ 新建」开始 {runnerLabel} 会话
         </div>

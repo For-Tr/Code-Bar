@@ -12,9 +12,9 @@ import {
 import { useSessionStore } from "../store/sessionStore";
 
 // ── 常量 ─────────────────────────────────────────────────────
-const CARD_H = 36;          // 每张卡片的可见高度（收起状态）
-const CARD_PEEK = 6;        // 堆叠时露出的高度
-const CARD_OFFSET_X = 3;    // 每张卡片向右偏移
+const CARD_H = 38;
+const CARD_PEEK = 5;
+const CARD_OFFSET_X = 3;
 const SPRING = { type: "spring" as const, stiffness: 380, damping: 30 };
 
 // ── 新建 Workspace 内联表单 ───────────────────────────────────
@@ -43,18 +43,18 @@ function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
     const trimmed = path.trim();
     if (!trimmed) { setError("请选择工作目录"); return; }
     addWorkspace(trimmed, name.trim() || undefined, color);
-    // 将目录写入 ~/.claude/settings.json trustedDirectories，
-    // 避免 claude 启动时弹出"是否信任此文件夹"对话框
     invoke("trust_workspace", { path: trimmed }).catch(() => {});
     onDone();
   };
 
   const inputStyle: React.CSSProperties = {
     width: "100%", boxSizing: "border-box",
-    background: "rgba(255,255,255,0.06)",
-    border: "1px solid rgba(255,255,255,0.1)",
-    borderRadius: 7, padding: "6px 10px",
-    color: "#fff", fontSize: 11, outline: "none",
+    background: "var(--ci-surface-hi)",
+    border: "1px solid var(--ci-border)",
+    borderRadius: 8, padding: "7px 10px",
+    color: "var(--ci-text)", fontSize: 12, outline: "none",
+    fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif",
+    transition: "border-color 0.15s, box-shadow 0.15s",
   };
 
   return (
@@ -66,19 +66,23 @@ function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
       style={{ overflow: "hidden" }}
     >
       <div style={{
-        background: "rgba(255,255,255,0.04)",
-        border: "1px solid rgba(255,255,255,0.1)",
-        borderRadius: 10, padding: 12,
-        display: "flex", flexDirection: "column", gap: 8,
+        background: "var(--ci-surface-hi)",
+        border: "1px solid var(--ci-border)",
+        borderRadius: 12, padding: 14,
+        display: "flex", flexDirection: "column", gap: 10,
         marginBottom: 6,
+        boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
       }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: "rgba(255,255,255,0.45)", letterSpacing: 0.3 }}>
+        <div style={{
+          fontSize: 12, fontWeight: 600,
+          color: "var(--ci-text)", letterSpacing: -0.2,
+        }}>
           添加 Workspace
         </div>
 
         {/* 名称（可选） */}
         <div>
-          <div style={{ fontSize: 10, color: "rgba(255,255,255,0.28)", marginBottom: 3 }}>名称（可选）</div>
+          <div style={{ fontSize: 11, color: "var(--ci-text-muted)", marginBottom: 4, fontWeight: 500 }}>名称（可选）</div>
           <input value={name} onChange={e => setName(e.target.value)}
             placeholder="默认使用文件夹名" style={inputStyle}
             onKeyDown={e => e.key === "Enter" && handleCreate()} />
@@ -86,61 +90,76 @@ function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
 
         {/* 路径 */}
         <div>
-          <div style={{ fontSize: 10, color: "rgba(255,255,255,0.28)", marginBottom: 3 }}>
-            目录 <span style={{ color: "#f87171" }}>*</span>
+          <div style={{ fontSize: 11, color: "var(--ci-text-muted)", marginBottom: 4, fontWeight: 500 }}>
+            目录 <span style={{ color: "var(--ci-red)" }}>*</span>
           </div>
           <div style={{ display: "flex", gap: 6 }}>
             <input value={path} onChange={e => { setPath(e.target.value); setError(""); }}
               placeholder="/Users/你/项目"
-              style={{ ...inputStyle, flex: 1, borderColor: error ? "rgba(248,113,113,0.5)" : "rgba(255,255,255,0.1)" }}
+              style={{
+                ...inputStyle, flex: 1,
+                borderColor: error ? "rgba(255,59,48,0.5)" : undefined,
+              }}
               onKeyDown={e => e.key === "Enter" && handleCreate()} />
             <button onClick={handlePick} disabled={picking}
               style={{
-                flexShrink: 0, background: "rgba(255,255,255,0.07)",
-                border: "1px solid rgba(255,255,255,0.12)", borderRadius: 7,
-                padding: "0 9px", color: picking ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.55)",
-                cursor: picking ? "wait" : "pointer", fontSize: 14,
+                flexShrink: 0,
+                background: "var(--ci-surface-hi)",
+                border: "1px solid var(--ci-border)",
+                borderRadius: 8, padding: "0 10px",
+                color: picking ? "var(--ci-text-dim)" : "var(--ci-text-muted)",
+                cursor: picking ? "wait" : "pointer", fontSize: 15,
                 display: "flex", alignItems: "center",
+                transition: "background 0.12s",
               }}
             >{picking ? "…" : "📂"}</button>
           </div>
-          {error && <div style={{ marginTop: 3, fontSize: 10, color: "#f87171" }}>{error}</div>}
+          {error && <div style={{ marginTop: 4, fontSize: 11, color: "var(--ci-red)" }}>{error}</div>}
         </div>
 
         {/* 颜色选择 */}
         <div>
-          <div style={{ fontSize: 10, color: "rgba(255,255,255,0.28)", marginBottom: 5 }}>标签颜色</div>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <div style={{ fontSize: 11, color: "var(--ci-text-muted)", marginBottom: 6, fontWeight: 500 }}>标签颜色</div>
+          <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
             {WORKSPACE_COLORS.map((c) => (
               <button key={c.id} onClick={() => setColor(c.id as WorkspaceColorId)}
                 title={c.label}
                 style={{
-                  width: 18, height: 18, borderRadius: "50%",
+                  width: 20, height: 20, borderRadius: "50%",
                   background: c.hex, border: "none", cursor: "pointer", padding: 0,
-                  outline: color === c.id ? `2px solid ${c.hex}` : "none",
-                  outlineOffset: 2,
-                  boxShadow: color === c.id ? `0 0 0 1px rgba(0,0,0,0.5)` : "none",
-                  transform: color === c.id ? "scale(1.2)" : "scale(1)",
-                  transition: "transform 0.12s, outline 0.12s",
+                  outline: color === c.id ? `2.5px solid ${c.hex}` : "none",
+                  outlineOffset: 2.5,
+                  boxShadow: color === c.id ? `0 0 0 1.5px rgba(255,255,255,0.9)` : "0 1px 2px rgba(0,0,0,0.15)",
+                  transform: color === c.id ? "scale(1.15)" : "scale(1)",
+                  transition: "transform 0.12s, outline 0.12s, box-shadow 0.12s",
                 }} />
             ))}
           </div>
         </div>
 
         {/* 操作 */}
-        <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+        <div style={{ display: "flex", gap: 7, justifyContent: "flex-end", marginTop: 2 }}>
           <button onClick={onDone}
             style={{
-              background: "none", border: "1px solid rgba(255,255,255,0.1)",
-              borderRadius: 7, padding: "5px 12px",
-              color: "rgba(255,255,255,0.4)", fontSize: 11, cursor: "pointer",
+              background: "var(--ci-surface)",
+              border: "1px solid var(--ci-border)",
+              borderRadius: 8, padding: "6px 14px",
+              color: "var(--ci-text-muted)", fontSize: 12, cursor: "pointer",
+              fontWeight: 500,
+              transition: "background 0.12s",
             }}>取消</button>
           <button onClick={handleCreate}
             style={{
-              background: "rgba(96,165,250,0.15)", border: "1px solid rgba(96,165,250,0.3)",
-              borderRadius: 7, padding: "5px 14px",
-              color: "#60a5fa", fontSize: 11, fontWeight: 600, cursor: "pointer",
-            }}>创建</button>
+              background: "var(--ci-accent)",
+              border: "none",
+              borderRadius: 8, padding: "6px 16px",
+              color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer",
+              boxShadow: "0 1px 4px rgba(0,122,255,0.35)",
+              transition: "filter 0.12s",
+            }}
+            onMouseEnter={e => e.currentTarget.style.filter = "brightness(1.1)"}
+            onMouseLeave={e => e.currentTarget.style.filter = "none"}
+          >创建</button>
         </div>
       </div>
     </motion.div>
@@ -178,39 +197,39 @@ function WorkspaceCardExpanded({
       style={{
         position: "relative",
         display: "flex", alignItems: "center", gap: 10,
-        padding: "8px 12px",
+        padding: "9px 12px",
         borderRadius: 10,
-        background: isActive
-          ? `linear-gradient(135deg, ${color}18 0%, rgba(255,255,255,0.05) 100%)`
-          : "rgba(255,255,255,0.03)",
+        background: isActive ? "var(--ci-surface-hi)" : "var(--ci-surface)",
         border: isActive
-          ? `1px solid ${color}40`
-          : "1px solid rgba(255,255,255,0.07)",
+          ? `1px solid ${color}50`
+          : "1px solid var(--ci-border)",
         cursor: "pointer",
         zIndex: total - index,
         transition: "background 0.15s, border-color 0.15s",
+        boxShadow: isActive ? `0 1px 6px rgba(0,0,0,0.08)` : "none",
       }}
     >
-      {/* 颜色标签圆点 */}
+      {/* 颜色圆点 */}
       <div style={{
-        width: 10, height: 10, borderRadius: "50%",
+        width: 11, height: 11, borderRadius: "50%",
         background: color, flexShrink: 0,
-        boxShadow: `0 0 6px ${color}80`,
+        boxShadow: `0 1px 4px ${color}60`,
       }} />
 
       {/* 信息 */}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{
           fontSize: 12, fontWeight: 600,
-          color: isActive ? "#fff" : "rgba(255,255,255,0.65)",
+          color: isActive ? "var(--ci-text)" : "var(--ci-text-muted)",
           overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
         }}>
           {ws.name}
         </div>
         <div style={{
-          fontSize: 9, color: "rgba(255,255,255,0.25)",
+          fontSize: 10, color: "var(--ci-text-dim)",
           overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
           marginTop: 1,
+          fontFamily: "-apple-system, monospace",
         }}>
           {ws.path}
         </div>
@@ -220,18 +239,21 @@ function WorkspaceCardExpanded({
       <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
         {runningCount > 0 && (
           <span style={{
-            fontSize: 9, padding: "1px 5px", borderRadius: 99,
-            background: "rgba(74,222,128,0.15)", border: "1px solid rgba(74,222,128,0.3)",
-            color: "#4ade80",
+            fontSize: 10, padding: "1px 6px", borderRadius: 99,
+            background: "var(--ci-green-bg)",
+            border: "1px solid var(--ci-green-bdr)",
+            color: "var(--ci-green-dark)",
+            fontWeight: 600,
           }}>
             {runningCount} 运行
           </span>
         )}
         {sessionCount > 0 && (
           <span style={{
-            fontSize: 9, padding: "1px 5px", borderRadius: 99,
-            background: "rgba(255,255,255,0.08)",
-            color: "rgba(255,255,255,0.3)",
+            fontSize: 10, padding: "1px 6px", borderRadius: 99,
+            background: "var(--ci-surface)",
+            color: "var(--ci-text-muted)",
+            fontWeight: 600,
           }}>
             {sessionCount}
           </span>
@@ -243,13 +265,19 @@ function WorkspaceCardExpanded({
         onClick={(e) => { e.stopPropagation(); onRemove(); }}
         style={{
           background: "none", border: "none",
-          color: "rgba(255,255,255,0.18)", fontSize: 11,
+          color: "var(--ci-text-dim)", fontSize: 11,
           cursor: "pointer", padding: "2px 4px",
           borderRadius: 4, flexShrink: 0,
-          transition: "color 0.12s",
+          transition: "color 0.12s, background 0.12s",
         }}
-        onMouseEnter={e => (e.currentTarget.style.color = "#f87171")}
-        onMouseLeave={e => (e.currentTarget.style.color = "rgba(255,255,255,0.18)")}
+        onMouseEnter={e => {
+          e.currentTarget.style.color = "var(--ci-red)";
+          e.currentTarget.style.background = "var(--ci-deleted-bg)";
+        }}
+        onMouseLeave={e => {
+          e.currentTarget.style.color = "var(--ci-text-dim)";
+          e.currentTarget.style.background = "none";
+        }}
       >✕</button>
     </motion.div>
   );
@@ -269,7 +297,6 @@ function WorkspaceStackCollapsed({
   onHoverEnd: () => void;
   onClick: () => void;
 }) {
-  // 按 order 排列，order=0 是最前面（顶层）
   const sorted = [...workspaces].sort((a, b) => a.order - b.order);
   const top = sorted[0];
 
@@ -288,9 +315,9 @@ function WorkspaceStackCollapsed({
         cursor: "pointer",
       }}
     >
-      {/* 底层卡片（最多展示 3 层阴影） */}
+      {/* 底层卡片阴影 */}
       {sorted.slice(1, 4).map((ws, idx) => {
-        const layerIdx = idx + 1; // 1,2,3
+        const layerIdx = idx + 1;
         const pColor = getWorkspaceColor(ws.color);
         return (
           <div key={ws.id} style={{
@@ -300,14 +327,17 @@ function WorkspaceStackCollapsed({
             right: -(CARD_OFFSET_X * layerIdx),
             height: CARD_H,
             borderRadius: 10,
-            background: `${pColor}18`,
-            border: `1px solid ${pColor}25`,
+            background: "var(--ci-surface)",
+            border: "1px solid var(--ci-border)",
             zIndex: 10 - layerIdx,
+            boxShadow: `0 1px 3px rgba(0,0,0,0.05)`,
+            // 颜色细条提示
+            borderTop: `2.5px solid ${pColor}50`,
           }} />
         );
       })}
 
-      {/* 顶层卡片（主卡片，完整显示） */}
+      {/* 顶层卡片 */}
       <motion.div
         layoutId={`ws-card-${top.id}`}
         style={{
@@ -315,26 +345,28 @@ function WorkspaceStackCollapsed({
           top: 0, left: 0, right: 0,
           height: CARD_H,
           borderRadius: 10,
-          background: `linear-gradient(135deg, ${topColor}22 0%, rgba(255,255,255,0.06) 100%)`,
-          border: `1px solid ${topColor}45`,
+          background: "var(--ci-surface-hi)",
+          border: "1px solid var(--ci-border-med)",
+          borderTop: `2.5px solid ${topColor}`,
           zIndex: 20,
           display: "flex", alignItems: "center", gap: 10,
           padding: "0 12px",
+          boxShadow: "0 2px 8px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.06)",
         }}
         whileHover={{ scale: 1.01 }}
         transition={SPRING}
       >
         {/* 颜色点 */}
         <div style={{
-          width: 9, height: 9, borderRadius: "50%",
+          width: 10, height: 10, borderRadius: "50%",
           background: topColor, flexShrink: 0,
-          boxShadow: `0 0 5px ${topColor}90`,
+          boxShadow: `0 1px 4px ${topColor}80`,
         }} />
 
-        {/* 名称 + 路径 */}
+        {/* 名称 */}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{
-            fontSize: 12, fontWeight: 600, color: "#fff",
+            fontSize: 12, fontWeight: 600, color: "var(--ci-text)",
             overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
           }}>
             {top.name}
@@ -344,22 +376,22 @@ function WorkspaceStackCollapsed({
         {/* 数量提示 */}
         {sorted.length > 1 && (
           <span style={{
-            fontSize: 9, padding: "1px 6px", borderRadius: 99,
-            background: "rgba(255,255,255,0.08)",
-            color: "rgba(255,255,255,0.35)",
+            fontSize: 10, padding: "1px 6px", borderRadius: 99,
+            background: "var(--ci-surface)",
+            color: "var(--ci-text-muted)", fontWeight: 600,
           }}>
             +{sorted.length - 1}
           </span>
         )}
 
-        {/* 展开提示箭头 */}
+        {/* 展开箭头 */}
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none"
-          style={{ color: "rgba(255,255,255,0.3)", flexShrink: 0 }}>
+          style={{ color: "var(--ci-text-dim)", flexShrink: 0 }}>
           <path d="M2 4l3 3 3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
       </motion.div>
 
-      {/* Finder 颜色标签条（底部露出） */}
+      {/* 底部颜色条指示 */}
       <div style={{
         position: "absolute",
         bottom: 0,
@@ -370,7 +402,7 @@ function WorkspaceStackCollapsed({
           <div key={ws.id} style={{
             width: 8, height: 3, borderRadius: 99,
             background: getWorkspaceColor(ws.color),
-            opacity: ws.id === activeId ? 1 : 0.4,
+            opacity: ws.id === activeId ? 0.9 : 0.3,
           }} />
         ))}
       </div>
@@ -385,12 +417,10 @@ export function WorkspaceStack() {
   const sorted = useWorkspacesSorted();
 
   const [expanded, setExpanded] = useState(false);
-  // 没有 workspace 时直接打开表单，让用户首次进入就能立刻添加
   const [showForm, setShowForm] = useState(workspaces.length === 0);
-  // hover 展开防抖 ref：避免鼠标经过时立即展开触发布局突变导致窗口失焦
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // 没有 workspace 时只渲染添加表单（直接展开，无需再点按钮）
+  // 没有 workspace 时只渲染添加表单
   if (workspaces.length === 0) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -406,23 +436,23 @@ export function WorkspaceStack() {
               onClick={() => setShowForm(true)}
               style={{
                 display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                padding: "10px 0",
-                background: "rgba(255,255,255,0.04)",
-                border: "1px dashed rgba(255,255,255,0.12)",
+                padding: "12px 0",
+                background: "var(--ci-surface)",
+                border: `1.5px dashed var(--ci-border-med)`,
                 borderRadius: 10, cursor: "pointer",
-                color: "rgba(255,255,255,0.35)", fontSize: 11,
+                color: "var(--ci-text-muted)", fontSize: 12,
                 transition: "background 0.15s, border-color 0.15s",
               }}
               onMouseEnter={e => {
-                e.currentTarget.style.background = "rgba(255,255,255,0.07)";
-                e.currentTarget.style.borderColor = "rgba(255,255,255,0.2)";
+                e.currentTarget.style.background = "var(--ci-surface-hi)";
+                e.currentTarget.style.borderColor = "var(--ci-accent-bdr)";
               }}
               onMouseLeave={e => {
-                e.currentTarget.style.background = "rgba(255,255,255,0.04)";
-                e.currentTarget.style.borderColor = "rgba(255,255,255,0.12)";
+                e.currentTarget.style.background = "var(--ci-surface)";
+                e.currentTarget.style.borderColor = "var(--ci-border)";
               }}
             >
-              <span style={{ fontSize: 16, lineHeight: 1 }}>+</span>
+              <span style={{ fontSize: 16, lineHeight: 1, color: "var(--ci-accent)" }}>+</span>
               添加 Workspace
             </motion.button>
           )}
@@ -437,14 +467,17 @@ export function WorkspaceStack() {
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
       {/* ── 标题栏 ── */}
       <div style={{
         display: "flex", alignItems: "center", justifyContent: "space-between",
         padding: "0 2px 4px",
       }}>
-        <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", fontWeight: 500, letterSpacing: 0.4 }}>
-          WORKSPACE
+        <span style={{
+          fontSize: 11, color: "var(--ci-text-dim)", fontWeight: 600,
+          letterSpacing: "0.04em", textTransform: "uppercase",
+        }}>
+          Workspace
         </span>
         <div style={{ display: "flex", gap: 4 }}>
           {/* 展开/收起切换 */}
@@ -453,18 +486,13 @@ export function WorkspaceStack() {
               onClick={() => setExpanded(v => !v)}
               style={{
                 background: "none", border: "none",
-                color: "rgba(255,255,255,0.3)", fontSize: 10,
+                color: "var(--ci-accent)", fontSize: 11,
                 cursor: "pointer", padding: "2px 6px", borderRadius: 5,
-                transition: "color 0.12s, background 0.12s",
+                fontWeight: 500,
+                transition: "background 0.12s",
               }}
-              onMouseEnter={e => {
-                e.currentTarget.style.color = "rgba(255,255,255,0.7)";
-                e.currentTarget.style.background = "rgba(255,255,255,0.07)";
-              }}
-              onMouseLeave={e => {
-                e.currentTarget.style.color = "rgba(255,255,255,0.3)";
-                e.currentTarget.style.background = "none";
-              }}
+              onMouseEnter={e => e.currentTarget.style.background = "var(--ci-accent-bg)"}
+              onMouseLeave={e => e.currentTarget.style.background = "none"}
             >
               {expanded ? "收起" : "全部"}
             </button>
@@ -473,15 +501,18 @@ export function WorkspaceStack() {
           <button
             onClick={() => setShowForm(v => !v)}
             style={{
-              background: showForm ? "rgba(96,165,250,0.15)" : "rgba(255,255,255,0.07)",
-              border: showForm ? "1px solid rgba(96,165,250,0.3)" : "1px solid rgba(255,255,255,0.1)",
-              borderRadius: 6, padding: "2px 7px",
-              color: showForm ? "#60a5fa" : "rgba(255,255,255,0.5)",
-              fontSize: 11, cursor: "pointer",
-              display: "flex", alignItems: "center", gap: 3,
+              background: showForm ? "var(--ci-accent)" : "var(--ci-btn-ghost-bg)",
+              border: "none",
+              borderRadius: 6, padding: "3px 8px",
+              color: showForm ? "#fff" : "var(--ci-accent)",
+              fontSize: 13, cursor: "pointer",
+              display: "flex", alignItems: "center", gap: 2,
+              fontWeight: 600,
+              transition: "background 0.12s",
+              lineHeight: 1,
             }}
           >
-            <span style={{ fontSize: 13, lineHeight: 1 }}>+</span>
+            +
           </button>
         </div>
       </div>
@@ -496,7 +527,6 @@ export function WorkspaceStack() {
       {/* ── 堆叠卡片 or 展开列表 ── */}
       <AnimatePresence mode="wait">
         {expanded ? (
-          /* 展开：每个 workspace 都显示为独立卡片 */
           <motion.div
             key="expanded"
             initial={{ opacity: 0 }}
@@ -521,7 +551,6 @@ export function WorkspaceStack() {
             ))}
           </motion.div>
         ) : (
-          /* 收起：堆叠展示，hover 时自动展开 */
           <motion.div
             key="collapsed"
             initial={{ opacity: 0 }}
@@ -533,7 +562,6 @@ export function WorkspaceStack() {
               workspaces={sorted}
               activeId={activeWorkspaceId}
               onHoverStart={() => {
-                // 防抖 300ms：避免鼠标快速掠过时触发展开（会导致布局突变 → 窗口失焦）
                 if (sorted.length <= 1) return;
                 if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
                 hoverTimerRef.current = setTimeout(() => {
@@ -541,14 +569,12 @@ export function WorkspaceStack() {
                 }, 300);
               }}
               onHoverEnd={() => {
-                // 离开时取消待定的展开
                 if (hoverTimerRef.current) {
                   clearTimeout(hoverTimerRef.current);
                   hoverTimerRef.current = null;
                 }
               }}
               onClick={() => {
-                // 点击直接展开（不依赖 hover 防抖）
                 if (sorted.length > 1) setExpanded(true);
               }}
             />

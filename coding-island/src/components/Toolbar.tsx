@@ -8,26 +8,7 @@ import type { RunnerHandle } from "../harness/runnerRouter";
 // 全局 Runner 句柄注册表
 const runnerHandles = new Map<string, RunnerHandle>();
 
-// ── 设计常量 ─────────────────────────────────────────────────
-const C = {
-  border:    "rgba(255,255,255,0.06)",
-  surface:   "rgba(255,255,255,0.05)",
-  surfaceHi: "rgba(255,255,255,0.09)",
-  textMuted: "rgba(255,255,255,0.45)",
-  text:      "rgba(255,255,255,0.75)",
-  accent:    "#7c6df0",
-  accentBg:  "rgba(124,109,240,0.14)",
-  accentBdr: "rgba(124,109,240,0.3)",
-  accentTxt: "#a89ff5",
-  green:     "#4ade80",
-  greenBg:   "rgba(74,222,128,0.13)",
-  greenBdr:  "rgba(74,222,128,0.3)",
-  red:       "#f87171",
-  redBg:     "rgba(239,68,68,0.12)",
-  redBdr:    "rgba(239,68,68,0.28)",
-};
-
-// ── 单个图标按钮（极简风） ────────────────────────────────────
+// ── 单个按钮（Apple 风格） ────────────────────────────────────
 function Btn({
   children, onClick, title, variant = "ghost", disabled,
 }: {
@@ -41,24 +22,25 @@ function Btn({
 
   const styles: Record<string, React.CSSProperties> = {
     ghost: {
-      background: hovered ? C.surfaceHi : C.surface,
-      border: `1px solid ${hovered ? "rgba(255,255,255,0.1)" : C.border}`,
-      color: hovered ? C.text : C.textMuted,
+      background: hovered ? "var(--ci-btn-ghost-hover)" : "var(--ci-btn-ghost-bg)",
+      border: "1px solid var(--ci-border)",
+      color: hovered ? "var(--ci-text)" : "var(--ci-text-muted)",
     },
     primary: {
-      background: hovered ? "rgba(124,109,240,0.22)" : C.accentBg,
-      border: `1px solid ${C.accentBdr}`,
-      color: C.accentTxt,
+      background: hovered ? "#0071e3" : "var(--ci-accent)",
+      border: "none",
+      color: "#fff",
+      boxShadow: "0 1px 4px rgba(0,122,255,0.35)",
     },
     danger: {
-      background: hovered ? "rgba(239,68,68,0.2)" : C.redBg,
-      border: `1px solid ${C.redBdr}`,
-      color: C.red,
+      background: hovered ? "rgba(255,59,48,0.14)" : "var(--ci-deleted-bg)",
+      border: "1px solid var(--ci-border-med)",
+      color: "var(--ci-red)",
     },
     success: {
-      background: C.greenBg,
-      border: `1px solid ${C.greenBdr}`,
-      color: C.green,
+      background: "var(--ci-green-bg)",
+      border: "1px solid var(--ci-green-bdr)",
+      color: "var(--ci-green-dark)",
     },
   };
 
@@ -70,14 +52,14 @@ function Btn({
       onMouseLeave={() => setHovered(false)}
       style={{
         display: "flex", alignItems: "center", justifyContent: "center",
-        height: 28,
-        padding: "0 10px",
-        borderRadius: 7,
-        fontSize: 11,
+        height: 30,
+        padding: "0 12px",
+        borderRadius: 8,
+        fontSize: 12,
         fontWeight: 500,
         cursor: disabled ? "not-allowed" : "pointer",
         opacity: disabled ? 0.38 : 1,
-        transition: "background 0.12s, border-color 0.12s, color 0.12s",
+        transition: "background 0.12s, border-color 0.12s, color 0.12s, filter 0.12s",
         whiteSpace: "nowrap",
         gap: 4,
         ...styles[variant],
@@ -89,7 +71,6 @@ function Btn({
 }
 
 // ── Toolbar ───────────────────────────────────────────────────
-
 interface ToolbarProps {
   session: ClaudeSession;
   onInputFocus?: () => void;
@@ -137,43 +118,45 @@ export function Toolbar({ session, onInputFocus, onInputBlur }: ToolbarProps) {
     invoke("get_git_diff", { sessionId: session.id, workdir: session.workdir }).catch(console.error);
 
   return (
-    <div style={{ borderTop: `1px solid rgba(255,255,255,0.05)` }}>
+    <div style={{ borderTop: "1px solid var(--ci-border)" }}>
 
       {/* ── 任务输入行 ── */}
       <div style={{
-        display: "flex", alignItems: "center", gap: 6,
-        padding: "8px 10px 4px",
+        display: "flex", alignItems: "center", gap: 7,
+        padding: "9px 10px 5px",
       }}>
         {/* 输入框 */}
         <div style={{
           flex: 1,
           display: "flex", alignItems: "center",
-          background: inputFocused ? "rgba(255,255,255,0.06)" : C.surface,
-          border: `1px solid ${inputFocused ? "rgba(255,255,255,0.12)" : C.border}`,
-          borderRadius: 8,
-          height: 30,
+          background: inputFocused ? "var(--ci-surface-hi)" : "var(--ci-surface)",
+          border: `1px solid ${inputFocused ? "var(--ci-border-hi)" : "var(--ci-border)"}`,
+          borderRadius: 9,
+          height: 32,
           padding: "0 10px",
           transition: "border-color 0.15s, background 0.15s",
           gap: 6,
+          boxShadow: inputFocused ? "0 0 0 3px var(--ci-accent-bg)" : "none",
         }}>
-          <span style={{ fontSize: 11, color: C.textMuted, flexShrink: 0 }}>›</span>
+          <span style={{ fontSize: 12, color: "var(--ci-text-dim)", flexShrink: 0 }}>›</span>
           <input
             ref={taskInputRef}
             defaultValue={session.currentTask}
             placeholder="描述任务…"
             disabled={isRunning}
-             onFocus={() => { setInputFocused(true); onInputFocus?.(); }}
-             onBlur={() => { setInputFocused(false); onInputBlur?.(); }}
+            onFocus={() => { setInputFocused(true); onInputFocus?.(); }}
+            onBlur={() => { setInputFocused(false); onInputBlur?.(); }}
             onKeyDown={(e) => { if (e.key === "Enter" && !isRunning) handleRun(); }}
             style={{
               flex: 1, background: "none", border: "none", outline: "none",
-              fontSize: 12, color: C.text,
-              opacity: isRunning ? 0.5 : 1,
+              fontSize: 13, color: "var(--ci-text)",
+              opacity: isRunning ? 0.45 : 1,
+              fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif",
             }}
           />
         </div>
 
-        {/* 主操作按钮：运行 / 停止 */}
+        {/* 主操作按钮 */}
         {!isRunning ? (
           <Btn onClick={handleRun} variant="primary" title="运行（Enter）">
             <span style={{ fontSize: 9 }}>▶</span> 运行
@@ -188,18 +171,21 @@ export function Toolbar({ session, onInputFocus, onInputBlur }: ToolbarProps) {
       {/* ── 次级操作行 ── */}
       <div style={{
         display: "flex", alignItems: "center", gap: 5,
-        padding: "3px 10px 8px",
+        padding: "3px 10px 9px",
       }}>
         {/* Runner 徽标 */}
         <button
           onClick={() => openSettings("runner")}
           title="切换 Runner"
           style={{
-            fontSize: 10, padding: "2px 8px", borderRadius: 5,
-            border: `1px solid ${C.accentBdr}`,
-            background: C.accentBg, color: C.accentTxt,
-            cursor: "pointer",
+            fontSize: 10, padding: "3px 8px", borderRadius: 6,
+            border: "1px solid var(--ci-purple-bdr)",
+            background: "var(--ci-purple-bg)", color: "var(--ci-purple)",
+            cursor: "pointer", fontWeight: 500,
+            transition: "filter 0.12s",
           }}
+          onMouseEnter={e => e.currentTarget.style.filter = "brightness(0.9)"}
+          onMouseLeave={e => e.currentTarget.style.filter = "none"}
         >
           {runnerLabel}
         </button>

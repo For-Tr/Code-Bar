@@ -71,7 +71,7 @@ export interface Settings {
   // 通用
   autoRefreshDiff: boolean;
   diffRefreshIntervalSec: number;
-  theme: "dark" | "system";
+  theme: "light" | "dark" | "system";
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -106,13 +106,13 @@ const DEFAULT_SETTINGS: Settings = {
   },
   autoRefreshDiff: true,
   diffRefreshIntervalSec: 5,
-  theme: "dark",
+  theme: "light",
 };
 
 interface SettingsStore {
   settings: Settings;
   settingsOpen: boolean;
-  activeTab: "runner" | "model" | "harness" | "apikeys";
+  activeTab: "runner" | "model" | "harness" | "apikeys" | "appearance";
 
   openSettings: (tab?: SettingsStore["activeTab"]) => void;
   closeSettings: () => void;

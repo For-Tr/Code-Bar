@@ -2,40 +2,67 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { DiffFile, DiffLine } from "../store/sessionStore";
 
-// ── 颜色 token ──────────────────────────────────────────────
-const C = {
-  added:    { bg: "rgba(34,197,94,0.12)",   text: "#4ade80",  gutter: "rgba(34,197,94,0.2)" },
-  deleted:  { bg: "rgba(239,68,68,0.12)",   text: "#f87171",  gutter: "rgba(239,68,68,0.2)" },
-  context:  { bg: "transparent",            text: "rgba(255,255,255,0.55)", gutter: "transparent" },
+// 保留静态颜色（文件类型图标颜色保持固定，diff 行颜色改用 CSS 变量）
+const MONO = "'JetBrains Mono', 'Fira Code', 'SF Mono', monospace";
+
+// 每种 diff 行类型的样式（通过 CSS 变量驱动深/浅色）
+type LineStyle = { bg: string; text: string; gutter: string; prefix: string };
+const LINE_STYLES: Record<DiffLine["type"], LineStyle> = {
+  added:   {
+    bg:     "var(--ci-added-bg)",
+    text:   "var(--ci-added-text)",
+    gutter: "var(--ci-added-bg)",
+    prefix: "var(--ci-green)",
+  },
+  deleted: {
+    bg:     "var(--ci-deleted-bg)",
+    text:   "var(--ci-deleted-text)",
+    gutter: "var(--ci-deleted-bg)",
+    prefix: "var(--ci-red)",
+  },
+  context: {
+    bg:     "transparent",
+    text:   "var(--ci-text-muted)",
+    gutter: "transparent",
+    prefix: "transparent",
+  },
 };
 
 function DiffLineRow({ line }: { line: DiffLine }) {
-  const c = C[line.type];
+  const c = LINE_STYLES[line.type];
   const prefix = line.type === "added" ? "+" : line.type === "deleted" ? "−" : " ";
   return (
     <div style={{
-      display: "flex", fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-      fontSize: 11, lineHeight: "18px", background: c.bg,
+      display: "flex",
+      fontFamily: MONO,
+      fontSize: 11,
+      lineHeight: "18px",
+      background: c.bg,
     }}>
-      {/* 行号 */}
+      {/* 旧行号 */}
       <span style={{
         width: 32, textAlign: "right", padding: "0 6px",
-        color: "rgba(255,255,255,0.2)", flexShrink: 0,
+        color: "var(--ci-text-dim)", flexShrink: 0,
         background: c.gutter, userSelect: "none",
+        borderRight: "1px solid var(--ci-border)",
       }}>
         {line.oldLineNo ?? ""}
       </span>
+      {/* 新行号 */}
       <span style={{
         width: 32, textAlign: "right", padding: "0 6px",
-        color: "rgba(255,255,255,0.2)", flexShrink: 0,
+        color: "var(--ci-text-dim)", flexShrink: 0,
         background: c.gutter, userSelect: "none",
+        borderRight: "1px solid var(--ci-border)",
       }}>
         {line.newLineNo ?? ""}
       </span>
       {/* 前缀符号 */}
       <span style={{
-        width: 18, textAlign: "center", color: c.text,
+        width: 18, textAlign: "center",
+        color: line.type === "context" ? "transparent" : c.prefix,
         flexShrink: 0, userSelect: "none",
+        fontWeight: 600,
       }}>
         {prefix}
       </span>
@@ -50,54 +77,84 @@ function DiffLineRow({ line }: { line: DiffLine }) {
   );
 }
 
+// 文件类型图标（颜色固定，语义化）
+const FILE_ICON_MAP: Record<DiffFile["type"], { icon: string; color: string }> = {
+  added:    { icon: "✦", color: "#34C759" },
+  modified: { icon: "◆", color: "#FF9F0A" },
+  deleted:  { icon: "✕", color: "#FF3B30" },
+};
+
 function FileIcon({ type, binary }: { type: DiffFile["type"]; binary?: boolean }) {
-  if (binary) return <span style={{ color: "#a78bfa", fontSize: 9, marginRight: 6, flexShrink: 0 }}>⬡</span>;
-  const map = { added: { icon: "✦", color: "#4ade80" }, modified: { icon: "◆", color: "#fbbf24" }, deleted: { icon: "✕", color: "#f87171" } };
-  const { icon, color } = map[type];
+  if (binary) return <span style={{ color: "#5856D6", fontSize: 9, marginRight: 6, flexShrink: 0 }}>⬡</span>;
+  const { icon, color } = FILE_ICON_MAP[type];
   return <span style={{ color, fontSize: 9, marginRight: 6, flexShrink: 0 }}>{icon}</span>;
 }
 
 function FileStat({ additions, deletions }: { additions: number; deletions: number }) {
   return (
     <span style={{ display: "flex", gap: 4, fontSize: 10, marginLeft: "auto", flexShrink: 0 }}>
-      {additions > 0 && <span style={{ color: "#4ade80" }}>+{additions}</span>}
-      {deletions > 0 && <span style={{ color: "#f87171" }}>−{deletions}</span>}
+      {additions > 0 && (
+        <span style={{
+          color: "var(--ci-added-text)",
+          background: "var(--ci-added-bg)",
+          border: "1px solid var(--ci-green-bdr)",
+          borderRadius: 4, padding: "0 4px",
+        }}>+{additions}</span>
+      )}
+      {deletions > 0 && (
+        <span style={{
+          color: "var(--ci-deleted-text)",
+          background: "var(--ci-deleted-bg)",
+          border: "1px solid var(--ci-border-med)",
+          borderRadius: 4, padding: "0 4px",
+        }}>−{deletions}</span>
+      )}
     </span>
   );
 }
 
-// 展开状态改为组件本地 state，避免全局 store 导致的 session/workspace 切换干扰
 function DiffFileRow({ file }: { file: DiffFile }) {
   const [isOpen, setIsOpen] = useState(false);
   const isBinary = !!file.binary;
 
   return (
-    <div style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+    <div style={{
+      borderBottom: "1px solid var(--ci-border)",
+      background: "var(--ci-surface)",
+    }}>
       {/* 文件头 */}
       <button
         onClick={() => setIsOpen((v) => !v)}
         style={{
           width: "100%", display: "flex", alignItems: "center",
           padding: "7px 12px", background: "none", border: "none",
-          cursor: "pointer", color: "rgba(255,255,255,0.8)",
+          cursor: "pointer", color: "var(--ci-text)",
           textAlign: "left",
+          transition: "background 0.12s",
         }}
+        onMouseEnter={e => (e.currentTarget.style.background = "var(--ci-btn-ghost-bg)")}
+        onMouseLeave={e => (e.currentTarget.style.background = "none")}
       >
         <motion.span
           animate={{ rotate: isOpen ? 90 : 0 }}
           transition={{ duration: 0.15 }}
-          style={{ marginRight: 6, fontSize: 9, color: "rgba(255,255,255,0.3)", flexShrink: 0 }}
+          style={{ marginRight: 6, fontSize: 9, color: "var(--ci-text-dim)", flexShrink: 0 }}
         >▶</motion.span>
         <FileIcon type={file.type} binary={isBinary} />
-        <span style={{ fontSize: 11, fontFamily: "monospace", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        <span style={{
+          fontSize: 11, fontFamily: MONO, flex: 1,
+          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          color: "var(--ci-text)",
+        }}>
           {file.path}
         </span>
         {isBinary ? (
           <span style={{
             fontSize: 9, padding: "1px 6px", borderRadius: 99, flexShrink: 0,
-            background: "rgba(167,139,250,0.12)",
-            border: "1px solid rgba(167,139,250,0.25)",
-            color: "#a78bfa",
+            background: "var(--ci-purple-bg)",
+            border: "1px solid var(--ci-purple-bdr)",
+            color: "var(--ci-purple)",
+            marginLeft: 6,
           }}>
             二进制
           </span>
@@ -118,21 +175,22 @@ function DiffFileRow({ file }: { file: DiffFile }) {
             style={{ overflow: "hidden" }}
           >
             <div style={{
-              background: "rgba(0,0,0,0.3)",
-              borderTop: "1px solid rgba(255,255,255,0.06)",
+              background: "var(--ci-bg)",
+              borderTop: "1px solid var(--ci-border)",
               maxHeight: 320, overflowY: "auto",
+              scrollbarWidth: "none",
             }}>
               {isBinary ? (
                 <div style={{
                   padding: "14px 16px",
-                  display: "flex", alignItems: "center", gap: 8,
+                  display: "flex", alignItems: "center", gap: 10,
                 }}>
-                  <span style={{ fontSize: 16 }}>⬡</span>
+                  <span style={{ fontSize: 18, opacity: 0.6 }}>⬡</span>
                   <div>
-                    <div style={{ fontSize: 11, color: "#a78bfa", fontWeight: 600, marginBottom: 2 }}>
+                    <div style={{ fontSize: 11, color: "var(--ci-purple)", fontWeight: 600, marginBottom: 2 }}>
                       二进制文件
                     </div>
-                    <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", fontFamily: "monospace" }}>
+                    <div style={{ fontSize: 10, color: "var(--ci-text-dim)", fontFamily: MONO }}>
                       {file.path}
                     </div>
                   </div>
@@ -141,8 +199,8 @@ function DiffFileRow({ file }: { file: DiffFile }) {
                 <div style={{
                   padding: "12px 16px",
                   fontSize: 11,
-                  color: "rgba(255,255,255,0.3)",
-                  fontFamily: "monospace",
+                  color: "var(--ci-text-muted)",
+                  fontFamily: MONO,
                   display: "flex", alignItems: "center", gap: 6,
                 }}>
                   <span style={{ opacity: 0.5 }}>ℹ</span>
@@ -154,9 +212,11 @@ function DiffFileRow({ file }: { file: DiffFile }) {
                     {/* hunk header */}
                     <div style={{
                       padding: "2px 8px 2px 82px",
-                      background: "rgba(99,102,241,0.1)",
-                      color: "rgba(165,180,252,0.7)",
-                      fontSize: 10, fontFamily: "monospace",
+                      background: "var(--ci-accent-bg)",
+                      color: "var(--ci-accent)",
+                      fontSize: 10, fontFamily: MONO,
+                      borderTop: "1px solid var(--ci-accent-bdr)",
+                      borderBottom: "1px solid var(--ci-accent-bdr)",
                     }}>
                       {hunk.header}
                     </div>
@@ -179,7 +239,8 @@ export function DiffViewer({ files }: { files: DiffFile[] }) {
     return (
       <div style={{
         padding: "20px 0", textAlign: "center",
-        color: "rgba(255,255,255,0.2)", fontSize: 12,
+        color: "var(--ci-text-muted)", fontSize: 12,
+        fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
       }}>
         暂无代码变更
       </div>
@@ -190,19 +251,33 @@ export function DiffViewer({ files }: { files: DiffFile[] }) {
   const totalDeletions = files.reduce((s, f) => s + f.deletions, 0);
 
   return (
-    <div>
-      {/* 汇总 */}
+    <div style={{ background: "var(--ci-surface)" }}>
+      {/* 汇总统计 */}
       <div style={{
         display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "6px 12px 6px",
-        borderBottom: "1px solid rgba(255,255,255,0.06)",
+        padding: "7px 12px",
+        borderBottom: "1px solid var(--ci-border)",
+        background: "var(--ci-bg)",
       }}>
-        <span style={{ fontSize: 11, color: "rgba(255,255,255,0.4)" }}>
+        <span style={{
+          fontSize: 11, color: "var(--ci-text-muted)",
+          fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+        }}>
           {files.length} 个文件变更
         </span>
-        <span style={{ display: "flex", gap: 8, fontSize: 11 }}>
-          <span style={{ color: "#4ade80" }}>+{totalAdditions}</span>
-          <span style={{ color: "#f87171" }}>−{totalDeletions}</span>
+        <span style={{ display: "flex", gap: 6, fontSize: 11 }}>
+          <span style={{
+            color: "var(--ci-added-text)",
+            background: "var(--ci-added-bg)",
+            border: "1px solid var(--ci-green-bdr)",
+            borderRadius: 5, padding: "0 6px",
+          }}>+{totalAdditions}</span>
+          <span style={{
+            color: "var(--ci-deleted-text)",
+            background: "var(--ci-deleted-bg)",
+            border: "1px solid var(--ci-border-med)",
+            borderRadius: 5, padding: "0 6px",
+          }}>−{totalDeletions}</span>
         </span>
       </div>
       {/* 文件列表 */}

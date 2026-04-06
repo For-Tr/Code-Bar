@@ -8,27 +8,32 @@ import {
   type RunnerType,
   type ModelProvider,
 } from "../store/settingsStore";
-// ── Design tokens ─────────────────────────────────────────────
+// ── Design tokens（使用 CSS 变量，支持深/浅色主题）─────────────
 const C = {
-  bg:        "rgba(14,14,16,0.0)",
-  surface:   "rgba(255,255,255,0.04)",
-  surfaceHi: "rgba(255,255,255,0.08)",
-  border:    "rgba(255,255,255,0.07)",
-  borderHi:  "rgba(255,255,255,0.15)",
-  text:      "rgba(255,255,255,0.85)",
-  textMuted: "rgba(255,255,255,0.4)",
-  textDim:   "rgba(255,255,255,0.22)",
-  accent:    "#7c6df0",
-  accentBg:  "rgba(124,109,240,0.14)",
-  accentBdr: "rgba(124,109,240,0.32)",
-  accentTxt: "#a89ff5",
-  green:     "#4ade80",
-  greenBg:   "rgba(74,222,128,0.12)",
-  greenBdr:  "rgba(74,222,128,0.3)",
-  red:       "#f87171",
-  yellow:    "#fbbf24",
-  yellowBg:  "rgba(251,191,36,0.1)",
-  yellowBdr: "rgba(251,191,36,0.25)",
+  bg:        "var(--ci-bg)",
+  surface:   "var(--ci-surface)",
+  surfaceHi: "var(--ci-surface-hi)",
+  border:    "var(--ci-border)",
+  borderHi:  "var(--ci-border-hi)",
+  borderMed: "var(--ci-border-med)",
+  text:      "var(--ci-text)",
+  textMuted: "var(--ci-text-muted)",
+  textDim:   "var(--ci-text-dim)",
+  accent:    "var(--ci-accent)",
+  accentBg:  "var(--ci-accent-bg)",
+  accentBdr: "var(--ci-accent-bdr)",
+  accentTxt: "var(--ci-accent)",
+  green:     "var(--ci-green)",
+  greenDark: "var(--ci-green-dark)",
+  greenBg:   "var(--ci-green-bg)",
+  greenBdr:  "var(--ci-green-bdr)",
+  red:       "var(--ci-red)",
+  yellow:    "var(--ci-yellow)",
+  yellowBg:  "var(--ci-yellow-bg)",
+  yellowBdr: "var(--ci-yellow-bdr)",
+  purple:    "var(--ci-purple)",
+  purpleBg:  "var(--ci-purple-bg)",
+  purpleBdr: "var(--ci-purple-bdr)",
 };
 
 // ── 通用小件 ──────────────────────────────────────────────────
@@ -59,7 +64,7 @@ function TextInput({
       onBlur={() => setFocused(false)}
       style={{
         width: "100%",
-        background: C.surface,
+        background: focused ? C.surfaceHi : C.surface,
         border: `1px solid ${focused ? C.borderHi : C.border}`,
         borderRadius: 8,
         padding: "7px 10px",
@@ -67,8 +72,10 @@ function TextInput({
         color: C.text,
         outline: "none",
         boxSizing: "border-box",
-        transition: "border-color 0.15s",
+        transition: "border-color 0.15s, box-shadow 0.15s, background 0.15s",
         opacity: disabled ? 0.45 : 1,
+        boxShadow: focused ? "0 0 0 3px rgba(0,122,255,0.12)" : "none",
+        fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif",
       }}
     />
   );
@@ -116,27 +123,28 @@ function CardSelect<T extends string>({
             style={{
               display: "flex", alignItems: "center", gap: 10,
               padding: "9px 12px",
-              background: active ? C.accentBg : C.surface,
-              border: `1px solid ${active ? C.accentBdr : C.border}`,
-              borderRadius: 9,
+              background: active ? C.surfaceHi : C.surface,
+              border: `1px solid ${active ? "rgba(0,122,255,0.3)" : C.border}`,
+              borderRadius: 10,
               cursor: "pointer",
               textAlign: "left",
               transition: "all 0.15s",
+              boxShadow: active ? "0 1px 4px rgba(0,0,0,0.06)" : "none",
             }}
           >
             <div style={{
-              width: 14, height: 14, borderRadius: "50%", flexShrink: 0,
-              border: `2px solid ${active ? C.accent : C.border}`,
+              width: 16, height: 16, borderRadius: "50%", flexShrink: 0,
+              border: `2px solid ${active ? C.accent : C.borderMed}`,
               background: active ? C.accent : "transparent",
               display: "flex", alignItems: "center", justifyContent: "center",
               transition: "all 0.15s",
             }}>
-              {active && <div style={{ width: 4, height: 4, borderRadius: "50%", background: "#fff" }} />}
+              {active && <div style={{ width: 5, height: 5, borderRadius: "50%", background: "#fff" }} />}
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{
                 fontSize: 12, fontWeight: 500,
-                color: active ? C.accentTxt : C.text,
+                color: active ? C.text : C.textMuted,
                 display: "flex", alignItems: "center", gap: 6,
               }}>
                 {o.label}
@@ -167,26 +175,27 @@ function Toggle({
       onClick={() => onChange(!value)}
       style={{
         display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "8px 0", cursor: "pointer",
+        padding: "9px 0", cursor: "pointer",
         borderBottom: `1px solid ${C.border}`,
       }}
     >
       <div>
         <div style={{ fontSize: 12, color: C.text }}>{label}</div>
-        {desc && <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>{desc}</div>}
+        {desc && <div style={{ fontSize: 11, color: C.textDim, marginTop: 2 }}>{desc}</div>}
       </div>
       <div style={{
-        width: 34, height: 18, borderRadius: 99, flexShrink: 0,
-        background: value ? C.accent : "rgba(255,255,255,0.12)",
+        width: 36, height: 20, borderRadius: 99, flexShrink: 0,
+        background: value ? C.green : "rgba(120,120,128,0.2)",
         display: "flex", alignItems: "center",
         padding: "0 2px",
-        transition: "background 0.2s",
+        transition: "background 0.22s",
+        boxShadow: "inset 0 0 0 0.5px rgba(0,0,0,0.06)",
       }}>
         <div style={{
-          width: 14, height: 14, borderRadius: "50%", background: "#fff",
-          boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
+          width: 16, height: 16, borderRadius: "50%", background: "#fff",
+          boxShadow: "0 1px 4px rgba(0,0,0,0.25), 0 0.5px 1px rgba(0,0,0,0.12)",
           transform: value ? "translateX(16px)" : "translateX(0)",
-          transition: "transform 0.2s",
+          transition: "transform 0.22s",
         }} />
       </div>
     </div>
@@ -223,33 +232,31 @@ function ApiKeyRow({
   };
 
   return (
-    <div style={{ marginBottom: 14 }}>
-      <div style={{
-        display: "flex", alignItems: "center", gap: 6, marginBottom: 5,
-      }}>
-        <span style={{ fontSize: 12, fontWeight: 500, color: C.text }}>{label}</span>
+    <div style={{
+      marginBottom: 10,
+      padding: "10px 12px",
+      background: C.surfaceHi,
+      border: `1px solid ${C.border}`,
+      borderRadius: 10,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: hint ? 4 : 8 }}>
+        <span style={{ fontSize: 12, fontWeight: 600, color: C.text }}>{label}</span>
         {hasKey ? (
           <span style={{
             fontSize: 10, padding: "1px 6px", borderRadius: 99,
             background: C.greenBg, border: `1px solid ${C.greenBdr}`,
-            color: C.green,
-          }}>
-            已配置
-          </span>
+            color: C.greenDark, fontWeight: 600,
+          }}>✓ 已配置</span>
         ) : (
           <span style={{
             fontSize: 10, padding: "1px 6px", borderRadius: 99,
             background: C.yellowBg, border: `1px solid ${C.yellowBdr}`,
-            color: C.yellow,
-          }}>
-            未配置
-          </span>
+            color: C.yellow, fontWeight: 600,
+          }}>未配置</span>
         )}
       </div>
-      {hint && (
-        <div style={{ fontSize: 10, color: C.textDim, marginBottom: 6 }}>{hint}</div>
-      )}
-      <div style={{ display: "flex", gap: 6 }}>
+      {hint && <div style={{ fontSize: 10, color: C.textDim, marginBottom: 8 }}>{hint}</div>}
+      <div style={{ display: "flex", gap: 7 }}>
         <div style={{ flex: 1 }}>
           <TextInput
             type="password"
@@ -261,14 +268,12 @@ function ApiKeyRow({
         <button
           onClick={handleSave}
           style={{
-            padding: "0 12px",
+            padding: "0 14px",
             borderRadius: 8,
             border: `1px solid ${saved ? C.greenBdr : C.accentBdr}`,
             background: saved ? C.greenBg : C.accentBg,
-            color: saved ? C.green : C.accentTxt,
-            fontSize: 12,
-            fontWeight: 500,
-            cursor: "pointer",
+            color: saved ? C.greenDark : C.accentTxt,
+            fontSize: 12, fontWeight: 600, cursor: "pointer",
             whiteSpace: "nowrap",
             transition: "all 0.2s",
             opacity: saving ? 0.6 : 1,
@@ -331,26 +336,23 @@ function RunnerTab() {
       {/* CLI 模式下显示 API Key 快捷入口 */}
       {RUNNER_PROVIDER[runner.type] && (
         <div style={{
-          marginTop: 12,
-          padding: "9px 12px",
-          background: C.yellowBg,
-          border: `1px solid ${C.yellowBdr}`,
-          borderRadius: 9,
+          marginTop: 12, padding: "10px 12px",
+          background: C.yellowBg, border: `1px solid ${C.yellowBdr}`,
+          borderRadius: 10,
           display: "flex", alignItems: "center", justifyContent: "space-between",
         }}>
-          <div style={{ fontSize: 11, color: C.yellow }}>
+          <div style={{ fontSize: 11, color: C.yellow, fontWeight: 500 }}>
             {runner.type === "claude-code" ? "Claude Code 需要 Anthropic API Key" : "Codex 需要 OpenAI API Key"}
           </div>
           <button
             onClick={() => openSettings("apikeys")}
             style={{
-              fontSize: 10, padding: "3px 10px", borderRadius: 6,
-              background: C.yellowBg, border: `1px solid ${C.yellowBdr}`,
-              color: C.yellow, cursor: "pointer", whiteSpace: "nowrap",
-              fontWeight: 600,
+              fontSize: 11, padding: "4px 10px", borderRadius: 7,
+              background: C.yellow, border: "none",
+              color: "#fff", cursor: "pointer", fontWeight: 600,
             }}
           >
-            管理 Keys →
+            管理 →
           </button>
         </div>
       )}
@@ -425,18 +427,13 @@ function RunnerTab() {
 
       {runner.type === "native" && (
         <div style={{
-          marginTop: 12,
-          padding: "10px 12px",
-          background: C.accentBg,
-          border: `1px solid ${C.accentBdr}`,
-          borderRadius: 9,
+          marginTop: 12, padding: "10px 12px",
+          background: C.accentBg, border: `1px solid ${C.accentBdr}`,
+          borderRadius: 10,
         }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: C.accentTxt, marginBottom: 3 }}>
-            内置 Harness
-          </div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: C.accent, marginBottom: 3 }}>内置 Harness</div>
           <div style={{ fontSize: 11, color: C.textMuted, lineHeight: "1.6" }}>
             无需安装任何 CLI，直接用 API Key 调用 LLM。内置文件读写、命令执行、git diff 工具。
-            请在「API Keys」页配置各服务商的密钥。
           </div>
         </div>
       )}
@@ -614,23 +611,21 @@ function ApiKeysTab() {
         所有密钥均加密存储在本地，不上传任何服务器。切换模型服务商时会自动使用对应的密钥。
       </div>
 
-      {/* 自动检测按钮 */}
-      <div style={{ marginBottom: 14, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+      {/* 操作按钮区 */}
+      <div style={{ marginBottom: 14, display: "flex", gap: 7, alignItems: "center", flexWrap: "wrap" }}>
         <button
           onClick={handleAutoDetect}
           disabled={detecting}
           style={{
-            padding: "7px 14px",
-            borderRadius: 8,
+            padding: "7px 12px", borderRadius: 8,
             border: `1px solid ${C.accentBdr}`,
-            background: C.accentBg,
-            color: C.accentTxt,
-            fontSize: 11,
-            fontWeight: 500,
+            background: C.accentBg, color: C.accentTxt,
+            fontSize: 11, fontWeight: 500,
             cursor: detecting ? "default" : "pointer",
-            opacity: detecting ? 0.6 : 1,
-            transition: "all 0.15s",
+            opacity: detecting ? 0.6 : 1, transition: "filter 0.12s",
           }}
+          onMouseEnter={e => e.currentTarget.style.filter = "brightness(0.9)"}
+          onMouseLeave={e => e.currentTarget.style.filter = "none"}
         >
           {detecting ? "检测中…" : "🔍 自动检测系统配置"}
         </button>
@@ -641,15 +636,14 @@ function ApiKeysTab() {
             alert(JSON.stringify(result, null, 2));
           }}
           style={{
-            padding: "7px 14px",
-            borderRadius: 8,
-            border: "1px solid rgba(251,191,36,0.3)",
-            background: "rgba(251,191,36,0.08)",
-            color: "rgba(251,191,36,0.8)",
-            fontSize: 11,
-            fontWeight: 500,
-            cursor: "pointer",
+            padding: "7px 12px", borderRadius: 8,
+            border: `1px solid ${C.yellowBdr}`,
+            background: C.yellowBg, color: C.yellow,
+            fontSize: 11, fontWeight: 500, cursor: "pointer",
+            transition: "filter 0.12s",
           }}
+          onMouseEnter={e => e.currentTarget.style.filter = "brightness(0.9)"}
+          onMouseLeave={e => e.currentTarget.style.filter = "none"}
         >
           🐞 诊断 PATH
         </button>
@@ -664,15 +658,14 @@ function ApiKeysTab() {
             }
           }}
           style={{
-            padding: "7px 14px",
-            borderRadius: 8,
-            border: "1px solid rgba(124,109,240,0.3)",
-            background: "rgba(124,109,240,0.08)",
-            color: "rgba(124,109,240,0.8)",
-            fontSize: 11,
-            fontWeight: 500,
-            cursor: "pointer",
+            padding: "7px 12px", borderRadius: 8,
+            border: `1px solid ${C.purpleBdr}`,
+            background: C.purpleBg, color: C.purple,
+            fontSize: 11, fontWeight: 500, cursor: "pointer",
+            transition: "filter 0.12s",
           }}
+          onMouseEnter={e => e.currentTarget.style.filter = "brightness(0.9)"}
+          onMouseLeave={e => e.currentTarget.style.filter = "none"}
         >
           🔔 启用 Claude Code Hooks
         </button>
@@ -689,15 +682,14 @@ function ApiKeysTab() {
             }
           }}
           style={{
-            padding: "7px 14px",
-            borderRadius: 8,
-            border: "1px solid rgba(74,222,128,0.3)",
-            background: "rgba(74,222,128,0.08)",
-            color: "rgba(74,222,128,0.8)",
-            fontSize: 11,
-            fontWeight: 500,
-            cursor: "pointer",
+            padding: "7px 12px", borderRadius: 8,
+            border: `1px solid ${C.greenBdr}`,
+            background: C.greenBg, color: C.greenDark,
+            fontSize: 11, fontWeight: 500, cursor: "pointer",
+            transition: "filter 0.12s",
           }}
+          onMouseEnter={e => e.currentTarget.style.filter = "brightness(0.9)"}
+          onMouseLeave={e => e.currentTarget.style.filter = "none"}
         >
           🔔 测试通知
         </button>
@@ -780,17 +772,106 @@ function HarnessTab() {
 
       <SectionDivider label="Git Worktree" />
       <div style={{
-        padding: "8px 10px 10px",
+        padding: "10px 12px",
         background: C.accentBg,
         border: `1px solid ${C.accentBdr}`,
-        borderRadius: 9,
+        borderRadius: 10,
       }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: C.accentTxt, marginBottom: 3 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: C.accent, marginBottom: 3 }}>
           ✦ 独立 Worktree 工作流
         </div>
         <div style={{ fontSize: 11, color: C.textMuted, lineHeight: "1.6" }}>
-          每次任务在独立的 <code style={{ color: C.accentTxt, fontSize: 10 }}>git worktree</code> 中运行，不影响主工作区。
+          每次任务在独立的 <code style={{ color: C.accent, fontSize: 10 }}>git worktree</code> 中运行，不影响主工作区。
           任务完成后可查看 Diff，选择「合并到主分支」或「丢弃」。
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Appearance Tab ────────────────────────────────────────────
+
+function AppearanceTab() {
+  const { settings, patchSettings } = useSettingsStore();
+
+  type ThemeOption = "light" | "dark" | "system";
+
+  const themeOptions: { value: ThemeOption; label: string; hint: string; icon: string }[] = [
+    { value: "light",  label: "浅色",   hint: "始终使用浅色主题",     icon: "☀️" },
+    { value: "dark",   label: "深色",   hint: "始终使用深色主题",     icon: "🌙" },
+    { value: "system", label: "跟随系统", hint: "与 macOS 外观设置保持一致", icon: "💻" },
+  ];
+
+  return (
+    <div>
+      <SectionDivider label="外观模式" />
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {themeOptions.map((opt) => {
+          const active = settings.theme === opt.value;
+          return (
+            <button
+              key={opt.value}
+              onClick={() => patchSettings({ theme: opt.value })}
+              style={{
+                display: "flex", alignItems: "center", gap: 12,
+                padding: "11px 14px",
+                background: active ? C.surfaceHi : C.surface,
+                border: `1.5px solid ${active ? C.accent : C.border}`,
+                borderRadius: 12,
+                cursor: "pointer",
+                textAlign: "left",
+                transition: "all 0.15s",
+                boxShadow: active
+                  ? `0 0 0 3px ${C.accentBg}, 0 1px 4px rgba(0,0,0,0.06)`
+                  : "none",
+              }}
+            >
+              {/* 图标 */}
+              <span style={{ fontSize: 22, lineHeight: 1, flexShrink: 0 }}>{opt.icon}</span>
+
+              {/* 文字 */}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{
+                  fontSize: 13, fontWeight: active ? 600 : 500,
+                  color: active ? C.accent : C.text,
+                  marginBottom: 2,
+                }}>
+                  {opt.label}
+                </div>
+                <div style={{ fontSize: 11, color: C.textDim }}>
+                  {opt.hint}
+                </div>
+              </div>
+
+              {/* 选中指示器 */}
+              <div style={{
+                width: 18, height: 18, borderRadius: "50%", flexShrink: 0,
+                border: `2px solid ${active ? C.accent : C.borderMed}`,
+                background: active ? C.accent : "transparent",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                transition: "all 0.15s",
+              }}>
+                {active && (
+                  <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#fff" }} />
+                )}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* 预览说明 */}
+      <div style={{
+        marginTop: 16, padding: "10px 12px",
+        background: C.accentBg, border: `1px solid ${C.accentBdr}`,
+        borderRadius: 10,
+      }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: C.accent, marginBottom: 3 }}>
+          ✦ 实时生效
+        </div>
+        <div style={{ fontSize: 11, color: C.textMuted, lineHeight: "1.6" }}>
+          主题切换立即生效，无需重启应用。选择「跟随系统」后，
+          当 macOS 切换深色/浅色模式时界面会自动跟随变化。
         </div>
       </div>
     </div>
@@ -799,7 +880,7 @@ function HarnessTab() {
 
 // ── 主 Settings Panel ─────────────────────────────────────────
 
-type SettingsTab = "runner" | "model" | "apikeys" | "harness";
+type SettingsTab = "runner" | "model" | "apikeys" | "harness" | "appearance";
 
 export default function Settings() {
   const { settingsOpen, activeTab, setTab, closeSettings } = useSettingsStore();
@@ -807,17 +888,19 @@ export default function Settings() {
   if (!settingsOpen) return null;
 
   const tabs: { id: SettingsTab; label: string }[] = [
-    { id: "runner",  label: "Runner" },
-    { id: "model",   label: "模型" },
-    { id: "apikeys", label: "API Keys" },
-    { id: "harness", label: "Harness" },
+    { id: "runner",     label: "Runner" },
+    { id: "model",      label: "模型" },
+    { id: "apikeys",    label: "API Keys" },
+    { id: "harness",    label: "Harness" },
+    { id: "appearance", label: "外观" },
   ];
 
   return (
     <div style={{
       position: "absolute", inset: 0, zIndex: 50,
-      background: "rgba(10,10,12,0.85)",
-      backdropFilter: "blur(8px)",
+      background: "var(--ci-bg)",
+      backdropFilter: "blur(20px) saturate(1.6)",
+      WebkitBackdropFilter: "blur(20px) saturate(1.6)",
       borderRadius: 16,
       display: "flex",
       flexDirection: "column",
@@ -826,67 +909,84 @@ export default function Settings() {
       {/* Header */}
       <div style={{
         display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "13px 14px 11px",
+        padding: "12px 14px 11px",
         borderBottom: `1px solid ${C.border}`,
         flexShrink: 0,
       }}>
-        <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>设置</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: C.text, letterSpacing: -0.2 }}>设置</span>
         <button
           onClick={closeSettings}
           style={{
-            width: 22, height: 22, borderRadius: 6,
-            background: C.surface, border: `1px solid ${C.border}`,
+            width: 24, height: 24, borderRadius: 7,
+            background: "var(--ci-close-bg)",
+            border: `0.5px solid var(--ci-close-border)`,
             color: C.textMuted, cursor: "pointer", fontSize: 11,
             display: "flex", alignItems: "center", justifyContent: "center",
             transition: "all 0.15s",
           }}
-          onMouseEnter={e => { e.currentTarget.style.background = "rgba(239,68,68,0.15)"; e.currentTarget.style.color = C.red; }}
-          onMouseLeave={e => { e.currentTarget.style.background = C.surface; e.currentTarget.style.color = C.textMuted; }}
+          onMouseEnter={e => {
+            e.currentTarget.style.background = "rgba(255,59,48,0.15)";
+            e.currentTarget.style.color = C.red;
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.background = "var(--ci-close-bg)";
+            e.currentTarget.style.color = C.textMuted;
+          }}
         >
           ✕
         </button>
       </div>
 
-      {/* Tab bar */}
+      {/* Tab bar（分段控件风格）*/}
       <div style={{
-        display: "flex", gap: 2,
-        padding: "8px 10px",
+        display: "flex", gap: 0,
+        padding: "8px 12px",
         borderBottom: `1px solid ${C.border}`,
         flexShrink: 0,
       }}>
-        {tabs.map((t) => {
-          const active = activeTab === t.id;
-          return (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id as SettingsTab)}
-              style={{
-                flex: 1,
-                padding: "5px 0",
-                borderRadius: 7,
-                border: `1px solid ${active ? C.accentBdr : "transparent"}`,
-                background: active ? C.accentBg : "transparent",
-                color: active ? C.accentTxt : C.textMuted,
-                fontSize: 11, fontWeight: active ? 600 : 400,
-                cursor: "pointer",
-                transition: "all 0.15s",
-              }}
-            >
-              {t.label}
-            </button>
-          );
-        })}
+        <div style={{
+          display: "flex",
+          background: "rgba(118,118,128,0.12)",
+          borderRadius: 9, padding: 2, gap: 0,
+          width: "100%",
+        }}>
+          {tabs.map((t) => {
+            const active = activeTab === t.id;
+            return (
+              <button
+                key={t.id}
+                onClick={() => setTab(t.id as SettingsTab)}
+                style={{
+                  flex: 1,
+                  padding: "5px 0",
+                  borderRadius: 7,
+                  border: "none",
+                  background: active ? "var(--ci-surface-hi)" : "transparent",
+                  color: active ? C.text : C.textMuted,
+                  fontSize: 11, fontWeight: active ? 600 : 400,
+                  cursor: "pointer",
+                  transition: "all 0.18s",
+                  boxShadow: active ? "0 1px 3px rgba(0,0,0,0.12), 0 0.5px 1px rgba(0,0,0,0.08)" : "none",
+                }}
+              >
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Content */}
       <div style={{
         flex: 1, overflowY: "auto",
         padding: "12px 14px 16px",
+        scrollbarWidth: "none",
       }}>
-        {activeTab === "runner"  && <RunnerTab />}
-        {activeTab === "model"   && <ModelTab />}
-        {activeTab === "apikeys" && <ApiKeysTab />}
-        {activeTab === "harness" && <HarnessTab />}
+        {activeTab === "runner"     && <RunnerTab />}
+        {activeTab === "model"      && <ModelTab />}
+        {activeTab === "apikeys"    && <ApiKeysTab />}
+        {activeTab === "harness"    && <HarnessTab />}
+        {activeTab === "appearance" && <AppearanceTab />}
       </div>
     </div>
   );
