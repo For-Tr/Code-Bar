@@ -4,6 +4,7 @@ mod git;
 mod harness;
 mod hooks;
 mod keystore;
+mod notification;
 mod pty;
 mod runner;
 mod state;
@@ -140,6 +141,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             // 窗口控制
             window::close_popup,
+            window::focus_popup,
             window::resize_popup,
             window::resize_popup_full,
             window::pick_folder,
@@ -193,6 +195,8 @@ pub fn run() {
             hooks::send_notification,
             hooks::setup_claude_hooks,
             hooks::trust_workspace,
+            // 支持点击回调的原生通知（macOS 常驻等待 + click callback）
+            notification::send_notification_with_callback,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

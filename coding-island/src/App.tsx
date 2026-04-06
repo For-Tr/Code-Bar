@@ -267,11 +267,23 @@ export default function App() {
     };
   }, []);
 
-  // ── 弹窗重新显示时，收起展开的 Terminal 面板，回到首页 ──
+  // ── 弹窗重新显示时（托盘点击），收起展开的 Terminal 面板，回到首页 ──
   useEffect(() => {
     if (!("__TAURI_INTERNALS__" in window)) return;
     const unlisten = listen("popup-shown", () => {
       setExpandedSession(null);
+    });
+    return () => { unlisten.then((f) => f()); };
+  }, [setExpandedSession]);
+
+  // ── 通知点击唤起弹窗时，展开最近活跃的 session ──
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+    const unlisten = listen("popup-focused", () => {
+      // 取当前活跃 session，如没有则取最近的一个
+      const { activeSessionId: aid, sessions: ss } = useSessionStore.getState();
+      const target = aid ?? ss[ss.length - 1]?.id ?? null;
+      if (target) setExpandedSession(target);
     });
     return () => { unlisten.then((f) => f()); };
   }, [setExpandedSession]);

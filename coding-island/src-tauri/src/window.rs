@@ -305,6 +305,41 @@ pub fn close_popup(app: tauri::AppHandle, window: tauri::WebviewWindow) {
     let _ = window.hide();
 }
 
+/// 从通知点击回调中激活并显示弹窗。
+///
+/// 与 toggle_popup / show_popup 不同：
+/// - 不发射 "popup-shown"（那个事件会让前端 setExpandedSession(null) 收起 terminal）
+/// - 发射 "popup-focused"，让前端展开最近活跃的 session
+/// - 无论当前窗口是否可见，都强制置于前台
+#[tauri::command]
+pub fn focus_popup(app: tauri::AppHandle) {
+    if let Some(win) = app.get_webview_window("popup") {
+        let _ = win.show();
+
+        #[cfg(target_os = "macos")]
+        unsafe {
+            use cocoa::base::nil;
+            use objc::{msg_send, sel, sel_impl};
+            let ns_window = win.ns_window().expect("ns_window") as cocoa::base::id;
+            let _: () = msg_send![ns_window, makeKeyAndOrderFront: nil];
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = win.set_focus();
+        }
+
+        app.state::<PopupVisible>().set(true);
+        // 发射 popup-focused（区别于 popup-shown），前端监听后展开最近 session
+        let _ = win.emit("popup-focused", ());
+        eprintln!("[popup] focused via notification click");
+    } else {
+        create_popup(&app);
+        if let Some(win) = app.get_webview_window("popup") {
+            let _ = win.emit("popup-focused", ());
+        }
+    }
+}
+
 // ── 展开位置计算 ──────────────────────────────────────────────────
 //
 // 策略：以当前小窗口「中心」为基准，向四周等量扩展（原地放大）。

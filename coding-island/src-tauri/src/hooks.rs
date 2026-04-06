@@ -238,6 +238,16 @@ fn dispatch_hook_event(
             eprintln!(
                 "[hook-socket] Notification: {title} - {message} ({notification_type})"
             );
+
+            // 发送系统通知（macOS 支持点击回调，用户点击后前端会收到 notification-clicked 事件）
+            let _ = crate::notification::send_notification_with_callback(
+                app.clone(),
+                title.to_string(),
+                message.to_string(),
+                None,
+                Some(true),
+            );
+
             for sid in sessions {
                 let _ = app.emit(
                     "pty-notification",
@@ -256,18 +266,21 @@ fn dispatch_hook_event(
 
 // ── Tauri Command ─────────────────────────────────────────────────
 
-/// 发送系统通知
+/// 发送系统通知（支持点击回调，委托给 notification 模块）
+///
+/// macOS 下使用 mac-notification-sys 实现常驻通知 + 点击回调；
+/// 前端监听 "notification-clicked" 事件即可响应用户点击。
 #[tauri::command]
 pub fn send_notification(
     app: tauri::AppHandle,
     title: String,
     body: String,
 ) -> Result<(), String> {
-    use tauri_plugin_notification::NotificationExt;
-    app.notification()
-        .builder()
-        .title(&title)
-        .body(&body)
-        .show()
-        .map_err(|e| format!("通知发送失败: {e}"))
+    crate::notification::send_notification_with_callback(
+        app,
+        title,
+        body,
+        None,
+        Some(true),
+    )
 }

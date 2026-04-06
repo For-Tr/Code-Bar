@@ -30,3 +30,4 @@ tauri-plugin-notification = "2.3.3"
 [target.'cfg(target_os = "macos")'.dependencies]
 objc = "0.2"
 cocoa = "0.26"
+mac-notification-sys = "0.6"
