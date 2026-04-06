@@ -265,14 +265,8 @@ export default function App() {
     };
   }, []);
 
-  // ── 弹窗重新显示时（托盘点击），收起展开的 Terminal 面板，回到首页 ──
-  useEffect(() => {
-    if (!("__TAURI_INTERNALS__" in window)) return;
-    const unlisten = listen("popup-shown", () => {
-      setExpandedSession(null);
-    });
-    return () => { unlisten.then((f) => f()); };
-  }, [setExpandedSession]);
+  // ── 弹窗重新显示时（托盘点击），保持当前界面状态（PTY 或菜单）──
+  // 不再强制收起 PTY，让用户留在上次的位置
 
   // ── 通知点击唤起弹窗时，展开最近活跃的 session ──
   useEffect(() => {
