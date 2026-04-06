@@ -511,14 +511,20 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
         visibility: hidden ? "hidden" : "visible",
       }}
     >
-      {/* ── 标题栏 ── */}
-      <div style={{
-        display: "flex", alignItems: "center", gap: 10,
-        padding: "12px 16px 10px",
-        borderBottom: "1px solid rgba(255,255,255,0.07)",
-        flexShrink: 0,
-      }}>
-        <div style={{ display: "flex", gap: 6 }}>
+      {/* ── 标题栏（data-tauri-drag-region 让整条都可拖动窗口）── */}
+      <div
+        data-tauri-drag-region
+        style={{
+          display: "flex", alignItems: "center", gap: 10,
+          padding: "12px 16px 10px",
+          borderBottom: "1px solid rgba(255,255,255,0.07)",
+          flexShrink: 0,
+          cursor: "grab",
+          userSelect: "none",
+          WebkitUserSelect: "none",
+        }}
+      >
+        <div data-tauri-drag-region style={{ display: "flex", gap: 6 }}>
           <button
             onClick={onClose}
             style={{
@@ -529,20 +535,22 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
             onMouseEnter={e => (e.currentTarget.style.opacity = "0.7")}
             onMouseLeave={e => (e.currentTarget.style.opacity = "1")}
           />
-          <div style={{ width: 12, height: 12, borderRadius: "50%", background: "rgba(255,255,255,0.1)" }} />
-          <div style={{ width: 12, height: 12, borderRadius: "50%", background: "rgba(255,255,255,0.1)" }} />
+          <div data-tauri-drag-region style={{ width: 12, height: 12, borderRadius: "50%", background: "rgba(255,255,255,0.1)" }} />
+          <div data-tauri-drag-region style={{ width: 12, height: 12, borderRadius: "50%", background: "rgba(255,255,255,0.1)" }} />
         </div>
 
-        <span style={{
+        <span data-tauri-drag-region style={{
           flex: 1, fontSize: 12, fontWeight: 600,
           color: "rgba(255,255,255,0.8)",
           overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          cursor: "grab",
         }}>
           {installing ? `正在安装 ${runnerBadge}…` : session.name}
         </span>
 
         {/* Runner 快速切换 badge */}
         <button
+          data-tauri-drag-region
           onClick={() => openSettings("runner")}
           title="切换 Runner"
           style={{
@@ -578,6 +586,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
 
         {installing && (
           <button
+            data-tauri-drag-region
             onClick={() => { setInstalling(false); recheckCli(); }}
             style={{
               background: "rgba(255,255,255,0.06)",
@@ -592,6 +601,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
 
         {!installing && (
           <button
+            data-tauri-drag-region
             onClick={onClose}
             style={{
               background: "rgba(255,255,255,0.06)",
