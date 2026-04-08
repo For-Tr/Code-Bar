@@ -71,7 +71,7 @@ export interface Settings {
   // 通用
   autoRefreshDiff: boolean;
   diffRefreshIntervalSec: number;
-  theme: "light" | "dark" | "system";
+  theme: "light" | "dark" | "glass" | "system";
 }
 
 const DEFAULT_SETTINGS: Settings = {

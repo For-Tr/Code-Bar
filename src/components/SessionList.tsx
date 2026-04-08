@@ -57,7 +57,7 @@ const ExpandIcon = () => (
   </svg>
 );
 
-function StatusDot({ status }: { status: SessionStatus }) {
+function StatusDot({ status, isGlass }: { status: SessionStatus; isGlass: boolean }) {
   const { dotColor, pulse } = STATUS_CONFIG[status];
   return (
     <div style={{ position: "relative", width: 9, height: 9, flexShrink: 0 }}>
@@ -65,7 +65,7 @@ function StatusDot({ status }: { status: SessionStatus }) {
         width: 9, height: 9, borderRadius: "50%",
         background: dotColor, position: "absolute",
       }} />
-      {pulse && (
+      {pulse && !isGlass && (
         <motion.div
           animate={{ scale: [1, 2.0], opacity: [0.6, 0] }}
           transition={{ duration: 1.5, repeat: Infinity, ease: "easeOut" }}
@@ -81,11 +81,12 @@ function StatusDot({ status }: { status: SessionStatus }) {
 
 // ── Session 卡片 ─────────────────────────────────────────────
 function SessionCard({
-  session, isActive, accentColor, onClick, onExpand, onRemove,
+  session, isActive, accentColor, isGlass, onClick, onExpand, onRemove,
 }: {
   session: ClaudeSession;
   isActive: boolean;
   accentColor: string;
+  isGlass: boolean;
   onClick: () => void;
   onExpand: () => void;
   onRemove: () => void;
@@ -104,31 +105,42 @@ function SessionCard({
       exit={{ opacity: 0, x: -6, height: 0 }}
       transition={{ duration: 0.16 }}
       onClick={onClick}
+      className={isGlass ? "liquid-glass-card" : undefined}
       style={{
         display: "flex", alignItems: "center", gap: 10,
-        padding: "9px 11px",
-        borderRadius: 10,
+        padding: "11px 12px",
+        borderRadius: 18,
         background: isActive
-          ? "var(--ci-surface-hi)"
+          ? "var(--ci-card-grad)"
           : isWaiting
           ? "var(--ci-yellow-bg)"
           : isError
           ? "var(--ci-deleted-bg)"
-          : "var(--ci-surface)",
+          : "var(--ci-panel-grad)",
         border: isActive
-          ? `1px solid ${accentColor}35`
+          ? `1px solid ${accentColor}45`
           : isWaiting
           ? "1px solid var(--ci-yellow-bdr)"
           : isError
           ? "1px solid var(--ci-border-med)"
-          : "1px solid var(--ci-border)",
+          : "1px solid var(--ci-pill-border)",
         cursor: "pointer",
         position: "relative",
         overflow: "hidden",
-        transition: "background 0.15s, border-color 0.15s",
-        boxShadow: isActive ? "0 1px 6px rgba(0,0,0,0.07)" : "none",
+        transition: isGlass ? "border-color 0.15s, color 0.15s" : "background 0.15s, border-color 0.15s",
+        boxShadow: isActive
+          ? "var(--ci-inset-highlight), var(--ci-card-shadow-strong)"
+          : "var(--ci-inset-highlight), var(--ci-card-shadow)",
+        backdropFilter: "blur(18px) saturate(1.14)",
       }}
     >
+      <div style={{
+        position: "absolute",
+        inset: 0,
+        background: "linear-gradient(180deg, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0) 40%)",
+        pointerEvents: "none",
+        opacity: isGlass ? 0 : isError || isWaiting ? 0.3 : 0.55,
+      }} />
       {/* 左侧状态色条 */}
       {cfg.leftAccent && (
         <div style={{
@@ -141,7 +153,7 @@ function SessionCard({
       )}
 
       {/* waiting 状态：脉冲边框 */}
-      {isWaiting && (
+      {isWaiting && !isGlass && (
         <motion.div
           animate={{ opacity: [0.3, 0.7, 0.3] }}
           transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
@@ -153,7 +165,7 @@ function SessionCard({
         />
       )}
 
-      <StatusDot status={session.status} />
+      <StatusDot status={session.status} isGlass={isGlass} />
 
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -179,7 +191,7 @@ function SessionCard({
         </div>
 
         {/* waiting：操作提示 */}
-        {isWaiting && (
+        {isWaiting && !isGlass && (
           <motion.p
             animate={{ opacity: [0.6, 1, 0.6] }}
             transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
@@ -192,6 +204,18 @@ function SessionCard({
             <span style={{ fontSize: 10 }}>⚡</span>
             点击展开终端查看并输入
           </motion.p>
+        )}
+        {isWaiting && isGlass && (
+          <p
+            style={{
+              margin: "2px 0 0", fontSize: 11,
+              color: "var(--ci-yellow-dark)",
+              display: "flex", alignItems: "center", gap: 4,
+            }}
+          >
+            <span style={{ fontSize: 10 }}>⚡</span>
+            点击展开终端查看并输入
+          </p>
         )}
 
         {/* 运行中：当前任务 */}
@@ -279,14 +303,18 @@ function SessionCard({
           color: isWaiting ? "var(--ci-yellow-dark)" : "var(--ci-text-dim)",
           cursor: "pointer", padding: "4px 6px", borderRadius: 6,
           flexShrink: 0, display: "flex", alignItems: "center",
-          transition: "color 0.12s, background 0.12s, border-color 0.12s",
+          transition: isGlass ? "color 0.12s" : "color 0.12s, background 0.12s, border-color 0.12s",
         }}
         onMouseEnter={e => {
           e.currentTarget.style.color = isWaiting ? "var(--ci-yellow)" : accentColor;
-          e.currentTarget.style.background = isWaiting
+          e.currentTarget.style.background = isGlass
+            ? (isWaiting ? "var(--ci-yellow-bg)" : "var(--ci-btn-ghost-bg)")
+            : isWaiting
             ? "rgba(255,159,10,0.18)"
             : `${accentColor}15`;
-          e.currentTarget.style.borderColor = isWaiting
+          e.currentTarget.style.borderColor = isGlass
+            ? (isWaiting ? "var(--ci-yellow-bdr)" : "transparent")
+            : isWaiting
             ? "rgba(255,159,10,0.4)"
             : `${accentColor}30`;
         }}
@@ -310,7 +338,7 @@ function SessionCard({
         }}
         onMouseEnter={e => {
           e.currentTarget.style.color = "var(--ci-red)";
-          e.currentTarget.style.background = "var(--ci-deleted-bg)";
+          e.currentTarget.style.background = isGlass ? "none" : "var(--ci-deleted-bg)";
         }}
         onMouseLeave={e => {
           e.currentTarget.style.color = "var(--ci-text-dim)";
@@ -330,6 +358,7 @@ export function SessionList() {
   );
   const runnerType = useSettingsStore((s) => s.settings.runner.type);
   const runnerLabel = RUNNER_LABELS[runnerType];
+  const isGlass = useSettingsStore((s) => s.settings.theme === "glass");
 
   if (!activeWorkspace) return null;
 
@@ -385,9 +414,9 @@ export function SessionList() {
       {/* 区域头 */}
       <div style={{
         display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "6px 2px 6px",
-        borderTop: "1px solid var(--ci-border)",
-        marginTop: 4,
+        padding: "10px 2px 10px",
+        borderTop: "1px solid var(--ci-toolbar-border)",
+        marginTop: 8,
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <div style={{
@@ -408,23 +437,26 @@ export function SessionList() {
         <button
           onClick={handleNewSession}
           style={{
-            background: "var(--ci-accent-bg)",
-            border: "1px solid var(--ci-accent-bdr)",
-            borderRadius: 7, padding: "3px 10px",
+            background: "linear-gradient(180deg, rgba(112,186,255,0.96) 0%, rgba(63,145,255,0.84) 100%)",
+            border: "1px solid rgba(255,255,255,0.42)",
+            borderRadius: 999, padding: "6px 12px",
             color: "var(--ci-accent)",
             fontSize: 12, cursor: "pointer",
             display: "flex", alignItems: "center", gap: 3,
             fontWeight: 600,
             transition: "background 0.12s, border-color 0.12s",
+            boxShadow: "inset 0 1px 0 rgba(255,255,255,0.46), var(--ci-primary-shadow)",
           }}
           onMouseEnter={e => {
+            if (isGlass) return;
             e.currentTarget.style.filter = "brightness(0.9)";
           }}
           onMouseLeave={e => {
             e.currentTarget.style.filter = "none";
           }}
         >
-          <span style={{ fontSize: 14, lineHeight: 1 }}>+</span> 新建
+          <span style={{ fontSize: 14, lineHeight: 1, color: "#fff" }}>+</span>
+          <span style={{ color: "#fff" }}>新建</span>
         </button>
       </div>
 
@@ -436,6 +468,7 @@ export function SessionList() {
             session={session}
             isActive={session.id === activeSessionId}
             accentColor={accentColor}
+            isGlass={isGlass}
             onClick={() => setActiveSession(session.id)}
             onExpand={() => {
               setActiveSession(session.id);
@@ -447,9 +480,15 @@ export function SessionList() {
       </AnimatePresence>
 
       {wsSessions.length === 0 && (
-        <div style={{
-          textAlign: "center", padding: "14px 0 8px",
+        <div
+          className={isGlass ? "liquid-glass-card" : undefined}
+          style={{
+          textAlign: "center", padding: "22px 0 12px",
           color: "var(--ci-text-dim)", fontSize: 12,
+          border: "1px dashed var(--ci-pill-border)",
+          borderRadius: 18,
+          background: "var(--ci-panel-grad)",
+          boxShadow: "var(--ci-inset-highlight), var(--ci-card-shadow)",
         }}>
           点击「+ 新建」开始 {runnerLabel} 会话
         </div>

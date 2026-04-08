@@ -72,9 +72,10 @@ const TERM_THEME_LIGHT = {
 };
 
 // 根据 settings.theme + 系统媒体查询，计算是否为深色模式
-function getIsDark(theme: "light" | "dark" | "system"): boolean {
+function getIsDark(theme: "light" | "dark" | "glass" | "system"): boolean {
   if (theme === "dark") return true;
   if (theme === "light") return false;
+  if (theme === "glass") return false;
   return window.matchMedia("(prefers-color-scheme: dark)").matches;
 }
 

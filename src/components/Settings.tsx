@@ -794,11 +794,12 @@ function HarnessTab() {
 function AppearanceTab() {
   const { settings, patchSettings } = useSettingsStore();
 
-  type ThemeOption = "light" | "dark" | "system";
+  type ThemeOption = "light" | "dark" | "glass" | "system";
 
   const themeOptions: { value: ThemeOption; label: string; hint: string; icon: string }[] = [
     { value: "light",  label: "浅色",   hint: "始终使用浅色主题",     icon: "☀️" },
     { value: "dark",   label: "深色",   hint: "始终使用深色主题",     icon: "🌙" },
+    { value: "glass",  label: "Glass",  hint: "独立的 macOS 玻璃材质主题", icon: "🫧" },
     { value: "system", label: "跟随系统", hint: "与 macOS 外观设置保持一致", icon: "💻" },
   ];
 
@@ -884,6 +885,7 @@ type SettingsTab = "runner" | "model" | "apikeys" | "harness" | "appearance";
 
 export default function Settings() {
   const { settingsOpen, activeTab, setTab, closeSettings } = useSettingsStore();
+  const isGlass = useSettingsStore((s) => s.settings.theme === "glass");
 
   if (!settingsOpen) return null;
 
@@ -898,14 +900,15 @@ export default function Settings() {
   return (
     <div style={{
       position: "absolute", inset: 0, zIndex: 50,
-      background: "var(--ci-bg)",
-      backdropFilter: "blur(20px) saturate(1.6)",
-      WebkitBackdropFilter: "blur(20px) saturate(1.6)",
+      background: "var(--ci-overlay-bg)",
+      backdropFilter: isGlass ? "none" : "blur(28px) saturate(1.3)",
+      WebkitBackdropFilter: isGlass ? "none" : "blur(28px) saturate(1.3)",
       borderRadius: 16,
       display: "flex",
       flexDirection: "column",
       overflow: "hidden",
-    }}>
+      boxShadow: "var(--ci-inset-highlight)",
+    }} className={isGlass ? "liquid-glass-panel" : undefined}>
       {/* Header */}
       <div style={{
         display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -925,7 +928,7 @@ export default function Settings() {
             transition: "all 0.15s",
           }}
           onMouseEnter={e => {
-            e.currentTarget.style.background = "rgba(255,59,48,0.15)";
+            e.currentTarget.style.background = isGlass ? "var(--ci-close-bg)" : "rgba(255,59,48,0.15)";
             e.currentTarget.style.color = C.red;
           }}
           onMouseLeave={e => {
@@ -946,10 +949,12 @@ export default function Settings() {
       }}>
         <div style={{
           display: "flex",
-          background: "rgba(118,118,128,0.12)",
+          background: "var(--ci-pill-bg)",
+          border: `1px solid var(--ci-pill-border)`,
           borderRadius: 9, padding: 2, gap: 0,
           width: "100%",
-        }}>
+          boxShadow: "var(--ci-inset-highlight)",
+        }} className={isGlass ? "liquid-glass-pill" : undefined}>
           {tabs.map((t) => {
             const active = activeTab === t.id;
             return (
@@ -965,8 +970,10 @@ export default function Settings() {
                   color: active ? C.text : C.textMuted,
                   fontSize: 11, fontWeight: active ? 600 : 400,
                   cursor: "pointer",
-                  transition: "all 0.18s",
-                  boxShadow: active ? "0 1px 3px rgba(0,0,0,0.12), 0 0.5px 1px rgba(0,0,0,0.08)" : "none",
+                  transition: isGlass ? "color 0.18s, border-color 0.18s" : "all 0.18s",
+                  boxShadow: active
+                    ? (isGlass ? "var(--ci-inset-highlight)" : "0 1px 3px rgba(0,0,0,0.12), 0 0.5px 1px rgba(0,0,0,0.08)")
+                    : "none",
                 }}
               >
                 {t.label}

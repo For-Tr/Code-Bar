@@ -29,19 +29,20 @@ export default function App() {
 
   const { settings } = useSettingsStore();
   const { activeWorkspaceId } = useWorkspaceStore();
+  const isGlass = settings.theme === "glass";
 
   // ── 主题注入：根据 settings.theme 向 :root 写入 CSS 变量 ──────
   useEffect(() => {
-    const applyTheme = (isDark: boolean) => {
+    const applyTheme = (mode: "light" | "dark" | "glass") => {
       const root = document.documentElement;
-      if (isDark) {
+      if (mode === "dark") {
         // Dark mode tokens
         root.style.setProperty("--ci-bg",          "rgba(28,28,30,0.96)");
         root.style.setProperty("--ci-bg-grad",      "rgba(28,28,30,0.96)");
         root.style.setProperty("--ci-surface",      "rgba(44,44,46,0.80)");
         root.style.setProperty("--ci-surface-hi",   "rgba(58,58,60,0.95)");
         root.style.setProperty("--ci-border",       "rgba(255,255,255,0.10)");
-        root.style.setProperty("--ci-border-med",   "rgba(255,255,255,0.14)");
+        root.style.setProperty("--ci-border-med",   "rgba(255,255,255,0.16)");
         root.style.setProperty("--ci-border-hi",    "rgba(10,132,255,0.50)");
         root.style.setProperty("--ci-text",         "#f2f2f7");
         root.style.setProperty("--ci-text-muted",   "rgba(235,235,245,0.60)");
@@ -68,9 +69,28 @@ export default function App() {
         root.style.setProperty("--ci-deleted-text", "#ff6b6b");
         root.style.setProperty("--ci-scrollbar",    "rgba(255,255,255,0.15)");
         root.style.setProperty("--ci-btn-ghost-bg",  "rgba(255,255,255,0.07)");
-        root.style.setProperty("--ci-btn-ghost-hover","rgba(255,255,255,0.12)");
-        root.style.setProperty("--ci-close-bg",      "rgba(255,255,255,0.07)");
+        root.style.setProperty("--ci-btn-ghost-hover","rgba(255,255,255,0.14)");
+        root.style.setProperty("--ci-close-bg",      "rgba(255,255,255,0.08)");
         root.style.setProperty("--ci-close-border",  "rgba(255,255,255,0.10)");
+        root.style.setProperty("--ci-window-bg",      "rgba(28,28,30,0.96)");
+        root.style.setProperty("--ci-window-edge",    "rgba(255,255,255,0.10)");
+        root.style.setProperty("--ci-window-shadow",  "0 18px 44px rgba(0,0,0,0.34)");
+        root.style.setProperty("--ci-panel-grad",     "var(--ci-surface)");
+        root.style.setProperty("--ci-card-grad",      "var(--ci-surface-hi)");
+        root.style.setProperty("--ci-toolbar-bg",     "rgba(255,255,255,0.03)");
+        root.style.setProperty("--ci-toolbar-border", "rgba(255,255,255,0.08)");
+        root.style.setProperty("--ci-status-bg",      "rgba(255,255,255,0.02)");
+        root.style.setProperty("--ci-overlay-bg",     "rgba(18,18,22,0.92)");
+        root.style.setProperty("--ci-glow-a",         "transparent");
+        root.style.setProperty("--ci-glow-b",         "transparent");
+        root.style.setProperty("--ci-inset-highlight","none");
+        root.style.setProperty("--ci-shell-blur",     "blur(22px) saturate(1.1)");
+        root.style.setProperty("--ci-shell-radius",   "18px");
+        root.style.setProperty("--ci-card-shadow",    "0 8px 24px rgba(0,0,0,0.18)");
+        root.style.setProperty("--ci-card-shadow-strong","0 12px 28px rgba(0,0,0,0.22)");
+        root.style.setProperty("--ci-pill-bg",        "rgba(255,255,255,0.07)");
+        root.style.setProperty("--ci-pill-border",    "rgba(255,255,255,0.10)");
+        root.style.setProperty("--ci-primary-shadow", "0 10px 24px rgba(10,132,255,0.18)");
         // PTY 面板专用（深色模式保持深色终端风格）
         root.style.setProperty("--ci-pty-panel-bg",    "rgba(10,10,14,0.97)");
         root.style.setProperty("--ci-pty-panel-border","rgba(255,255,255,0.09)");
@@ -95,6 +115,84 @@ export default function App() {
         root.style.setProperty("--ci-pty-runner-text",      "#60a5fa");
         root.style.setProperty("--ci-pty-term-bg",          "#0a0a0c");
         root.setAttribute("data-theme", "dark");
+      } else if (mode === "glass") {
+        root.style.setProperty("--ci-bg",          "rgba(255,255,255,0.025)");
+        root.style.setProperty("--ci-bg-grad",      "rgba(255,255,255,0.018)");
+        root.style.setProperty("--ci-surface",      "rgba(255,255,255,0.04)");
+        root.style.setProperty("--ci-surface-hi",   "rgba(255,255,255,0.06)");
+        root.style.setProperty("--ci-border",       "rgba(255,255,255,0.18)");
+        root.style.setProperty("--ci-border-med",   "rgba(255,255,255,0.28)");
+        root.style.setProperty("--ci-border-hi",    "rgba(134,194,255,0.44)");
+        root.style.setProperty("--ci-text",         "#16304e");
+        root.style.setProperty("--ci-text-muted",   "rgba(39,69,104,0.68)");
+        root.style.setProperty("--ci-text-dim",     "rgba(39,69,104,0.42)");
+        root.style.setProperty("--ci-accent",       "#2d8cff");
+        root.style.setProperty("--ci-accent-bg",    "rgba(63,145,255,0.06)");
+        root.style.setProperty("--ci-accent-bdr",   "rgba(96,175,255,0.20)");
+        root.style.setProperty("--ci-green",        "#34C759");
+        root.style.setProperty("--ci-green-dark",   "#19793a");
+        root.style.setProperty("--ci-green-bg",     "rgba(52,199,89,0.10)");
+        root.style.setProperty("--ci-green-bdr",    "rgba(52,199,89,0.18)");
+        root.style.setProperty("--ci-red",          "#FF3B30");
+        root.style.setProperty("--ci-yellow",       "#FF9F0A");
+        root.style.setProperty("--ci-yellow-dark",  "#a96500");
+        root.style.setProperty("--ci-yellow-bg",    "rgba(255,159,10,0.10)");
+        root.style.setProperty("--ci-yellow-bdr",   "rgba(255,159,10,0.18)");
+        root.style.setProperty("--ci-purple",       "#5856d6");
+        root.style.setProperty("--ci-purple-bg",    "rgba(88,86,214,0.10)");
+        root.style.setProperty("--ci-purple-bdr",   "rgba(88,86,214,0.16)");
+        root.style.setProperty("--ci-code-bg",      "rgba(249,252,255,0.14)");
+        root.style.setProperty("--ci-added-bg",     "rgba(52,199,89,0.08)");
+        root.style.setProperty("--ci-added-text",   "#1a7f37");
+        root.style.setProperty("--ci-deleted-bg",   "rgba(255,59,48,0.08)");
+        root.style.setProperty("--ci-deleted-text", "#c0392b");
+        root.style.setProperty("--ci-scrollbar",    "rgba(29,53,87,0.10)");
+        root.style.setProperty("--ci-btn-ghost-bg",  "rgba(255,255,255,0.05)");
+        root.style.setProperty("--ci-btn-ghost-hover","rgba(255,255,255,0.05)");
+        root.style.setProperty("--ci-close-bg",      "rgba(255,255,255,0.08)");
+        root.style.setProperty("--ci-close-border",  "rgba(255,255,255,0.18)");
+        root.style.setProperty("--ci-window-bg",      "rgba(255,255,255,0.024)");
+        root.style.setProperty("--ci-window-edge",    "rgba(255,255,255,0.22)");
+        root.style.setProperty("--ci-window-shadow",  "0 18px 48px rgba(92,110,138,0.06)");
+        root.style.setProperty("--ci-panel-grad",     "linear-gradient(180deg, rgba(255,255,255,0.055) 0%, rgba(255,255,255,0.028) 100%)");
+        root.style.setProperty("--ci-card-grad",      "linear-gradient(180deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.032) 100%)");
+        root.style.setProperty("--ci-toolbar-bg",     "rgba(255,255,255,0.045)");
+        root.style.setProperty("--ci-toolbar-border", "rgba(255,255,255,0.14)");
+        root.style.setProperty("--ci-status-bg",      "rgba(255,255,255,0.042)");
+        root.style.setProperty("--ci-overlay-bg",     "rgba(242,242,244,0.16)");
+        root.style.setProperty("--ci-glow-a",         "transparent");
+        root.style.setProperty("--ci-glow-b",         "transparent");
+        root.style.setProperty("--ci-inset-highlight","inset 0 0 0 0.5px rgba(255,255,255,0.10)");
+        root.style.setProperty("--ci-shell-blur",     "blur(20px) saturate(1.16) brightness(1.05) contrast(0.84)");
+        root.style.setProperty("--ci-shell-radius",   "24px");
+        root.style.setProperty("--ci-card-shadow",    "0 8px 20px rgba(92,110,138,0.04)");
+        root.style.setProperty("--ci-card-shadow-strong","0 12px 24px rgba(92,110,138,0.05)");
+        root.style.setProperty("--ci-pill-bg",        "rgba(255,255,255,0.05)");
+        root.style.setProperty("--ci-pill-border",    "rgba(255,255,255,0.16)");
+        root.style.setProperty("--ci-primary-shadow", "0 10px 24px rgba(81,149,234,0.06)");
+        root.style.setProperty("--ci-pty-panel-bg",    "rgba(242,242,247,0.97)");
+        root.style.setProperty("--ci-pty-panel-border","rgba(0,0,0,0.09)");
+        root.style.setProperty("--ci-pty-titlebar-bg", "rgba(255,255,255,0.60)");
+        root.style.setProperty("--ci-pty-titlebar-bdr","rgba(0,0,0,0.07)");
+        root.style.setProperty("--ci-pty-title-color", "rgba(28,28,30,0.85)");
+        root.style.setProperty("--ci-pty-mask-bg",     "rgba(246,246,248,0.97)");
+        root.style.setProperty("--ci-pty-mask-title",  "#1c1c1e");
+        root.style.setProperty("--ci-pty-mask-hint",   "rgba(60,60,67,0.45)");
+        root.style.setProperty("--ci-pty-mask-footer", "rgba(60,60,67,0.28)");
+        root.style.setProperty("--ci-pty-input-bg",    "rgba(255,255,255,0.80)");
+        root.style.setProperty("--ci-pty-input-border","rgba(0,0,0,0.10)");
+        root.style.setProperty("--ci-pty-input-text",  "#1c1c1e");
+        root.style.setProperty("--ci-pty-btn-bg",      "rgba(255,255,255,0.34)");
+        root.style.setProperty("--ci-pty-btn-border",  "rgba(115,140,176,0.14)");
+        root.style.setProperty("--ci-pty-btn-text",    "rgba(60,60,67,0.55)");
+        root.style.setProperty("--ci-pty-btn-hover-bg", "rgba(255,255,255,0.50)");
+        root.style.setProperty("--ci-pty-btn-hover-text","rgba(28,28,30,0.9)");
+        root.style.setProperty("--ci-pty-runner-bg",       "rgba(64,156,255,0.08)");
+        root.style.setProperty("--ci-pty-runner-bg-hover",  "rgba(64,156,255,0.15)");
+        root.style.setProperty("--ci-pty-runner-border",    "rgba(64,156,255,0.20)");
+        root.style.setProperty("--ci-pty-runner-text",      "#2d8cff");
+        root.style.setProperty("--ci-pty-term-bg",          "#0a0a0c");
+        root.setAttribute("data-theme", "glass");
       } else {
         // Light mode tokens
         root.style.setProperty("--ci-bg",          "rgba(246,246,248,0.92)");
@@ -132,6 +230,25 @@ export default function App() {
         root.style.setProperty("--ci-btn-ghost-hover","rgba(0,0,0,0.08)");
         root.style.setProperty("--ci-close-bg",      "rgba(0,0,0,0.05)");
         root.style.setProperty("--ci-close-border",  "rgba(0,0,0,0.08)");
+        root.style.setProperty("--ci-window-bg",      "rgba(246,246,248,0.92)");
+        root.style.setProperty("--ci-window-edge",    "rgba(0,0,0,0.06)");
+        root.style.setProperty("--ci-window-shadow",  "0 18px 40px rgba(0,0,0,0.14)");
+        root.style.setProperty("--ci-panel-grad",     "var(--ci-surface)");
+        root.style.setProperty("--ci-card-grad",      "var(--ci-surface-hi)");
+        root.style.setProperty("--ci-toolbar-bg",     "rgba(255,255,255,0.45)");
+        root.style.setProperty("--ci-toolbar-border", "rgba(0,0,0,0.06)");
+        root.style.setProperty("--ci-status-bg",      "rgba(255,255,255,0.56)");
+        root.style.setProperty("--ci-overlay-bg",     "rgba(246,246,248,0.94)");
+        root.style.setProperty("--ci-glow-a",         "transparent");
+        root.style.setProperty("--ci-glow-b",         "transparent");
+        root.style.setProperty("--ci-inset-highlight","none");
+        root.style.setProperty("--ci-shell-blur",     "blur(18px) saturate(1.08)");
+        root.style.setProperty("--ci-shell-radius",   "18px");
+        root.style.setProperty("--ci-card-shadow",    "0 8px 24px rgba(0,0,0,0.08)");
+        root.style.setProperty("--ci-card-shadow-strong","0 12px 28px rgba(0,0,0,0.12)");
+        root.style.setProperty("--ci-pill-bg",        "rgba(255,255,255,0.58)");
+        root.style.setProperty("--ci-pill-border",    "rgba(0,0,0,0.08)");
+        root.style.setProperty("--ci-primary-shadow", "0 10px 24px rgba(0,122,255,0.14)");
         // PTY 面板专用（浅色模式：外壳用毛玻璃浅色，终端本体仍保持深色）
         root.style.setProperty("--ci-pty-panel-bg",    "rgba(242,242,247,0.97)");
         root.style.setProperty("--ci-pty-panel-border","rgba(0,0,0,0.09)");
@@ -150,10 +267,10 @@ export default function App() {
         root.style.setProperty("--ci-pty-btn-text",    "rgba(60,60,67,0.55)");
         root.style.setProperty("--ci-pty-btn-hover-bg", "rgba(0,0,0,0.08)");
         root.style.setProperty("--ci-pty-btn-hover-text","rgba(28,28,30,0.9)");
-        root.style.setProperty("--ci-pty-runner-bg",       "rgba(0,122,255,0.08)");
-        root.style.setProperty("--ci-pty-runner-bg-hover",  "rgba(0,122,255,0.15)");
-        root.style.setProperty("--ci-pty-runner-border",    "rgba(0,122,255,0.22)");
-        root.style.setProperty("--ci-pty-runner-text",      "#007AFF");
+        root.style.setProperty("--ci-pty-runner-bg",       "rgba(64,156,255,0.08)");
+        root.style.setProperty("--ci-pty-runner-bg-hover",  "rgba(64,156,255,0.15)");
+        root.style.setProperty("--ci-pty-runner-border",    "rgba(64,156,255,0.22)");
+        root.style.setProperty("--ci-pty-runner-text",      "#2d8cff");
         root.style.setProperty("--ci-pty-term-bg",          "#0a0a0c");
         root.setAttribute("data-theme", "light");
       }
@@ -162,12 +279,12 @@ export default function App() {
     if (settings.theme === "system") {
       // 跟随系统
       const mq = window.matchMedia("(prefers-color-scheme: dark)");
-      applyTheme(mq.matches);
-      const listener = (e: MediaQueryListEvent) => applyTheme(e.matches);
+      applyTheme(mq.matches ? "dark" : "light");
+      const listener = (e: MediaQueryListEvent) => applyTheme(e.matches ? "dark" : "light");
       mq.addEventListener("change", listener);
       return () => mq.removeEventListener("change", listener);
     } else {
-      applyTheme(settings.theme === "dark");
+      applyTheme(settings.theme);
     }
   }, [settings.theme]);
 
@@ -459,119 +576,161 @@ export default function App() {
 
   return (
     <>
+    <svg
+      aria-hidden="true"
+      width="0"
+      height="0"
+      style={{ position: "absolute", width: 0, height: 0, pointerEvents: "none" }}
+    >
+      <defs>
+        <filter
+          id="liquid_glass_filter"
+          x="0%"
+          y="0%"
+          width="100%"
+          height="100%"
+          filterUnits="objectBoundingBox"
+          colorInterpolationFilters="sRGB"
+        >
+          <feDisplacementMap scale="200" />
+        </filter>
+      </defs>
+    </svg>
     {/* ── PTY 终端展开层（位于 popup 外部，常驻挂载） ── */}
     <SessionDetail />
 
     <div style={{
       width: "100vw",
       height: "100vh",
-      padding: "6px",
+      padding: "10px",
       boxSizing: "border-box",
       background: "transparent",
     }}>
       <motion.div
         transition={spring}
+        className={isGlass ? "liquid-glass-shell" : undefined}
         style={{
           width: "100%",
-          height: "calc(100vh - 12px)",
+          height: "calc(100vh - 20px)",
           position: "relative",
-          background: "var(--ci-bg)",
-          backdropFilter: "blur(48px) saturate(1.8)",
-          WebkitBackdropFilter: "blur(48px) saturate(1.8)",
-          borderRadius: 14,
-          border: "1px solid var(--ci-border)",
+          borderRadius: "var(--ci-shell-radius)",
+          border: "1px solid var(--ci-window-edge)",
+          boxShadow: "var(--ci-window-shadow)",
+          clipPath: "inset(0 round var(--ci-shell-radius))",
           overflow: "hidden",
           display: "flex",
           flexDirection: "column",
+          isolation: "isolate",
         }}
       >
-        {/* ── Settings 遮罩层 ── */}
-        <Settings />
-
-        {/* ── 标题栏（固定不滚动） ── */}
-        <TitleBar />
-
-        {/* ── 可滚动内容区域 ── */}
-        <div style={{
+        {isGlass && (
+          <>
+            <div className="liquid-glass-outer" />
+            <div className="liquid-glass-cover" />
+            <div className="liquid-glass-sharp" />
+            <div className="liquid-glass-reflect" />
+          </>
+        )}
+        <div className={isGlass ? "liquid-glass-shell-content" : undefined} style={!isGlass ? {
+          display: "flex",
           flex: 1,
-          overflowY: "auto",
-          overflowX: "hidden",
-          position: "relative",
-          scrollbarWidth: "none",
-        }}>
-          {/* Workspace 堆叠卡片 */}
-          <div style={{ padding: "8px 8px 0" }}>
-            <WorkspaceStack />
-          </div>
+          minHeight: 0,
+          flexDirection: "column",
+        } : undefined}>
+          {/* ── Settings 遮罩层 ── */}
+          <Settings />
 
-          {/* Session 列表（在激活 Workspace 下） */}
-          <div style={{ padding: "0 8px 4px" }}>
-            <SessionList />
-          </div>
+          {/* ── 标题栏（固定不滚动） ── */}
+          <TitleBar />
 
-          {/* 当前 Session Diff */}
-          <AnimatePresence>
-            {hasDiff && (
-              <motion.div
-                key="diff"
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: "auto" }}
-                exit={{ opacity: 0, height: 0 }}
-                transition={{ duration: 0.2 }}
-                style={{
-                  borderTop: "1px solid var(--ci-border)",
-                  overflow: "hidden",
-                }}
-              >
-                <div style={{
-                  display: "flex", alignItems: "center", gap: 8,
-                  padding: "8px 12px 4px",
-                }}>
-                  <span style={{
-                    fontSize: 10, fontWeight: 600,
-                    letterSpacing: "0.07em", textTransform: "uppercase",
-                    color: "var(--ci-text-dim)",
-                  }}>
-                    变更
-                  </span>
-                  <span style={{
-                    fontSize: 10, padding: "1px 6px", borderRadius: 99,
-                    background: "var(--ci-green-bg)",
-                    border: "1px solid var(--ci-green-bdr)",
-                    color: "var(--ci-green-dark)",
-                  }}>
-                    +{activeSession!.diffFiles.reduce((s, f) => s + f.additions, 0)}
-                  </span>
-                  <span style={{
-                    fontSize: 10, padding: "1px 6px", borderRadius: 99,
-                    background: "var(--ci-deleted-bg)",
-                    border: "1px solid var(--ci-border-med)",
-                    color: "var(--ci-deleted-text)",
-                  }}>
-                    −{activeSession!.diffFiles.reduce((s, f) => s + f.deletions, 0)}
-                  </span>
-                  <div style={{ flex: 1, height: 1, background: "var(--ci-border)" }} />
-                </div>
-                <DiffViewer files={activeSession!.diffFiles} />
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* 底部淡出遮罩 */}
+          {/* ── 可滚动内容区域 ── */}
           <div style={{
-            position: "sticky",
-            bottom: 0,
-            left: 0,
-            right: 0,
-            height: 20,
-            background: "linear-gradient(to bottom, transparent, var(--ci-bg))",
-            pointerEvents: "none",
-            flexShrink: 0,
-          }} />
-        </div>
+            flex: 1,
+            overflowY: "auto",
+            overflowX: "hidden",
+            position: "relative",
+            scrollbarWidth: "none",
+            zIndex: 1,
+          }}>
+            {/* Workspace 堆叠卡片 */}
+            <div style={{ padding: "12px 12px 0" }}>
+              <WorkspaceStack />
+            </div>
 
-        {/* ── 状态栏（固定在底部） ── */}
-        <StatusBar session={activeSession} />
+            {/* Session 列表（在激活 Workspace 下） */}
+            <div style={{ padding: "4px 12px 10px" }}>
+              <SessionList />
+            </div>
+
+            {/* 当前 Session Diff */}
+            <AnimatePresence>
+              {hasDiff && (
+                <motion.div
+                  key="diff"
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className={isGlass ? "liquid-glass-card" : undefined}
+                  style={{
+                    margin: "0 12px 14px",
+                    border: "1px solid var(--ci-toolbar-border)",
+                    borderRadius: 18,
+                    overflow: "hidden",
+                    background: "var(--ci-card-grad)",
+                    boxShadow: "var(--ci-inset-highlight)",
+                  }}
+                >
+                  <div style={{
+                    display: "flex", alignItems: "center", gap: 8,
+                    padding: "8px 12px 4px",
+                  }}>
+                    <span style={{
+                      fontSize: 10, fontWeight: 600,
+                      letterSpacing: "0.07em", textTransform: "uppercase",
+                      color: "var(--ci-text-dim)",
+                    }}>
+                      变更
+                    </span>
+                    <span style={{
+                      fontSize: 10, padding: "1px 6px", borderRadius: 99,
+                      background: "var(--ci-green-bg)",
+                      border: "1px solid var(--ci-green-bdr)",
+                      color: "var(--ci-green-dark)",
+                    }}>
+                      +{activeSession!.diffFiles.reduce((s, f) => s + f.additions, 0)}
+                    </span>
+                    <span style={{
+                      fontSize: 10, padding: "1px 6px", borderRadius: 99,
+                      background: "var(--ci-deleted-bg)",
+                      border: "1px solid var(--ci-border-med)",
+                      color: "var(--ci-deleted-text)",
+                    }}>
+                      −{activeSession!.diffFiles.reduce((s, f) => s + f.deletions, 0)}
+                    </span>
+                    <div style={{ flex: 1, height: 1, background: "var(--ci-border)" }} />
+                  </div>
+                  <DiffViewer files={activeSession!.diffFiles} />
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* 底部淡出遮罩 */}
+            <div style={{
+              position: "sticky",
+              bottom: 0,
+              left: 0,
+              right: 0,
+              height: 28,
+              background: "linear-gradient(to bottom, transparent, var(--ci-bg-grad))",
+              pointerEvents: "none",
+              flexShrink: 0,
+            }} />
+          </div>
+
+          {/* ── 状态栏（固定在底部） ── */}
+          <StatusBar session={activeSession} />
+        </div>
       </motion.div>
     </div>
     </>

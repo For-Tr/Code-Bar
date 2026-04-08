@@ -119,8 +119,8 @@ function DiffFileRow({ file }: { file: DiffFile }) {
 
   return (
     <div style={{
-      borderBottom: "1px solid var(--ci-border)",
-      background: "var(--ci-surface)",
+      borderBottom: "1px solid var(--ci-toolbar-border)",
+      background: "transparent",
     }}>
       {/* 文件头 */}
       <button
@@ -175,8 +175,8 @@ function DiffFileRow({ file }: { file: DiffFile }) {
             style={{ overflow: "hidden" }}
           >
             <div style={{
-              background: "var(--ci-bg)",
-              borderTop: "1px solid var(--ci-border)",
+              background: "var(--ci-code-bg)",
+              borderTop: "1px solid var(--ci-toolbar-border)",
               maxHeight: 320, overflowY: "auto",
               scrollbarWidth: "none",
             }}>
@@ -251,13 +251,13 @@ export function DiffViewer({ files }: { files: DiffFile[] }) {
   const totalDeletions = files.reduce((s, f) => s + f.deletions, 0);
 
   return (
-    <div style={{ background: "var(--ci-surface)" }}>
+    <div style={{ background: "transparent" }}>
       {/* 汇总统计 */}
       <div style={{
         display: "flex", alignItems: "center", justifyContent: "space-between",
         padding: "7px 12px",
-        borderBottom: "1px solid var(--ci-border)",
-        background: "var(--ci-bg)",
+        borderBottom: "1px solid var(--ci-toolbar-border)",
+        background: "var(--ci-panel-grad)",
       }}>
         <span style={{
           fontSize: 11, color: "var(--ci-text-muted)",

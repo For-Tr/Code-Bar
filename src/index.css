@@ -1,5 +1,14 @@
 @import "tailwindcss";
 
+:root {
+  color-scheme: light;
+  font-family: "SF Pro Display", "SF Pro Text", "Segoe UI", sans-serif;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+}
+
 *,
 *::before,
 *::after {
@@ -21,9 +30,154 @@ body,
   height: 100vh;
 }
 
+body {
+  position: relative;
+  font-family: "SF Pro Text", "SF Pro Display", "Segoe UI", sans-serif;
+  color: var(--ci-text);
+}
+
+body::before,
+body::after {
+  content: "";
+  position: fixed;
+  inset: -20%;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+
+[data-theme="glass"] body::before {
+  background: none;
+  transform: none;
+  opacity: 0;
+}
+
+[data-theme="glass"] body::after {
+  background: none;
+  mask-image: none;
+  opacity: 0;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
 /* 全局隐藏 WebKit 滚动条（保留滚动功能，只隐藏视觉滚动条轨道） */
 ::-webkit-scrollbar {
   display: none;
   width: 0;
   height: 0;
+}
+
+::selection {
+  background: rgba(64, 156, 255, 0.24);
+}
+
+[data-theme="glass"] .liquid-glass-shell {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  background: transparent !important;
+  border-color: rgba(255, 255, 255, 0.22) !important;
+  box-shadow:
+    0 18px 48px rgba(92, 110, 138, 0.06),
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.12) !important;
+}
+
+[data-theme="glass"] .liquid-glass-toolbar::after,
+[data-theme="glass"] .liquid-glass-pill::after,
+[data-theme="glass"] .liquid-glass-card::after,
+[data-theme="glass"] .liquid-glass-panel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+[data-theme="glass"] .liquid-glass-shell-content {
+  position: relative;
+  z-index: 5;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
+[data-theme="glass"] .liquid-glass-outer,
+[data-theme="glass"] .liquid-glass-cover,
+[data-theme="glass"] .liquid-glass-sharp,
+[data-theme="glass"] .liquid-glass-reflect {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+[data-theme="glass"] .liquid-glass-outer {
+  z-index: 0;
+  padding: 5px;
+  backdrop-filter: url("#liquid_glass_filter");
+  -webkit-backdrop-filter: url("#liquid_glass_filter");
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 1;
+}
+
+[data-theme="glass"] .liquid-glass-cover {
+  z-index: 1;
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(2px) !important;
+  -webkit-backdrop-filter: blur(2px) !important;
+}
+
+[data-theme="glass"] .liquid-glass-sharp {
+  z-index: 2;
+  box-shadow:
+    inset 1px 1px 0 0 rgba(255, 255, 255, 0.50),
+    inset -1px -1px 0 0 rgba(255, 255, 255, 0.60);
+}
+
+[data-theme="glass"] .liquid-glass-reflect {
+  inset: 1px;
+  z-index: 3;
+  box-shadow:
+    inset 2px 2px 6px 2px rgba(255, 255, 255, 0.20),
+    inset -2px -2px 4px -1px rgba(255, 255, 255, 0.20);
+}
+
+[data-theme="glass"] .liquid-glass-toolbar,
+[data-theme="glass"] .liquid-glass-panel {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.08) !important;
+}
+
+[data-theme="glass"] .liquid-glass-pill,
+[data-theme="glass"] .liquid-glass-card {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  border-color: rgba(255, 255, 255, 0.16) !important;
+  box-shadow:
+    0 8px 20px rgba(92, 110, 138, 0.04),
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.08) !important;
+}
+
+[data-theme="glass"] .liquid-glass-toolbar::after,
+[data-theme="glass"] .liquid-glass-pill::after,
+[data-theme="glass"] .liquid-glass-card::after,
+[data-theme="glass"] .liquid-glass-panel::after {
+  padding: 1px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.08));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0.34;
 }
