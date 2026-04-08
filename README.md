@@ -135,7 +135,7 @@ API keys are stored securely in the system Keychain via Tauri's Rust backend.
 - **Keychain**: Secure API key storage via Tauri keystore
 - **Notifications**: mac-notification-sys (native macOS click callbacks)
 - **Git**: libgit2-style Rust commands (branch, worktree, diff)
-- **Hook Server**: Unix Domain Socket for Claude Code hooks
+- **Hook Server**: Unix Domain Socket bridge for Claude Code and Codex hooks
 
 ### Development Tools
 - **Package Manager**: pnpm
@@ -156,9 +156,10 @@ code-bar/
 │   ├── src/
 │   │   ├── cli_detect.rs   # CLI path resolution (nvm/mise/pyenv aware)
 │   │   ├── git/            # Git branch, worktree, diff commands
-│   │   ├── hooks.rs        # Claude Code hook socket server
+│   │   ├── hooks.rs        # Claude / Codex hook installers and socket bridge
 │   │   ├── notification.rs # Native macOS notifications with click callback
 │   │   ├── pty.rs          # PTY session management
+│   │   ├── session_lifecycle.rs # CLI lifecycle domain events and routing
 │   │   ├── window.rs       # Popup window control & bounds persistence
 │   │   └── lib.rs          # App entry, tray, setup
 │   └── tauri.conf.json     # Tauri configuration

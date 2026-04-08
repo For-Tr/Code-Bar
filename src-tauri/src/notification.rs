@@ -15,6 +15,7 @@
 #[cfg(target_os = "macos")]
 pub mod macos {
     use tauri::Emitter;
+    use tauri_plugin_notification::NotificationExt;
 
     /// 发送一条支持点击回调的原生 macOS 通知。
     ///
@@ -30,14 +31,36 @@ pub mod macos {
         subtitle: Option<String>,
         sound: bool,
     ) {
-        std::thread::spawn(move || {
-            use mac_notification_sys::{set_application, get_bundle_identifier_or_default, Notification, Sound};
+        if tauri::is_dev() {
+            let mut builder = app.notification().builder().title(&title).body(&body);
+            if sound {
+                builder = builder.sound("default");
+            }
+            if let Err(e) = builder.show() {
+                eprintln!("[notification] dev fallback send 失败: {e}");
+            }
+            return;
+        }
 
-            // 绑定应用 Bundle ID，避免系统弹出 "choose application" 对话框。
-            // 优先使用应用自身的 Bundle ID（打包后可用），
-            // dev 模式下 .app 不存在时自动降级到 com.apple.Finder。
-            let bundle_id = get_bundle_identifier_or_default("code-bar");
-            let _ = set_application(&bundle_id);
+        std::thread::spawn(move || {
+            use mac_notification_sys::{set_application, Notification, Sound};
+
+            // 必须在第一次调用时设置正确的 bundle id；错误值会导致 mac-notification-sys
+            // 后续无法纠正，开发态则改走上面的 tauri plugin fallback。
+            let bundle_id = app.config().identifier.clone();
+            if let Err(e) = set_application(&bundle_id) {
+                eprintln!(
+                    "[notification] set_application({bundle_id}) 失败，降级到 tauri plugin: {e}"
+                );
+                let mut builder = app.notification().builder().title(&title).body(&body);
+                if sound {
+                    builder = builder.sound("default");
+                }
+                if let Err(show_err) = builder.show() {
+                    eprintln!("[notification] fallback send 失败: {show_err}");
+                }
+                return;
+            }
 
             // 使用 Notification builder API：
             //   .wait_for_click(true) —— 阻塞等待用户点击，返回 Click 而非 None

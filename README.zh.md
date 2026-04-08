@@ -135,7 +135,7 @@ API Key 通过 Tauri Rust 后端加密存储在系统 Keychain 中。
 - **密钥管理**: Tauri keystore 系统 Keychain 加密存储
 - **通知**: mac-notification-sys（原生 macOS 点击回调）
 - **Git**: Rust 命令（分支、worktree、diff）
-- **Hook 服务**: Unix Domain Socket 接收 Claude Code hooks
+- **Hook 服务**: Unix Domain Socket 接收 Claude Code / Codex hooks
 
 ### 开发工具
 - **包管理器**: pnpm
@@ -156,9 +156,10 @@ code-bar/
 │   ├── src/
 │   │   ├── cli_detect.rs   # CLI 路径解析（兼容 nvm/mise/pyenv）
 │   │   ├── git/            # Git 分支、worktree、diff 命令
-│   │   ├── hooks.rs        # Claude Code hook socket 服务器
+│   │   ├── hooks.rs        # Claude / Codex hooks 安装与 socket bridge
 │   │   ├── notification.rs # macOS 原生通知（含点击回调）
 │   │   ├── pty.rs          # PTY 会话管理
+│   │   ├── session_lifecycle.rs # CLI 生命周期领域事件与路由
 │   │   ├── window.rs       # 浮窗控制与位置持久化
 │   │   └── lib.rs          # 应用入口、托盘、初始化
 │   └── tauri.conf.json     # Tauri 配置

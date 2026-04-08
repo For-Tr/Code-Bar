@@ -7,11 +7,15 @@ mod keystore;
 mod notification;
 mod pty;
 mod runner;
+mod session_lifecycle;
 mod state;
 mod util;
 mod window;
 
-use state::{PopupVisible, PreExpandPos, RestoringLock, ProcessMap, PtyKillerMap, PtyMasterMap, PtyWriterMap};
+use state::{
+    PopupVisible, PreExpandPos, ProcessMap, PtyKillerMap, PtyMasterMap,
+    PtySessionMetaMap, PtyWriterMap, RestoringLock,
+};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -50,6 +54,7 @@ pub fn run() {
         .manage(PtyWriterMap::default())
         .manage(PtyKillerMap::default())
         .manage(PtyMasterMap::default())
+        .manage(PtySessionMetaMap::default())
         .manage(PopupVisible::new(false))
         .manage(PreExpandPos::new())
         .manage(RestoringLock::new())
@@ -57,14 +62,14 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
-            // 启动 Claude Code hook 接收器（Unix Socket）
-            hooks::start_hook_socket_server(app.handle().clone());
+            // 启动 CLI hook 接收器（Unix Socket）
+            hooks::start_hook_socket_servers(app.handle().clone());
 
-            // 自动配置 Claude Code hooks（幂等）
-            if let Err(e) = hooks::setup_claude_hooks() {
-                eprintln!("[hooks] 自动配置失败（可忽略，字节流检测仍生效）: {e}");
+            // 自动配置 Claude / Codex hooks（幂等）
+            if let Err(e) = hooks::setup_all_hooks() {
+                eprintln!("[hooks] 自动配置失败（可忽略，CLI 仍可运行）: {e}");
             } else {
-                eprintln!("[hooks] ~/.claude/settings.json hooks 已就绪");
+                eprintln!("[hooks] Claude / Codex hooks 已就绪");
             }
 
             // 隐藏默认主窗口
@@ -194,7 +199,9 @@ pub fn run() {
             pty::send_pty_query,
             // 通知 & Hooks
             hooks::send_notification,
+            hooks::setup_all_hooks,
             hooks::setup_claude_hooks,
+            hooks::setup_codex_hooks,
             hooks::trust_workspace,
             // 支持点击回调的原生通知（macOS 常驻等待 + click callback）
             notification::send_notification_with_callback,

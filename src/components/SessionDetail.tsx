@@ -350,6 +350,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
 
     const env: [string, string][] = [
       ["CODE_BAR_SESSION_ID", session.id],
+      ["CODE_BAR_RUNNER_TYPE", runner.type],
       ["CODE_BAR_SESSION_NAME", session.name],
       ["CODE_BAR_WORKDIR", session.workdir],
       ["CODE_BAR_WORKSPACE_ID", session.workspaceId],
@@ -785,10 +786,6 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
               onWaiting={handlePtyWaiting}
               onRunning={handlePtyRunning}
               onError={handlePtyError}
-              onNotification={(title, message, _type) => {
-                // Claude Code hook 通知：需要用户确认/输入
-                invoke("send_notification", { title, body: message }).catch(console.error);
-              }}
               env={contextEnv}
             />
           </div>

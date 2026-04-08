@@ -1,0 +1,182 @@
+use tauri::{AppHandle, Emitter, Manager};
+
+use crate::state::{PtyKillerMap, PtySessionMetaMap};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HookSource {
+    ClaudeCode,
+    Codex,
+}
+
+impl HookSource {
+    pub fn runner_type(self) -> &'static str {
+        match self {
+            Self::ClaudeCode => "claude-code",
+            Self::Codex => "codex",
+        }
+    }
+
+    pub fn socket_path(self) -> &'static str {
+        match self {
+            Self::ClaudeCode => "/tmp/code-bar-hook-claude.sock",
+            Self::Codex => "/tmp/code-bar-hook-codex.sock",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::ClaudeCode => "claude-code",
+            Self::Codex => "codex",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SessionRoutingHint {
+    pub source: HookSource,
+    pub code_bar_session_id: Option<String>,
+    pub cwd: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub enum SessionLifecycleSignal {
+    Running,
+    Waiting,
+    Error { message: String },
+    Attention {
+        title: String,
+        message: String,
+        notification_type: String,
+    },
+}
+
+fn normalize_workdir(path: &str) -> String {
+    if path == "/" {
+        return "/".to_string();
+    }
+    path.trim_end_matches('/').to_string()
+}
+
+fn active_session_ids(app: &AppHandle) -> Vec<String> {
+    let km_arc = app.state::<PtyKillerMap>().inner().clone();
+    let km = km_arc.lock().unwrap();
+    km.keys().cloned().collect()
+}
+
+fn resolve_session_ids(app: &AppHandle, routing: &SessionRoutingHint) -> Vec<String> {
+    let active_ids = active_session_ids(app);
+    if active_ids.is_empty() {
+        return Vec::new();
+    }
+
+    if let Some(session_id) = routing
+        .code_bar_session_id
+        .as_ref()
+        .filter(|sid| !sid.trim().is_empty())
+    {
+        if active_ids.iter().any(|sid| sid == session_id) {
+            return vec![session_id.clone()];
+        }
+    }
+
+    let cwd = routing
+        .cwd
+        .as_deref()
+        .map(normalize_workdir)
+        .filter(|cwd| !cwd.is_empty());
+
+    let meta_arc = app.state::<PtySessionMetaMap>().inner().clone();
+    let meta = meta_arc.lock().unwrap();
+
+    let mut matches = Vec::new();
+    for sid in &active_ids {
+        let Some(info) = meta.get(sid) else {
+            continue;
+        };
+        if info.runner_type != routing.source.runner_type() {
+            continue;
+        }
+        if let Some(cwd) = &cwd {
+            if normalize_workdir(&info.workdir) != *cwd {
+                continue;
+            }
+        }
+        matches.push(sid.clone());
+    }
+
+    if !matches.is_empty() {
+        return matches;
+    }
+
+    active_ids
+        .into_iter()
+        .filter(|sid| {
+            meta.get(sid)
+                .map(|info| info.runner_type == routing.source.runner_type())
+                .unwrap_or(false)
+        })
+        .collect()
+}
+
+pub fn emit_session_lifecycle(
+    app: &AppHandle,
+    routing: SessionRoutingHint,
+    signal: SessionLifecycleSignal,
+) {
+    let session_ids = resolve_session_ids(app, &routing);
+    if session_ids.is_empty() {
+        eprintln!(
+            "[hooks:{}] 未找到匹配的 Code Bar session: session_id={:?} cwd={:?}",
+            routing.source.label(),
+            routing.code_bar_session_id,
+            routing.cwd
+        );
+        return;
+    }
+
+    match signal {
+        SessionLifecycleSignal::Running => {
+            for sid in session_ids {
+                let _ = app.emit("pty-running", serde_json::json!({ "session_id": sid }));
+            }
+        }
+        SessionLifecycleSignal::Waiting => {
+            for sid in session_ids {
+                let _ = app.emit("pty-waiting", serde_json::json!({ "session_id": sid }));
+            }
+        }
+        SessionLifecycleSignal::Error { message } => {
+            for sid in session_ids {
+                let _ = app.emit(
+                    "pty-error",
+                    serde_json::json!({ "session_id": sid, "error": message.clone() }),
+                );
+            }
+        }
+        SessionLifecycleSignal::Attention {
+            title,
+            message,
+            notification_type,
+        } => {
+            let _ = crate::notification::send_notification_with_callback(
+                app.clone(),
+                title.clone(),
+                message.clone(),
+                None,
+                Some(true),
+            );
+
+            for sid in session_ids {
+                let _ = app.emit(
+                    "pty-notification",
+                    serde_json::json!({
+                        "session_id": sid,
+                        "title": title.clone(),
+                        "message": message.clone(),
+                        "notification_type": notification_type.clone(),
+                    }),
+                );
+            }
+        }
+    }
+}

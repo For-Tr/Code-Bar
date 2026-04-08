@@ -1,87 +1,398 @@
 use std::{fs, io::Read, path::PathBuf};
 
-use tauri::{Emitter, Manager};
+use serde_json::{Map, Value};
 
-use crate::state::PtyKillerMap;
+use crate::session_lifecycle::{
+    emit_session_lifecycle, HookSource, SessionLifecycleSignal, SessionRoutingHint,
+};
 
-// ── Claude Code hooks 配置 ────────────────────────────────────────
-
-const HOOK_CMD: &str = "nc -U /tmp/code-bar-hook.sock";
-
-/// 检查某个 hook event 数组里是否已包含我们的 nc 命令
-fn already_has_hook(arr: &serde_json::Value) -> bool {
-    arr.as_array()
-        .map(|entries| {
-            entries.iter().any(|entry| {
-                entry
-                    .get("hooks")
-                    .and_then(|h| h.as_array())
-                    .map(|hs| {
-                        hs.iter().any(|h| {
-                            h.get("command").and_then(|c| c.as_str()) == Some(HOOK_CMD)
-                        })
-                    })
-                    .unwrap_or(false)
-            })
-        })
-        .unwrap_or(false)
+#[derive(Debug, Clone)]
+struct HookCommandSpec {
+    event_name: &'static str,
+    matcher: Option<&'static str>,
+    command: String,
+    timeout: Option<u64>,
+    status_message: Option<&'static str>,
 }
 
-/// 在 ~/.claude/settings.json 中添加 hooks 配置
-/// 幂等操作：已有相同命令则跳过，不覆盖用户其他 hook
-#[tauri::command]
-pub fn setup_claude_hooks() -> Result<String, String> {
-    let claude_dir =
-        PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".claude");
+fn hook_bridge_command(source: HookSource) -> String {
+    let source_name = source.label();
+    let socket_path = source.socket_path();
+    format!(
+        "/usr/bin/python3 -c 'import json, os, socket, sys; payload=json.load(sys.stdin); sid=os.environ.get(\"CODE_BAR_SESSION_ID\"); runner=os.environ.get(\"CODE_BAR_RUNNER_TYPE\"); payload[\"code_bar_source\"]=\"{source_name}\"; payload[\"code_bar_session_id\"]=sid if sid else payload.get(\"code_bar_session_id\"); payload[\"code_bar_runner_type\"]=runner if runner else payload.get(\"code_bar_runner_type\"); sock=socket.socket(socket.AF_UNIX, socket.SOCK_STREAM); sock.connect(\"{socket_path}\"); sock.sendall(json.dumps(payload).encode(\"utf-8\")); sock.close()' >/dev/null 2>&1 || true"
+    )
+}
 
-    if !claude_dir.exists() {
-        fs::create_dir_all(&claude_dir)
-            .map_err(|e| format!("创建 .claude 目录失败: {e}"))?;
+fn hook_specs(source: HookSource) -> Vec<HookCommandSpec> {
+    let command = hook_bridge_command(source);
+    match source {
+        HookSource::ClaudeCode => vec![
+            HookCommandSpec {
+                event_name: "UserPromptSubmit",
+                matcher: Some(""),
+                command: command.clone(),
+                timeout: None,
+                status_message: None,
+            },
+            HookCommandSpec {
+                event_name: "Stop",
+                matcher: Some(""),
+                command: command.clone(),
+                timeout: None,
+                status_message: None,
+            },
+            HookCommandSpec {
+                event_name: "StopFailure",
+                matcher: Some(""),
+                command: command.clone(),
+                timeout: None,
+                status_message: None,
+            },
+            HookCommandSpec {
+                event_name: "Notification",
+                matcher: Some(""),
+                command,
+                timeout: None,
+                status_message: None,
+            },
+        ],
+        HookSource::Codex => vec![
+            HookCommandSpec {
+                event_name: "UserPromptSubmit",
+                matcher: None,
+                command: command.clone(),
+                timeout: Some(5),
+                status_message: None,
+            },
+            HookCommandSpec {
+                event_name: "Stop",
+                matcher: None,
+                command,
+                timeout: Some(5),
+                status_message: None,
+            },
+        ],
+    }
+}
+
+fn managed_legacy_commands(source: HookSource) -> &'static [&'static str] {
+    match source {
+        HookSource::ClaudeCode => &["nc -U /tmp/code-bar-hook.sock"],
+        HookSource::Codex => &[],
+    }
+}
+
+fn is_managed_command(command: &str, source: HookSource) -> bool {
+    command.contains(source.socket_path())
+        || managed_legacy_commands(source)
+            .iter()
+            .any(|legacy| command.contains(legacy))
+}
+
+fn load_json_file(path: &PathBuf) -> Result<Value, String> {
+    if !path.exists() {
+        return Ok(serde_json::json!({}));
+    }
+    let content = fs::read_to_string(path).map_err(|e| format!("读取 {} 失败: {e}", path.display()))?;
+    Ok(serde_json::from_str(&content).unwrap_or_else(|_| serde_json::json!({})))
+}
+
+fn ensure_hooks_object<'a>(
+    root: &'a mut Value,
+    path_label: &str,
+) -> Result<&'a mut Map<String, Value>, String> {
+    if root.get("hooks").is_none() {
+        root["hooks"] = serde_json::json!({});
+    }
+    root["hooks"]
+        .as_object_mut()
+        .ok_or_else(|| format!("{path_label} 中 hooks 字段格式异常"))
+}
+
+fn build_hook_entry(spec: &HookCommandSpec) -> Value {
+    let mut hook = serde_json::json!({
+        "type": "command",
+        "command": spec.command.clone(),
+    });
+    if let Some(timeout) = spec.timeout {
+        hook["timeout"] = Value::from(timeout);
+    }
+    if let Some(status_message) = spec.status_message {
+        hook["statusMessage"] = Value::from(status_message);
     }
 
-    let settings_path = claude_dir.join("settings.json");
-    let mut settings: serde_json::Value = if settings_path.exists() {
-        let content = fs::read_to_string(&settings_path)
-            .map_err(|e| format!("读取 settings.json 失败: {e}"))?;
-        serde_json::from_str(&content).unwrap_or(serde_json::json!({}))
-    } else {
-        serde_json::json!({})
+    let mut group = Map::new();
+    if let Some(matcher) = spec.matcher {
+        group.insert("matcher".to_string(), Value::from(matcher));
+    }
+    group.insert("hooks".to_string(), Value::Array(vec![hook]));
+    Value::Object(group)
+}
+
+fn normalize_managed_hook(hook: &mut Value, spec: &HookCommandSpec) -> bool {
+    let Some(obj) = hook.as_object_mut() else {
+        *hook = serde_json::json!({});
+        return normalize_managed_hook(hook, spec);
     };
 
-    let our_entry = serde_json::json!([{
-        "matcher": "",
-        "hooks": [{ "type": "command", "command": HOOK_CMD }]
-    }]);
+    let mut changed = false;
 
-    if settings.get("hooks").is_none() {
-        settings["hooks"] = serde_json::json!({});
+    if obj.get("type").and_then(|v| v.as_str()) != Some("command") {
+        obj.insert("type".to_string(), Value::from("command"));
+        changed = true;
     }
-    let hooks_obj = settings["hooks"]
-        .as_object_mut()
-        .ok_or("settings.json 中 hooks 字段格式异常")?;
+    if obj.get("command").and_then(|v| v.as_str()) != Some(spec.command.as_str()) {
+        obj.insert("command".to_string(), Value::from(spec.command.clone()));
+        changed = true;
+    }
 
-    let mut inserted = vec![];
-    for key in &["UserPromptSubmit", "Stop", "StopFailure", "Notification"] {
-        if hooks_obj.get(*key).map(already_has_hook).unwrap_or(false) {
-            continue;
+    match spec.timeout {
+        Some(timeout) => {
+            if obj.get("timeout").and_then(|v| v.as_u64()) != Some(timeout) {
+                obj.insert("timeout".to_string(), Value::from(timeout));
+                changed = true;
+            }
         }
-        hooks_obj.insert(key.to_string(), our_entry.clone());
-        inserted.push(*key);
+        None => {
+            if obj.remove("timeout").is_some() {
+                changed = true;
+            }
+        }
     }
 
-    if inserted.is_empty() {
+    match spec.status_message {
+        Some(status_message) => {
+            if obj.get("statusMessage").and_then(|v| v.as_str()) != Some(status_message) {
+                obj.insert("statusMessage".to_string(), Value::from(status_message));
+                changed = true;
+            }
+        }
+        None => {
+            if obj.remove("statusMessage").is_some() {
+                changed = true;
+            }
+        }
+    }
+
+    changed
+}
+
+fn merge_hook_specs(
+    root: &mut Value,
+    source: HookSource,
+    specs: &[HookCommandSpec],
+    path_label: &str,
+) -> Result<Vec<String>, String> {
+    let hooks_obj = ensure_hooks_object(root, path_label)?;
+    let mut changed_events = Vec::new();
+
+    for spec in specs {
+        let event_value = hooks_obj
+            .entry(spec.event_name.to_string())
+            .or_insert_with(|| Value::Array(Vec::new()));
+
+        if !event_value.is_array() {
+            *event_value = Value::Array(Vec::new());
+        }
+        let event_arr = event_value
+            .as_array_mut()
+            .ok_or_else(|| format!("{path_label} 中 {} hooks 不是数组", spec.event_name))?;
+
+        let mut has_current_command = false;
+        let mut event_changed = false;
+
+        event_arr.retain_mut(|group| {
+            let Some(group_obj) = group.as_object_mut() else {
+                event_changed = true;
+                return false;
+            };
+
+            let hooks = group_obj
+                .entry("hooks".to_string())
+                .or_insert_with(|| Value::Array(Vec::new()));
+
+            if !hooks.is_array() {
+                *hooks = Value::Array(Vec::new());
+                event_changed = true;
+            }
+
+            let hook_arr = hooks.as_array_mut().expect("hooks array just normalized");
+            let before_len = hook_arr.len();
+
+            hook_arr.retain_mut(|hook| {
+                let command = hook.get("command").and_then(|v| v.as_str()).unwrap_or("");
+                if command == spec.command {
+                    if has_current_command {
+                        event_changed = true;
+                        return false;
+                    }
+                    has_current_command = true;
+                    if normalize_managed_hook(hook, spec) {
+                        event_changed = true;
+                    }
+                    return true;
+                }
+                if is_managed_command(command, source) {
+                    event_changed = true;
+                    return false;
+                }
+                true
+            });
+
+            if hook_arr.len() != before_len {
+                event_changed = true;
+            }
+
+            !hook_arr.is_empty()
+        });
+
+        if !has_current_command {
+            event_arr.push(build_hook_entry(spec));
+            event_changed = true;
+        }
+
+        if event_changed {
+            changed_events.push(spec.event_name.to_string());
+        }
+    }
+
+    Ok(changed_events)
+}
+
+fn save_json_file(path: &PathBuf, json: &Value) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("创建目录 {} 失败: {e}", parent.display()))?;
+    }
+    let output = serde_json::to_string_pretty(json)
+        .map_err(|e| format!("序列化 {} 失败: {e}", path.display()))?;
+    fs::write(path, output).map_err(|e| format!("写入 {} 失败: {e}", path.display()))
+}
+
+fn ensure_claude_hook_settings() -> Result<String, String> {
+    let home = std::env::var("HOME").map_err(|_| "无法获取 HOME 环境变量")?;
+    let settings_path = PathBuf::from(home).join(".claude").join("settings.json");
+    let mut settings = load_json_file(&settings_path)?;
+    let changed = merge_hook_specs(
+        &mut settings,
+        HookSource::ClaudeCode,
+        &hook_specs(HookSource::ClaudeCode),
+        &settings_path.display().to_string(),
+    )?;
+
+    if changed.is_empty() {
         return Ok("Claude Code hooks 已是最新，无需修改".to_string());
     }
 
-    let output = serde_json::to_string_pretty(&settings)
-        .map_err(|e| format!("序列化 settings 失败: {e}"))?;
-    fs::write(&settings_path, output)
-        .map_err(|e| format!("写入 settings.json 失败: {e}"))?;
+    save_json_file(&settings_path, &settings)?;
+    Ok(format!(
+        "已配置 Claude Code hooks: {} ({})",
+        settings_path.display(),
+        changed.join(", ")
+    ))
+}
+
+fn ensure_codex_feature_flag() -> Result<String, String> {
+    let home = std::env::var("HOME").map_err(|_| "无法获取 HOME 环境变量")?;
+    let config_path = PathBuf::from(home).join(".codex").join("config.toml");
+    let content = if config_path.exists() {
+        fs::read_to_string(&config_path)
+            .map_err(|e| format!("读取 {} 失败: {e}", config_path.display()))?
+    } else {
+        String::new()
+    };
+
+    let mut config: toml::Table = if content.trim().is_empty() {
+        toml::Table::new()
+    } else {
+        content
+            .parse::<toml::Table>()
+            .unwrap_or_else(|_| toml::Table::new())
+    };
+
+    let features = config
+        .entry("features")
+        .or_insert_with(|| toml::Value::Table(toml::Table::new()));
+
+    if !features.is_table() {
+        *features = toml::Value::Table(toml::Table::new());
+    }
+
+    let features_table = features
+        .as_table_mut()
+        .ok_or_else(|| format!("{} 中 [features] 配置格式异常", config_path.display()))?;
+
+    let already_enabled = features_table
+        .get("codex_hooks")
+        .and_then(|v| v.as_bool())
+        == Some(true);
+
+    if already_enabled {
+        return Ok(format!(
+            "Codex hooks feature 已启用: {}",
+            config_path.display()
+        ));
+    }
+
+    features_table.insert("codex_hooks".to_string(), toml::Value::Boolean(true));
+
+    if let Some(parent) = config_path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("创建目录 {} 失败: {e}", parent.display()))?;
+    }
+
+    let output = toml::to_string_pretty(&config)
+        .map_err(|e| format!("序列化 {} 失败: {e}", config_path.display()))?;
+    fs::write(&config_path, output)
+        .map_err(|e| format!("写入 {} 失败: {e}", config_path.display()))?;
 
     Ok(format!(
-        "已配置 Claude Code hooks: {}",
-        settings_path.display()
+        "已启用 Codex hooks feature: {}",
+        config_path.display()
     ))
+}
+
+fn ensure_codex_hook_settings() -> Result<String, String> {
+    let home = std::env::var("HOME").map_err(|_| "无法获取 HOME 环境变量")?;
+    let hooks_path = PathBuf::from(home).join(".codex").join("hooks.json");
+    let mut hooks = load_json_file(&hooks_path)?;
+    let changed = merge_hook_specs(
+        &mut hooks,
+        HookSource::Codex,
+        &hook_specs(HookSource::Codex),
+        &hooks_path.display().to_string(),
+    )?;
+
+    if changed.is_empty() {
+        return Ok("Codex hooks 已是最新，无需修改".to_string());
+    }
+
+    save_json_file(&hooks_path, &hooks)?;
+    Ok(format!(
+        "已配置 Codex hooks: {} ({})",
+        hooks_path.display(),
+        changed.join(", ")
+    ))
+}
+
+#[tauri::command]
+pub fn setup_claude_hooks() -> Result<String, String> {
+    ensure_claude_hook_settings()
+}
+
+#[tauri::command]
+pub fn setup_codex_hooks() -> Result<String, String> {
+    let feature = ensure_codex_feature_flag()?;
+    let hooks = ensure_codex_hook_settings()?;
+    Ok(format!("{feature}\n{hooks}"))
+}
+
+#[tauri::command]
+pub fn setup_all_hooks() -> Result<String, String> {
+    let claude = ensure_claude_hook_settings()?;
+    let codex_feature = ensure_codex_feature_flag()?;
+    let codex_hooks = ensure_codex_hook_settings()?;
+    Ok(format!("{claude}\n{codex_feature}\n{codex_hooks}"))
 }
 
 /// 将目录写入 ~/.claude/settings.json 的 trustedDirectories
@@ -96,8 +407,7 @@ pub fn trust_workspace(path: String) -> Result<(), String> {
         "{}".to_string()
     };
 
-    let mut json: serde_json::Value =
-        serde_json::from_str(&content).unwrap_or(serde_json::json!({}));
+    let mut json: Value = serde_json::from_str(&content).unwrap_or_else(|_| serde_json::json!({}));
 
     let trusted = json
         .as_object_mut()
@@ -105,9 +415,9 @@ pub fn trust_workspace(path: String) -> Result<(), String> {
         .entry("trustedDirectories")
         .or_insert(serde_json::json!([]));
 
-    if let serde_json::Value::Array(arr) = trusted {
+    if let Value::Array(arr) = trusted {
         if !arr.iter().any(|v| v.as_str() == Some(&path)) {
-            arr.push(serde_json::Value::String(path));
+            arr.push(Value::String(path));
         }
     }
 
@@ -120,151 +430,143 @@ pub fn trust_workspace(path: String) -> Result<(), String> {
     Ok(())
 }
 
-// ── Hook Socket Server ────────────────────────────────────────────
+fn dispatch_hook_event(
+    app: &tauri::AppHandle,
+    source: HookSource,
+    json: &Value,
+) {
+    let event_name = json
+        .get("hook_event_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let routing = SessionRoutingHint {
+        source,
+        code_bar_session_id: json
+            .get("code_bar_session_id")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        cwd: json
+            .get("cwd")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+    };
 
-/// 启动 Unix Domain Socket 服务端，接收 Claude Code hooks 的 JSON payload
-pub fn start_hook_socket_server(app: tauri::AppHandle) {
+    eprintln!(
+        "[hooks:{}] received: {} code_bar_session={:?} cwd={:?}",
+        source.label(),
+        event_name,
+        routing.code_bar_session_id,
+        routing.cwd
+    );
+
+    match source {
+        HookSource::ClaudeCode => match event_name {
+            "UserPromptSubmit" => {
+                emit_session_lifecycle(app, routing, SessionLifecycleSignal::Running);
+            }
+            "Stop" => {
+                emit_session_lifecycle(app, routing, SessionLifecycleSignal::Waiting);
+            }
+            "StopFailure" => {
+                let error = json
+                    .get("error")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("未知错误");
+                emit_session_lifecycle(
+                    app,
+                    routing,
+                    SessionLifecycleSignal::Error {
+                        message: error.to_string(),
+                    },
+                );
+            }
+            "Notification" => {
+                let title = json
+                    .get("title")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Claude Code");
+                let message = json
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let notification_type = json
+                    .get("notification_type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                emit_session_lifecycle(
+                    app,
+                    routing,
+                    SessionLifecycleSignal::Attention {
+                        title: title.to_string(),
+                        message: message.to_string(),
+                        notification_type: notification_type.to_string(),
+                    },
+                );
+            }
+            _ => {}
+        },
+        HookSource::Codex => match event_name {
+            "UserPromptSubmit" => {
+                emit_session_lifecycle(app, routing, SessionLifecycleSignal::Running);
+            }
+            "Stop" => {
+                emit_session_lifecycle(app, routing, SessionLifecycleSignal::Waiting);
+            }
+            _ => {}
+        },
+    }
+}
+
+fn start_hook_socket_server(app: tauri::AppHandle, source: HookSource) {
     use std::os::unix::net::UnixListener;
 
-    let socket_path = "/tmp/code-bar-hook.sock";
-    let _ = fs::remove_file(socket_path); // 清理旧 socket
+    let socket_path = source.socket_path();
+    let _ = fs::remove_file(socket_path);
 
     let listener = match UnixListener::bind(socket_path) {
-        Ok(l) => l,
+        Ok(listener) => listener,
         Err(e) => {
-            eprintln!("[hook-socket] bind 失败: {e}");
+            eprintln!("[hooks:{}] bind 失败: {e}", source.label());
             return;
         }
     };
 
-    eprintln!("[hook-socket] listening on {socket_path}");
+    eprintln!("[hooks:{}] listening on {}", source.label(), socket_path);
 
     std::thread::spawn(move || {
         for stream in listener.incoming() {
             let stream = match stream {
-                Ok(s) => s,
+                Ok(stream) => stream,
                 Err(e) => {
-                    eprintln!("[hook-socket] accept 错误: {e}");
+                    eprintln!("[hooks:{}] accept 错误: {e}", source.label());
                     continue;
                 }
             };
 
             let mut reader = std::io::BufReader::new(stream);
             let mut payload = String::new();
-            if reader.read_to_string(&mut payload).is_err() {
+            if let Err(e) = reader.read_to_string(&mut payload) {
+                eprintln!("[hooks:{}] read 失败: {e}", source.label());
                 continue;
             }
 
-            let json: serde_json::Value = match serde_json::from_str(&payload) {
-                Ok(j) => j,
+            let json: Value = match serde_json::from_str(&payload) {
+                Ok(json) => json,
                 Err(e) => {
-                    eprintln!("[hook-socket] JSON 解析失败: {e}");
+                    eprintln!("[hooks:{}] JSON 解析失败: {e}", source.label());
                     continue;
                 }
             };
 
-            let event_name = json
-                .get("hook_event_name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let claude_sid = json
-                .get("session_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-
-            eprintln!("[hook-socket] received: {event_name} claude_session={claude_sid}");
-
-            // 取出所有活跃的 Code Bar session ID（广播）
-            let active_sessions: Vec<String> = {
-                let km_arc = app.state::<PtyKillerMap>().inner().clone();
-                let km = km_arc.lock().unwrap();
-                km.keys().cloned().collect()
-            };
-            eprintln!(
-                "[hook-socket] broadcasting to {} active session(s): {:?}",
-                active_sessions.len(),
-                active_sessions
-            );
-
-            dispatch_hook_event(&app, event_name, &json, &active_sessions);
+            dispatch_hook_event(&app, source, &json);
         }
     });
 }
 
-/// 根据 hook 事件类型向前端广播
-fn dispatch_hook_event(
-    app: &tauri::AppHandle,
-    event_name: &str,
-    json: &serde_json::Value,
-    sessions: &[String],
-) {
-    match event_name {
-        "UserPromptSubmit" => {
-            for sid in sessions {
-                let _ = app.emit("pty-running", serde_json::json!({ "session_id": sid }));
-            }
-        }
-        "Stop" => {
-            for sid in sessions {
-                let _ = app.emit("pty-waiting", serde_json::json!({ "session_id": sid }));
-            }
-        }
-        "StopFailure" => {
-            let error = json
-                .get("error")
-                .and_then(|v| v.as_str())
-                .unwrap_or("未知错误");
-            eprintln!("[hook-socket] StopFailure: {error}");
-            for sid in sessions {
-                let _ = app.emit(
-                    "pty-error",
-                    serde_json::json!({ "session_id": sid, "error": error }),
-                );
-            }
-        }
-        "Notification" => {
-            let title = json
-                .get("title")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Claude Code");
-            let message = json
-                .get("message")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let notification_type = json
-                .get("notification_type")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            eprintln!(
-                "[hook-socket] Notification: {title} - {message} ({notification_type})"
-            );
-
-            // 发送系统通知（macOS 支持点击回调，用户点击后前端会收到 notification-clicked 事件）
-            let _ = crate::notification::send_notification_with_callback(
-                app.clone(),
-                title.to_string(),
-                message.to_string(),
-                None,
-                Some(true),
-            );
-
-            for sid in sessions {
-                let _ = app.emit(
-                    "pty-notification",
-                    serde_json::json!({
-                        "session_id": sid,
-                        "title": title,
-                        "message": message,
-                        "notification_type": notification_type,
-                    }),
-                );
-            }
-        }
-        _ => {}
-    }
+pub fn start_hook_socket_servers(app: tauri::AppHandle) {
+    start_hook_socket_server(app.clone(), HookSource::ClaudeCode);
+    start_hook_socket_server(app, HookSource::Codex);
 }
-
-// ── Tauri Command ─────────────────────────────────────────────────
 
 /// 发送系统通知（支持点击回调，委托给 notification 模块）
 ///

@@ -18,7 +18,7 @@ interface Props {
   onWaiting?: () => void; // CLI 完成任务、等待下一条 query 时回调
   onRunning?: () => void; // CLI 开始处理 query 时回调
   onError?: (error: string) => void; // API 错误中断回调
-  onNotification?: (title: string, message: string, notification_type: string) => void; // Claude Code hook 通知回调
+  onNotification?: (title: string, message: string, notification_type: string) => void; // CLI hook 通知回调
   // 额外注入的环境变量，透传给 start_pty_session（如 CODE_BAR_* context 信息）
   env?: [string, string][];
 }
@@ -270,7 +270,7 @@ export function PtyTerminal({
       }
     );
 
-    // API 错误中断（StopFailure hook）
+    // API 错误中断（如 Claude StopFailure hook）
     const u5 = listen<{ session_id: string; error: string }>(
       "pty-error",
       ({ payload }) => {
@@ -279,7 +279,7 @@ export function PtyTerminal({
       }
     );
 
-    // Claude Code hook: Notification（需要用户确认/输入）
+    // CLI hook: Notification（当前主要来自 Claude，需要用户确认/输入）
     const u6 = listen<{ session_id: string; title: string; message: string; notification_type: string }>(
       "pty-notification",
       ({ payload }) => {

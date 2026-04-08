@@ -16,6 +16,15 @@ pub type PtyKillerMap = Arc<Mutex<HashMap<String, Box<dyn portable_pty::Child + 
 /// session_id → MasterPty（用于 resize）
 pub type PtyMasterMap = Arc<Mutex<HashMap<String, Box<dyn portable_pty::MasterPty + Send>>>>;
 
+#[derive(Debug, Clone, Default)]
+pub struct PtySessionMeta {
+    pub runner_type: String,
+    pub workdir: String,
+}
+
+/// session_id → PTY 会话元信息（用于 hooks 事件精确路由）
+pub type PtySessionMetaMap = Arc<Mutex<HashMap<String, PtySessionMeta>>>;
+
 // ── 展开前小窗口位置快照（内存缓存，比磁盘快）─────────────────────
 /// 展开终端面板时，把小窗口的精确位置存在这里。
 /// 收起时优先从这里还原，避免磁盘数据过期导致位置漂移。

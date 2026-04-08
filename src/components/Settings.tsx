@@ -653,7 +653,7 @@ function ApiKeysTab() {
           onClick={async () => {
             const { invoke } = await import("@tauri-apps/api/core");
             try {
-              const result = await invoke<string>("setup_claude_hooks");
+              const result = await invoke<string>("setup_all_hooks");
               alert(result);
             } catch (e) {
               alert(`配置失败: ${e}`);
@@ -669,7 +669,7 @@ function ApiKeysTab() {
           onMouseEnter={e => e.currentTarget.style.filter = "brightness(0.9)"}
           onMouseLeave={e => e.currentTarget.style.filter = "none"}
         >
-          🔔 启用 Claude Code Hooks
+          🔔 启用 Claude / Codex Hooks
         </button>
         <button
           onClick={async () => {

@@ -4,7 +4,7 @@ use tauri::{Emitter, Manager};
 
 use crate::{
     cli_detect::resolve_command_path,
-    state::{PtyKillerMap, PtyMasterMap, PtyWriterMap},
+    state::{PtyKillerMap, PtyMasterMap, PtySessionMeta, PtySessionMetaMap, PtyWriterMap},
     util::expand_path,
 };
 
@@ -20,6 +20,10 @@ fn pty_killer_map(app: &tauri::AppHandle) -> PtyKillerMap {
 
 fn pty_master_map(app: &tauri::AppHandle) -> PtyMasterMap {
     app.state::<PtyMasterMap>().inner().clone()
+}
+
+fn pty_session_meta_map(app: &tauri::AppHandle) -> PtySessionMetaMap {
+    app.state::<PtySessionMetaMap>().inner().clone()
 }
 
 // ── PTY 输出状态机 ────────────────────────────────────────────────
@@ -93,6 +97,25 @@ pub async fn start_pty_session(
     use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 
     let expanded = expand_path(&workdir);
+    let runner_type = env
+        .as_ref()
+        .and_then(|pairs| {
+            pairs.iter()
+                .find(|(k, _)| k == "CODE_BAR_RUNNER_TYPE")
+                .map(|(_, v)| v.clone())
+        })
+        .unwrap_or_else(|| {
+            std::path::Path::new(&command)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| match name {
+                    "claude" => "claude-code",
+                    "codex" => "codex",
+                    other => other,
+                })
+                .unwrap_or_default()
+                .to_string()
+        });
 
     // 先停掉同 session 的旧 PTY
     {
@@ -187,11 +210,23 @@ pub async fn start_pty_session(
         let mut mm = mm.lock().unwrap();
         mm.insert(session_id.clone(), pair.master);
     }
+    {
+        let meta_map = pty_session_meta_map(&app);
+        let mut meta_map = meta_map.lock().unwrap();
+        meta_map.insert(
+            session_id.clone(),
+            PtySessionMeta {
+                runner_type,
+                workdir: expanded.clone(),
+            },
+        );
+    }
 
     // 读取线程：转发 PTY 输出并检测状态特征
     let app_r = app.clone();
     let sid_r = session_id.clone();
     let killer_map_r = pty_killer_map(&app);
+    let session_meta_map_r = pty_session_meta_map(&app);
     std::thread::spawn(move || {
         let mut buf = [0u8; 4096];
         let mut stripper = AnsiStripper::new();
@@ -244,6 +279,10 @@ pub async fn start_pty_session(
             if let Some(mut child) = km.remove(&sid_r) {
                 let _ = child.wait();
             }
+        }
+        {
+            let mut meta_map = session_meta_map_r.lock().unwrap();
+            meta_map.remove(&sid_r);
         }
 
         let _ = app_r.emit("pty-exit", serde_json::json!({ "session_id": sid_r }));
@@ -345,6 +384,11 @@ pub fn stop_pty_session(
         let mm = pty_master_map(&app);
         let mut mm = mm.lock().unwrap();
         mm.remove(&session_id);
+    }
+    {
+        let meta_map = pty_session_meta_map(&app);
+        let mut meta_map = meta_map.lock().unwrap();
+        meta_map.remove(&session_id);
     }
     let _ = app.emit("pty-exit", serde_json::json!({ "session_id": session_id }));
     Ok(())
