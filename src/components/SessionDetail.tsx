@@ -920,30 +920,6 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
                     )}
                   </div>
                 )}
-              {/* Runner 快速切换 */}
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "center" }}>
-                {(Object.entries(RUNNER_LABELS) as [RunnerType, string][]).map(([type, label]) => {
-                  const active = runner.type === type;
-                  return (
-                    <button
-                      key={type}
-                      onClick={() => handleSwitchRunner(type)}
-                      style={{
-                        fontSize: 10, padding: "3px 10px", borderRadius: 99,
-                        background: active ? "var(--ci-pty-runner-bg)" : "var(--ci-pty-btn-bg)",
-                        border: `1px solid ${active ? "var(--ci-pty-runner-border)" : "var(--ci-pty-btn-border)"}`,
-                        color: active ? "var(--ci-pty-runner-text)" : "var(--ci-pty-btn-text)",
-                        cursor: "pointer",
-                        transition: "all 0.15s",
-                        fontWeight: active ? 600 : 400,
-                      }}
-                    >
-                      {label}
-                    </button>
-                  );
-                })}
-              </div>
-
                 <div style={{
                   width: "100%",
                   background: inputBackground,
