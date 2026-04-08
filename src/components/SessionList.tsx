@@ -272,6 +272,10 @@ function SessionCard({
       {/* 展开终端 */}
       <button
         onClick={(e) => { e.stopPropagation(); onExpand(); }}
+        onMouseDown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
         title="展开终端"
         style={{
           background: isWaiting ? "var(--ci-yellow-bg)" : "var(--ci-btn-ghost-bg)",
@@ -302,6 +306,10 @@ function SessionCard({
       {/* 删除 */}
       <button
         onClick={(e) => { e.stopPropagation(); onRemove(); }}
+        onMouseDown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
         style={{
           background: "none", border: "none",
           color: "var(--ci-text-dim)", fontSize: 11,

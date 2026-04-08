@@ -36,6 +36,7 @@ function InstallTerminal({ installId, installCmd, onFinished }: InstallTerminalP
   const termRef = useRef<import("@xterm/xterm").Terminal | null>(null);
   const fitRef = useRef<import("@xterm/addon-fit").FitAddon | null>(null);
   const startedRef = useRef(false);
+  const isWindows = navigator.userAgent.toLowerCase().includes("windows");
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -71,8 +72,8 @@ function InstallTerminal({ installId, installCmd, onFinished }: InstallTerminalP
       invoke("start_pty_session", {
         sessionId: installId,
         workdir: "~",
-        command: "sh",
-        args: ["-c", installCmd],
+        command: isWindows ? "cmd.exe" : "sh",
+        args: isWindows ? ["/d", "/c", installCmd] : ["-c", installCmd],
         cols,
         rows,
         env: null,
@@ -107,7 +108,7 @@ function InstallTerminal({ installId, installCmd, onFinished }: InstallTerminalP
       fitRef.current = null;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [installCmd, installId, isWindows, onFinished]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -117,7 +118,7 @@ function InstallTerminal({ installId, installCmd, onFinished }: InstallTerminalP
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [isWindows]);
 
   return (
     <div
@@ -135,6 +136,7 @@ interface PanelProps {
 }
 
 function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
+  const isWindows = navigator.userAgent.toLowerCase().includes("windows");
   const session = useSessionStore((s) => s.sessions.find((x) => x.id === sessionId));
   const worktreeReady = useSessionStore((s) => s.worktreeReadyIds.has(sessionId));
   const { updateSession, appendOutput, clearOutput } = useSessionStore();
@@ -184,8 +186,8 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
       const bytes = new TextEncoder().encode(q + "\r");
       const b64 = btoa(String.fromCharCode(...bytes));
       invoke("write_pty", { sessionId: sessionIdRef.current, data: b64 }).catch(() => {});
-    }, 200);
-  }, []); // 纯 ref 访问，永不更新引用
+    }, isWindows ? 800 : 200);
+  }, [isWindows]); // 纯 ref 访问，永不更新引用
 
   // PTY 状态回调：Claude 完成一轮回应，等待下一条 query
   const handlePtyWaiting = useCallback(() => {
@@ -276,7 +278,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
 
   const runner = sanitizeRunnerConfig(session?.runner ?? settings.runner);
   const isNativeMode = runner.type === "native";
-  const supportsPromptLaunch = runner.type === "claude-code" || runner.type === "codex";
+  const supportsPromptLaunch = !isWindows && (runner.type === "claude-code" || runner.type === "codex");
 
   const cliCommand =
     runner.type === "claude-code" ? runner.cliPath || "claude"
@@ -303,10 +305,11 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
   }, [recheckCli]);
 
   useEffect(() => {
-    setLaunchPrompt(null);
     ptyReadyRef.current = false;
+    if (!ptyEverActive) return;
+    setLaunchPrompt(null);
     pendingQueryRef.current = null;
-  }, [sessionId, runner.type, cliCommand, session?.workdir]);
+  }, [runner.type, cliCommand, session?.workdir, ptyEverActive]);
 
   // PTY 退出后标记 done
   useEffect(() => {
@@ -514,6 +517,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     : cliCommand.split("/").pop() ?? cliCommand;
 
   const isRunning = session.status === "running";
+  const waitingForPtyLaunch = !isNativeMode && querySent && !ptyEverActive;
   const sessionOutput = session.output ?? [];
   const installCmd = CLI_INSTALL_CMD[runner.type];
 
@@ -588,6 +592,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
         <button
           data-tauri-drag-region
           onClick={() => openSettings("runner")}
+          onMouseDown={(e) => e.stopPropagation()}
           title="切换 Runner"
           style={{
             fontSize: 10, padding: "2px 8px", borderRadius: 99,
@@ -624,6 +629,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
           <button
             data-tauri-drag-region
             onClick={() => { setInstalling(false); recheckCli(); }}
+            onMouseDown={(e) => e.stopPropagation()}
             style={{
               background: "var(--ci-pty-btn-bg)",
               border: "1px solid var(--ci-pty-btn-border)",
@@ -639,6 +645,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
           <button
             data-tauri-drag-region
             onClick={onClose}
+            onMouseDown={(e) => e.stopPropagation()}
             style={{
               background: "var(--ci-pty-btn-bg)",
               border: "1px solid var(--ci-pty-btn-border)",
@@ -729,8 +736,8 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
         {!isNativeMode && (
           <div style={{
             flex: 1, overflow: "hidden", padding: "8px 4px 4px",
-            opacity: querySent ? 1 : 0,
-            pointerEvents: querySent ? "auto" : "none",
+            opacity: querySent && ptyEverActive ? 1 : 0,
+            pointerEvents: querySent && ptyEverActive ? "auto" : "none",
           }}>
             <PtyTerminal
               key={ptyKey}
@@ -756,7 +763,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
 
         {/* Query 输入遮罩 */}
         <AnimatePresence>
-          {!querySent && !installing && (
+          {(!querySent || waitingForPtyLaunch) && !installing && (
             <motion.div
               key="query-input"
               initial={{ opacity: 0 }}
@@ -774,11 +781,11 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
             >
               <div style={{
                 width: 40, height: 40, borderRadius: 12,
-                background: "rgba(0,122,255,0.14)",
-                border: "1px solid rgba(0,122,255,0.28)",
+                background: waitingForPtyLaunch ? "rgba(255,159,10,0.14)" : "rgba(0,122,255,0.14)",
+                border: waitingForPtyLaunch ? "1px solid rgba(255,159,10,0.28)" : "1px solid rgba(0,122,255,0.28)",
                 display: "flex", alignItems: "center", justifyContent: "center",
                 fontSize: 20, flexShrink: 0,
-                color: "#60a5fa",
+                color: waitingForPtyLaunch ? "#ffbf40" : "#60a5fa",
               }}>
                 ✦
               </div>
@@ -795,6 +802,22 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
               </div>
 
               {/* Runner 快速切换 */}
+              {waitingForPtyLaunch && (
+                <div style={{
+                  width: "100%",
+                  background: "rgba(255,159,10,0.10)",
+                  border: "1px solid rgba(255,159,10,0.28)",
+                  borderRadius: 9,
+                  padding: "10px 14px",
+                  fontSize: 11,
+                  color: "rgba(255,195,80,0.92)",
+                  lineHeight: "1.6",
+                  textAlign: "center",
+                }}>
+                  棣栨潯鎸囦护宸叉帓闃燂紝姝ｅ湪绛夊緟 worktree 鍜?PTY 鍑嗗瀹屾垚銆?
+                </div>
+              )}
+
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "center" }}>
                 {(Object.entries(RUNNER_LABELS) as [RunnerType, string][]).map(([type, label]) => {
                   const active = runner.type === type;
@@ -802,14 +825,16 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
                     <button
                       key={type}
                       onClick={() => handleSwitchRunner(type)}
+                      disabled={waitingForPtyLaunch}
                       style={{
                         fontSize: 10, padding: "3px 10px", borderRadius: 99,
                         background: active ? "var(--ci-pty-runner-bg)" : "var(--ci-pty-btn-bg)",
                         border: `1px solid ${active ? "var(--ci-pty-runner-border)" : "var(--ci-pty-btn-border)"}`,
                         color: active ? "var(--ci-pty-runner-text)" : "var(--ci-pty-btn-text)",
-                        cursor: "pointer",
+                        cursor: waitingForPtyLaunch ? "default" : "pointer",
                         transition: "all 0.15s",
                         fontWeight: active ? 600 : 400,
+                        opacity: waitingForPtyLaunch ? 0.7 : 1,
                       }}
                     >
                       {label}
@@ -888,6 +913,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
                   onChange={e => setPendingQuery(e.target.value)}
                   placeholder="例：重构 auth 模块，添加 JWT 支持…"
                   rows={3}
+                  readOnly={waitingForPtyLaunch}
                   style={{
                     flex: 1, background: "none", border: "none", outline: "none",
                     color: "var(--ci-pty-input-text)", fontSize: 13, lineHeight: "1.6",

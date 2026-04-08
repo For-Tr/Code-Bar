@@ -11,7 +11,9 @@ mod state;
 mod util;
 mod window;
 
-use state::{PopupVisible, PreExpandPos, RestoringLock, ProcessMap, PtyKillerMap, PtyMasterMap, PtyWriterMap};
+use state::{
+    PopupVisible, PreExpandPos, ProcessMap, PtyKillerMap, PtyMasterMap, PtyWriterMap, RestoringLock,
+};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -96,9 +98,10 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             window::setup_popup_window(&win);
 
+            window::position_popup(app.handle(), &win);
+
             // 系统托盘
-            let quit_item =
-                MenuItem::with_id(app, "quit", "退出 Code Bar", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "quit", "退出 Code Bar", true, None::<&str>)?;
             let tray_menu = Menu::with_items(app, &[&quit_item])?;
 
             let tray = TrayIconBuilder::new()

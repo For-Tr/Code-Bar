@@ -154,6 +154,7 @@ export function PtyTerminal({
 
   useEffect(() => {
     return () => {
+      if (!startedRef.current) return;
       invoke("stop_pty_session", { sessionId }).catch(() => {});
     };
   }, [sessionId]);
