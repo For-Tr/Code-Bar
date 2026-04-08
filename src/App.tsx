@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { setLiquidGlassEffect, GlassMaterialVariant } from "tauri-plugin-liquid-glass-api";
 import { motion, AnimatePresence } from "framer-motion";
 import { TitleBar } from "./components/TitleBar";
 import { WorkspaceStack } from "./components/WorkspaceStack";
@@ -11,7 +12,11 @@ import { StatusBar } from "./components/StatusBar";
 import { SessionDetail } from "./components/SessionDetail";
 import Settings from "./components/Settings";
 import { useSessionStore, DiffFile } from "./store/sessionStore";
-import { useSettingsStore } from "./store/settingsStore";
+import {
+  useSettingsStore,
+  isGlassTheme,
+  type ThemeMode,
+} from "./store/settingsStore";
 import { useWorkspaceStore } from "./store/workspaceStore";
 
 const spring = { type: "spring" as const, stiffness: 320, damping: 28, mass: 1 };
@@ -29,11 +34,11 @@ export default function App() {
 
   const { settings } = useSettingsStore();
   const { activeWorkspaceId } = useWorkspaceStore();
-  const isGlass = settings.theme === "glass";
+  const isGlass = isGlassTheme(settings.theme);
 
   // ── 主题注入：根据 settings.theme 向 :root 写入 CSS 变量 ──────
   useEffect(() => {
-    const applyTheme = (mode: "light" | "dark" | "glass") => {
+    const applyTheme = (mode: Exclude<ThemeMode, "system">) => {
       const root = document.documentElement;
       if (mode === "dark") {
         // Dark mode tokens
@@ -115,84 +120,84 @@ export default function App() {
         root.style.setProperty("--ci-pty-runner-text",      "#60a5fa");
         root.style.setProperty("--ci-pty-term-bg",          "#0a0a0c");
         root.setAttribute("data-theme", "dark");
-      } else if (mode === "glass") {
-        root.style.setProperty("--ci-bg",          "rgba(255,255,255,0.016)");
-        root.style.setProperty("--ci-bg-grad",      "rgba(255,255,255,0.012)");
-        root.style.setProperty("--ci-surface",      "rgba(255,255,255,0.028)");
-        root.style.setProperty("--ci-surface-hi",   "rgba(255,255,255,0.042)");
-        root.style.setProperty("--ci-border",       "rgba(255,255,255,0.22)");
-        root.style.setProperty("--ci-border-med",   "rgba(255,255,255,0.30)");
-        root.style.setProperty("--ci-border-hi",    "rgba(134,194,255,0.44)");
-        root.style.setProperty("--ci-text",         "#16304e");
-        root.style.setProperty("--ci-text-muted",   "rgba(39,69,104,0.68)");
-        root.style.setProperty("--ci-text-dim",     "rgba(39,69,104,0.42)");
-        root.style.setProperty("--ci-accent",       "#2d8cff");
-        root.style.setProperty("--ci-accent-bg",    "rgba(63,145,255,0.06)");
-        root.style.setProperty("--ci-accent-bdr",   "rgba(96,175,255,0.20)");
-        root.style.setProperty("--ci-green",        "#34C759");
-        root.style.setProperty("--ci-green-dark",   "#19793a");
-        root.style.setProperty("--ci-green-bg",     "rgba(52,199,89,0.10)");
-        root.style.setProperty("--ci-green-bdr",    "rgba(52,199,89,0.18)");
-        root.style.setProperty("--ci-red",          "#FF3B30");
-        root.style.setProperty("--ci-yellow",       "#FF9F0A");
-        root.style.setProperty("--ci-yellow-dark",  "#a96500");
-        root.style.setProperty("--ci-yellow-bg",    "rgba(255,159,10,0.10)");
-        root.style.setProperty("--ci-yellow-bdr",   "rgba(255,159,10,0.18)");
-        root.style.setProperty("--ci-purple",       "#5856d6");
-        root.style.setProperty("--ci-purple-bg",    "rgba(88,86,214,0.10)");
-        root.style.setProperty("--ci-purple-bdr",   "rgba(88,86,214,0.16)");
-        root.style.setProperty("--ci-code-bg",      "rgba(249,252,255,0.14)");
-        root.style.setProperty("--ci-added-bg",     "rgba(52,199,89,0.08)");
-        root.style.setProperty("--ci-added-text",   "#1a7f37");
-        root.style.setProperty("--ci-deleted-bg",   "rgba(255,59,48,0.08)");
+      } else if (isGlassTheme(mode)) {
+        root.style.setProperty("--ci-bg", "transparent");
+        root.style.setProperty("--ci-bg-grad", "rgba(255,255,255,0.02)");
+        root.style.setProperty("--ci-surface", "rgba(255,255,255,0.03)");
+        root.style.setProperty("--ci-surface-hi", "rgba(255,255,255,0.05)");
+        root.style.setProperty("--ci-border", "rgba(255,255,255,0.08)");
+        root.style.setProperty("--ci-border-med", "rgba(255,255,255,0.12)");
+        root.style.setProperty("--ci-border-hi", "rgba(134,194,255,0.22)");
+        root.style.setProperty("--ci-text", "#16304e");
+        root.style.setProperty("--ci-text-muted", "rgba(39,69,104,0.68)");
+        root.style.setProperty("--ci-text-dim", "rgba(39,69,104,0.42)");
+        root.style.setProperty("--ci-accent", "#2d8cff");
+        root.style.setProperty("--ci-accent-bg", "rgba(63,145,255,0.08)");
+        root.style.setProperty("--ci-accent-bdr", "rgba(96,175,255,0.18)");
+        root.style.setProperty("--ci-green", "#34C759");
+        root.style.setProperty("--ci-green-dark", "#19793a");
+        root.style.setProperty("--ci-green-bg", "rgba(52,199,89,0.08)");
+        root.style.setProperty("--ci-green-bdr", "rgba(52,199,89,0.16)");
+        root.style.setProperty("--ci-red", "#FF3B30");
+        root.style.setProperty("--ci-yellow", "#FF9F0A");
+        root.style.setProperty("--ci-yellow-dark", "#a96500");
+        root.style.setProperty("--ci-yellow-bg", "rgba(255,159,10,0.08)");
+        root.style.setProperty("--ci-yellow-bdr", "rgba(255,159,10,0.16)");
+        root.style.setProperty("--ci-purple", "#5856d6");
+        root.style.setProperty("--ci-purple-bg", "rgba(88,86,214,0.08)");
+        root.style.setProperty("--ci-purple-bdr", "rgba(88,86,214,0.14)");
+        root.style.setProperty("--ci-code-bg", "rgba(255,255,255,0.06)");
+        root.style.setProperty("--ci-added-bg", "rgba(52,199,89,0.06)");
+        root.style.setProperty("--ci-added-text", "#1a7f37");
+        root.style.setProperty("--ci-deleted-bg", "rgba(255,59,48,0.06)");
         root.style.setProperty("--ci-deleted-text", "#c0392b");
-        root.style.setProperty("--ci-scrollbar",    "rgba(29,53,87,0.10)");
-        root.style.setProperty("--ci-btn-ghost-bg",  "rgba(255,255,255,0.032)");
-        root.style.setProperty("--ci-btn-ghost-hover","rgba(255,255,255,0.032)");
-        root.style.setProperty("--ci-close-bg",      "rgba(255,255,255,0.055)");
-        root.style.setProperty("--ci-close-border",  "rgba(255,255,255,0.20)");
-        root.style.setProperty("--ci-window-bg",      "rgba(255,255,255,0.010)");
-        root.style.setProperty("--ci-window-edge",    "rgba(255,255,255,0.24)");
-        root.style.setProperty("--ci-window-shadow",  "0 10px 28px rgba(92,110,138,0.03)");
-        root.style.setProperty("--ci-panel-grad",     "linear-gradient(180deg, rgba(255,255,255,0.040) 0%, rgba(255,255,255,0.018) 100%)");
-        root.style.setProperty("--ci-card-grad",      "linear-gradient(180deg, rgba(255,255,255,0.050) 0%, rgba(255,255,255,0.022) 100%)");
-        root.style.setProperty("--ci-toolbar-bg",     "rgba(255,255,255,0.030)");
-        root.style.setProperty("--ci-toolbar-border", "rgba(255,255,255,0.12)");
-        root.style.setProperty("--ci-status-bg",      "rgba(255,255,255,0.028)");
-        root.style.setProperty("--ci-overlay-bg",     "rgba(242,242,244,0.10)");
-        root.style.setProperty("--ci-glow-a",         "transparent");
-        root.style.setProperty("--ci-glow-b",         "transparent");
-        root.style.setProperty("--ci-inset-highlight","inset 0 0 0 0.5px rgba(255,255,255,0.08)");
-        root.style.setProperty("--ci-shell-blur",     "blur(14px) saturate(1.08) brightness(1.06) contrast(0.92)");
-        root.style.setProperty("--ci-shell-radius",   "24px");
-        root.style.setProperty("--ci-card-shadow",    "0 6px 18px rgba(92,110,138,0.025)");
-        root.style.setProperty("--ci-card-shadow-strong","0 10px 22px rgba(92,110,138,0.035)");
-        root.style.setProperty("--ci-pill-bg",        "rgba(255,255,255,0.030)");
-        root.style.setProperty("--ci-pill-border",    "rgba(255,255,255,0.14)");
-        root.style.setProperty("--ci-primary-shadow", "0 8px 18px rgba(81,149,234,0.045)");
-        root.style.setProperty("--ci-pty-panel-bg",    "rgba(242,242,247,0.97)");
-        root.style.setProperty("--ci-pty-panel-border","rgba(0,0,0,0.09)");
-        root.style.setProperty("--ci-pty-titlebar-bg", "rgba(255,255,255,0.60)");
-        root.style.setProperty("--ci-pty-titlebar-bdr","rgba(0,0,0,0.07)");
+        root.style.setProperty("--ci-scrollbar", "rgba(29,53,87,0.08)");
+        root.style.setProperty("--ci-btn-ghost-bg", "rgba(255,255,255,0.02)");
+        root.style.setProperty("--ci-btn-ghost-hover", "rgba(255,255,255,0.06)");
+        root.style.setProperty("--ci-close-bg", "rgba(255,255,255,0.04)");
+        root.style.setProperty("--ci-close-border", "rgba(255,255,255,0.10)");
+        root.style.setProperty("--ci-window-bg", "transparent");
+        root.style.setProperty("--ci-window-edge", "rgba(255,255,255,0.10)");
+        root.style.setProperty("--ci-window-shadow", "0 0 0 0 transparent");
+        root.style.setProperty("--ci-panel-grad", "transparent");
+        root.style.setProperty("--ci-card-grad", "transparent");
+        root.style.setProperty("--ci-toolbar-bg", "transparent");
+        root.style.setProperty("--ci-toolbar-border", "rgba(255,255,255,0.08)");
+        root.style.setProperty("--ci-status-bg", "transparent");
+        root.style.setProperty("--ci-overlay-bg", "rgba(242,242,244,0.10)");
+        root.style.setProperty("--ci-glow-a", "transparent");
+        root.style.setProperty("--ci-glow-b", "transparent");
+        root.style.setProperty("--ci-inset-highlight", "0 0 0 0 transparent");
+        root.style.setProperty("--ci-shell-blur", "none");
+        root.style.setProperty("--ci-shell-radius", "24px");
+        root.style.setProperty("--ci-card-shadow", "0 0 0 0 transparent");
+        root.style.setProperty("--ci-card-shadow-strong", "0 0 0 0 transparent");
+        root.style.setProperty("--ci-pill-bg", "rgba(255,255,255,0.03)");
+        root.style.setProperty("--ci-pill-border", "rgba(255,255,255,0.10)");
+        root.style.setProperty("--ci-primary-shadow", "0 0 0 0 transparent");
+        root.style.setProperty("--ci-pty-panel-bg", "rgba(242,242,247,0.78)");
+        root.style.setProperty("--ci-pty-panel-border", "rgba(0,0,0,0.08)");
+        root.style.setProperty("--ci-pty-titlebar-bg", "rgba(255,255,255,0.16)");
+        root.style.setProperty("--ci-pty-titlebar-bdr", "rgba(0,0,0,0.06)");
         root.style.setProperty("--ci-pty-title-color", "rgba(28,28,30,0.85)");
-        root.style.setProperty("--ci-pty-mask-bg",     "rgba(246,246,248,0.97)");
-        root.style.setProperty("--ci-pty-mask-title",  "#1c1c1e");
-        root.style.setProperty("--ci-pty-mask-hint",   "rgba(60,60,67,0.45)");
+        root.style.setProperty("--ci-pty-mask-bg", "rgba(246,246,248,0.86)");
+        root.style.setProperty("--ci-pty-mask-title", "#1c1c1e");
+        root.style.setProperty("--ci-pty-mask-hint", "rgba(60,60,67,0.45)");
         root.style.setProperty("--ci-pty-mask-footer", "rgba(60,60,67,0.28)");
-        root.style.setProperty("--ci-pty-input-bg",    "rgba(255,255,255,0.80)");
-        root.style.setProperty("--ci-pty-input-border","rgba(0,0,0,0.10)");
-        root.style.setProperty("--ci-pty-input-text",  "#1c1c1e");
-        root.style.setProperty("--ci-pty-btn-bg",      "rgba(255,255,255,0.34)");
-        root.style.setProperty("--ci-pty-btn-border",  "rgba(115,140,176,0.14)");
-        root.style.setProperty("--ci-pty-btn-text",    "rgba(60,60,67,0.55)");
-        root.style.setProperty("--ci-pty-btn-hover-bg", "rgba(255,255,255,0.50)");
-        root.style.setProperty("--ci-pty-btn-hover-text","rgba(28,28,30,0.9)");
-        root.style.setProperty("--ci-pty-runner-bg",       "rgba(64,156,255,0.08)");
-        root.style.setProperty("--ci-pty-runner-bg-hover",  "rgba(64,156,255,0.15)");
-        root.style.setProperty("--ci-pty-runner-border",    "rgba(64,156,255,0.20)");
-        root.style.setProperty("--ci-pty-runner-text",      "#2d8cff");
-        root.style.setProperty("--ci-pty-term-bg",          "#0a0a0c");
-        root.setAttribute("data-theme", "glass");
+        root.style.setProperty("--ci-pty-input-bg", "rgba(255,255,255,0.36)");
+        root.style.setProperty("--ci-pty-input-border", "rgba(0,0,0,0.08)");
+        root.style.setProperty("--ci-pty-input-text", "#1c1c1e");
+        root.style.setProperty("--ci-pty-btn-bg", "rgba(255,255,255,0.16)");
+        root.style.setProperty("--ci-pty-btn-border", "rgba(0,0,0,0.09)");
+        root.style.setProperty("--ci-pty-btn-text", "rgba(60,60,67,0.55)");
+        root.style.setProperty("--ci-pty-btn-hover-bg", "rgba(255,255,255,0.24)");
+        root.style.setProperty("--ci-pty-btn-hover-text", "rgba(28,28,30,0.9)");
+        root.style.setProperty("--ci-pty-runner-bg", "rgba(64,156,255,0.08)");
+        root.style.setProperty("--ci-pty-runner-bg-hover", "rgba(64,156,255,0.15)");
+        root.style.setProperty("--ci-pty-runner-border", "rgba(64,156,255,0.20)");
+        root.style.setProperty("--ci-pty-runner-text", "#2d8cff");
+        root.style.setProperty("--ci-pty-term-bg", "#0a0a0c");
+        root.setAttribute("data-theme", mode);
       } else {
         // Light mode tokens
         root.style.setProperty("--ci-bg",          "rgba(246,246,248,0.92)");
@@ -286,6 +291,20 @@ export default function App() {
     } else {
       applyTheme(settings.theme);
     }
+  }, [settings.theme]);
+
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+
+    if (settings.theme === "glass") {
+      setLiquidGlassEffect({
+        cornerRadius: 24,
+        variant: GlassMaterialVariant.Clear,
+      }).catch(() => {});
+      return;
+    }
+
+    setLiquidGlassEffect({ enabled: false }).catch(() => {});
   }, [settings.theme]);
 
   // ── 切换 Workspace 时自动将 activeSession 切换到该 Workspace 的第一个 session ──
@@ -576,68 +595,39 @@ export default function App() {
 
   return (
     <>
-    <svg
-      aria-hidden="true"
-      width="0"
-      height="0"
-      style={{ position: "absolute", width: 0, height: 0, pointerEvents: "none" }}
-    >
-      <defs>
-        <filter
-          id="liquid_glass_filter"
-          x="0%"
-          y="0%"
-          width="100%"
-          height="100%"
-          filterUnits="objectBoundingBox"
-          colorInterpolationFilters="sRGB"
-        >
-          <feDisplacementMap scale="200" />
-        </filter>
-      </defs>
-    </svg>
-    {/* ── PTY 终端展开层（位于 popup 外部，常驻挂载） ── */}
-    <SessionDetail />
+      {/* ── PTY 终端展开层（位于 popup 外部，常驻挂载） ── */}
+      <SessionDetail />
 
-    <div style={{
-      width: "100vw",
-      height: "100vh",
-      padding: isGlass ? 0 : "10px",
-      boxSizing: "border-box",
-      background: "transparent",
-    }}>
-      <motion.div
-        transition={spring}
-        className={isGlass ? "liquid-glass-shell" : undefined}
-        style={{
-          width: "100%",
-          height: isGlass ? "100vh" : "calc(100vh - 20px)",
-          position: "relative",
-          borderRadius: "var(--ci-shell-radius)",
-          border: "1px solid var(--ci-window-edge)",
-          background: isGlass ? "transparent" : "var(--ci-window-bg)",
-          boxShadow: "var(--ci-window-shadow)",
-          clipPath: "inset(0 round var(--ci-shell-radius))",
-          overflow: "hidden",
-          display: "flex",
-          flexDirection: "column",
-          isolation: "isolate",
-        }}
-      >
-        {isGlass && (
-          <>
-            <div className="liquid-glass-outer" />
-            <div className="liquid-glass-cover" />
-            <div className="liquid-glass-sharp" />
-            <div className="liquid-glass-reflect" />
-          </>
-        )}
-        <div className={isGlass ? "liquid-glass-shell-content" : undefined} style={!isGlass ? {
-          display: "flex",
-          flex: 1,
-          minHeight: 0,
-          flexDirection: "column",
-        } : undefined}>
+      <div style={{
+        width: "100vw",
+        height: "100vh",
+        padding: isGlass ? 0 : "10px",
+        boxSizing: "border-box",
+        background: "transparent",
+      }}>
+        <motion.div
+          transition={spring}
+          style={{
+            width: "100%",
+            height: isGlass ? "100vh" : "calc(100vh - 20px)",
+            position: "relative",
+            borderRadius: "var(--ci-shell-radius)",
+            border: "1px solid var(--ci-window-edge)",
+            background: isGlass ? "transparent" : "var(--ci-window-bg)",
+            boxShadow: "var(--ci-window-shadow)",
+            clipPath: "inset(0 round var(--ci-shell-radius))",
+            overflow: "hidden",
+            display: "flex",
+            flexDirection: "column",
+            isolation: "isolate",
+          }}
+        >
+          <div style={{
+            display: "flex",
+            flex: 1,
+            minHeight: 0,
+            flexDirection: "column",
+          }}>
           {/* ── Settings 遮罩层 ── */}
           <Settings />
 
@@ -672,7 +662,6 @@ export default function App() {
                   animate={{ opacity: 1, height: "auto" }}
                   exit={{ opacity: 0, height: 0 }}
                   transition={{ duration: 0.2 }}
-                  className={isGlass ? "liquid-glass-card" : undefined}
                   style={{
                     margin: "0 12px 14px",
                     border: "1px solid var(--ci-toolbar-border)",
@@ -731,9 +720,9 @@ export default function App() {
 
           {/* ── 状态栏（固定在底部） ── */}
           <StatusBar session={activeSession} />
-        </div>
-      </motion.div>
-    </div>
+          </div>
+        </motion.div>
+      </div>
     </>
   );
 }

@@ -44,6 +44,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_liquid_glass::init())
         .plugin(tauri_plugin_notification::init())
         .manage(ProcessMap::default())
         .manage(PtyWriterMap::default())

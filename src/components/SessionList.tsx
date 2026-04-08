@@ -2,7 +2,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { invoke } from "@tauri-apps/api/core";
 import { ClaudeSession, SessionStatus, useSessionStore } from "../store/sessionStore";
 import { useWorkspaceStore, getWorkspaceColor } from "../store/workspaceStore";
-import { useSettingsStore, RUNNER_LABELS } from "../store/settingsStore";
+import { useSettingsStore, RUNNER_LABELS, sanitizeRunnerConfig, isGlassTheme } from "../store/settingsStore";
 
 // ── 状态配置（使用 CSS 变量）────────────────────────────────
 const STATUS_CONFIG: Record<SessionStatus, {
@@ -105,7 +105,6 @@ function SessionCard({
       exit={{ opacity: 0, x: -6, height: 0 }}
       transition={{ duration: 0.16 }}
       onClick={onClick}
-      className={isGlass ? "liquid-glass-card" : undefined}
       style={{
         display: "flex", alignItems: "center", gap: 10,
         padding: "11px 12px",
@@ -131,7 +130,7 @@ function SessionCard({
         boxShadow: isActive
           ? "var(--ci-inset-highlight), var(--ci-card-shadow-strong)"
           : "var(--ci-inset-highlight), var(--ci-card-shadow)",
-        backdropFilter: "blur(18px) saturate(1.14)",
+        backdropFilter: isGlass ? "none" : "blur(18px) saturate(1.14)",
       }}
     >
       <div style={{
@@ -356,10 +355,10 @@ export function SessionList() {
   const activeWorkspace = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === activeWorkspaceId)
   );
-  const runner = useSettingsStore((s) => s.settings.runner);
+  const runner = sanitizeRunnerConfig(useSettingsStore((s) => s.settings.runner));
   const runnerType = runner.type;
   const runnerLabel = RUNNER_LABELS[runnerType];
-  const isGlass = useSettingsStore((s) => s.settings.theme === "glass");
+  const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
 
   if (!activeWorkspace) return null;
 
@@ -482,7 +481,6 @@ export function SessionList() {
 
       {wsSessions.length === 0 && (
         <div
-          className={isGlass ? "liquid-glass-card" : undefined}
           style={{
           textAlign: "center", padding: "22px 0 12px",
           color: "var(--ci-text-dim)", fontSize: 12,

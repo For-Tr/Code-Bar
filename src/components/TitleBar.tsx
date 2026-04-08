@@ -1,17 +1,16 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useSessionStore } from "../store/sessionStore";
-import { useSettingsStore } from "../store/settingsStore";
+import { useSettingsStore, isGlassTheme } from "../store/settingsStore";
 import { TrafficLights } from "./TrafficLights";
 
 export function TitleBar() {
   const sessions = useSessionStore((s) => s.sessions);
   const { openSettings } = useSettingsStore();
-  const isGlass = useSettingsStore((s) => s.settings.theme === "glass");
+  const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
 
   return (
     <div
       data-tauri-drag-region
-      className={isGlass ? "liquid-glass-toolbar" : undefined}
       style={{
         display: "flex",
         alignItems: "center",
@@ -60,7 +59,7 @@ export function TitleBar() {
           backdropFilter: isGlass ? "none" : "blur(18px) saturate(1.2)",
           WebkitBackdropFilter: isGlass ? "none" : "blur(18px) saturate(1.2)",
           opacity: 1,
-        }} className={isGlass ? "liquid-glass-pill" : undefined}>
+        }}>
           <span style={{
             color: "var(--ci-text)",
             fontSize: 13,
@@ -99,7 +98,6 @@ export function TitleBar() {
           WebkitBackdropFilter: isGlass ? "none" : "blur(18px) saturate(1.2)",
           opacity: 1,
         }}
-        className={isGlass ? "liquid-glass-pill" : undefined}
         onMouseEnter={e => {
           e.currentTarget.style.background = isGlass ? "var(--ci-pill-bg)" : "var(--ci-btn-ghost-hover)";
           e.currentTarget.style.color = "var(--ci-text)";

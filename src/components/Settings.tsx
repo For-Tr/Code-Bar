@@ -7,6 +7,8 @@ import {
   RUNNER_PROVIDER,
   type RunnerType,
   type ModelProvider,
+  type ThemeMode,
+  isGlassTheme,
 } from "../store/settingsStore";
 // ── Design tokens（使用 CSS 变量，支持深/浅色主题）─────────────
 const C = {
@@ -794,12 +796,12 @@ function HarnessTab() {
 function AppearanceTab() {
   const { settings, patchSettings } = useSettingsStore();
 
-  type ThemeOption = "light" | "dark" | "glass" | "system";
+  type ThemeOption = ThemeMode;
 
   const themeOptions: { value: ThemeOption; label: string; hint: string; icon: string }[] = [
     { value: "light",  label: "浅色",   hint: "始终使用浅色主题",     icon: "☀️" },
     { value: "dark",   label: "深色",   hint: "始终使用深色主题",     icon: "🌙" },
-    { value: "glass",  label: "Glass",  hint: "独立的 macOS 玻璃材质主题", icon: "🫧" },
+    { value: "glass",  label: "原生 Glass",  hint: "使用 Tauri 原生 glass 材质，不再叠前端磨砂", icon: "🫧" },
     { value: "system", label: "跟随系统", hint: "与 macOS 外观设置保持一致", icon: "💻" },
   ];
 
@@ -871,7 +873,7 @@ function AppearanceTab() {
           ✦ 实时生效
         </div>
         <div style={{ fontSize: 11, color: C.textMuted, lineHeight: "1.6" }}>
-          主题切换立即生效，无需重启应用。选择「跟随系统」后，
+          主题切换会立即生效，无需重启应用。选择「跟随系统」后，
           当 macOS 切换深色/浅色模式时界面会自动跟随变化。
         </div>
       </div>
@@ -885,7 +887,7 @@ type SettingsTab = "runner" | "model" | "apikeys" | "harness" | "appearance";
 
 export default function Settings() {
   const { settingsOpen, activeTab, setTab, closeSettings } = useSettingsStore();
-  const isGlass = useSettingsStore((s) => s.settings.theme === "glass");
+  const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
 
   if (!settingsOpen) return null;
 
@@ -908,7 +910,7 @@ export default function Settings() {
       flexDirection: "column",
       overflow: "hidden",
       boxShadow: "var(--ci-inset-highlight)",
-    }} className={isGlass ? "liquid-glass-panel" : undefined}>
+    }}>
       {/* Header */}
       <div style={{
         display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -954,7 +956,7 @@ export default function Settings() {
           borderRadius: 9, padding: 2, gap: 0,
           width: "100%",
           boxShadow: "var(--ci-inset-highlight)",
-        }} className={isGlass ? "liquid-glass-pill" : undefined}>
+        }}>
           {tabs.map((t) => {
             const active = activeTab === t.id;
             return (

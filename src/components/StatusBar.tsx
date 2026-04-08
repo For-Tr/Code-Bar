@@ -1,5 +1,5 @@
 import { ClaudeSession, SessionStatus } from "../store/sessionStore";
-import { useSettingsStore } from "../store/settingsStore";
+import { useSettingsStore, isGlassTheme } from "../store/settingsStore";
 
 const STATUS_LABEL: Record<SessionStatus, string> = {
   idle:    "空闲",
@@ -19,7 +19,7 @@ const STATUS_COLOR: Record<SessionStatus, string> = {
 };
 
 export function StatusBar({ session }: { session?: ClaudeSession }) {
-  const isGlass = useSettingsStore((s) => s.settings.theme === "glass");
+  const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
 
   return (
     <div style={{
@@ -29,7 +29,7 @@ export function StatusBar({ session }: { session?: ClaudeSession }) {
       background: "var(--ci-status-bg)",
       backdropFilter: isGlass ? "none" : "blur(18px) saturate(1.2)",
       WebkitBackdropFilter: isGlass ? "none" : "blur(18px) saturate(1.2)",
-    }} className={isGlass ? "liquid-glass-toolbar" : undefined}>
+    }}>
       <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
         {session && (
           <>
@@ -47,7 +47,7 @@ export function StatusBar({ session }: { session?: ClaudeSession }) {
               background: "var(--ci-pill-bg)",
               border: "1px solid var(--ci-pill-border)",
               boxShadow: "var(--ci-inset-highlight)",
-            }} className={isGlass ? "liquid-glass-pill" : undefined}>
+            }}>
               {session.workdir}
             </span>
             <span style={{

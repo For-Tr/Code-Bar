@@ -10,7 +10,7 @@ import {
   type WorkspaceColorId,
 } from "../store/workspaceStore";
 import { useSessionStore } from "../store/sessionStore";
-import { useSettingsStore } from "../store/settingsStore";
+import { useSettingsStore, isGlassTheme } from "../store/settingsStore";
 
 // ── 常量 ─────────────────────────────────────────────────────
 const CARD_H = 38;
@@ -21,7 +21,7 @@ const SPRING = { type: "spring" as const, stiffness: 380, damping: 30 };
 // ── 新建 Workspace 内联表单 ───────────────────────────────────
 function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
   const { addWorkspace } = useWorkspaceStore();
-  const isGlass = useSettingsStore((s) => s.settings.theme === "glass");
+  const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
   const [name, setName] = useState("");
   const [path, setPath] = useState("");
   const [color, setColor] = useState<WorkspaceColorId>("blue");
@@ -74,8 +74,8 @@ function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
         display: "flex", flexDirection: "column", gap: 10,
         marginBottom: 6,
         boxShadow: "var(--ci-inset-highlight), var(--ci-card-shadow-strong)",
-        backdropFilter: "blur(18px) saturate(1.2)",
-      }} className={isGlass ? "liquid-glass-card" : undefined}>
+        backdropFilter: isGlass ? "none" : "blur(18px) saturate(1.2)",
+      }}>
         <div style={{
           fontSize: 12, fontWeight: 600,
           color: "var(--ci-text)", letterSpacing: -0.2,
@@ -183,7 +183,7 @@ function WorkspaceCardExpanded({
   onClick: () => void;
   onRemove: () => void;
 }) {
-  const isGlass = useSettingsStore((s) => s.settings.theme === "glass");
+  const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
   const color = getWorkspaceColor(ws.color);
   const sessionCount = useSessionStore((s) =>
     s.sessions.filter((sess) => sess.workspaceId === ws.id).length
@@ -201,7 +201,6 @@ function WorkspaceCardExpanded({
       exit={{ opacity: 0, y: -8, height: 0 }}
       transition={SPRING}
       onClick={onClick}
-      className={isGlass ? "liquid-glass-card" : undefined}
       style={{
         position: "relative",
         display: "flex", alignItems: "center", gap: 10,
@@ -217,7 +216,7 @@ function WorkspaceCardExpanded({
         boxShadow: isActive
           ? `var(--ci-inset-highlight), var(--ci-card-shadow-strong)`
           : "var(--ci-inset-highlight), var(--ci-card-shadow)",
-        backdropFilter: "blur(20px) saturate(1.15)",
+        backdropFilter: isGlass ? "none" : "blur(20px) saturate(1.15)",
       }}
     >
       {/* 颜色圆点 */}
@@ -310,7 +309,7 @@ function WorkspaceStackCollapsed({
 }) {
   const sorted = [...workspaces].sort((a, b) => a.order - b.order);
   const top = sorted[0];
-  const isGlass = useSettingsStore((s) => s.settings.theme === "glass");
+  const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
 
   if (!top) return null;
 
@@ -345,14 +344,13 @@ function WorkspaceStackCollapsed({
             boxShadow: "var(--ci-inset-highlight), var(--ci-card-shadow)",
             // 颜色细条提示
             borderTop: `2.5px solid ${pColor}50`,
-          }} className={isGlass ? "liquid-glass-card" : undefined} />
+          }} />
         );
       })}
 
       {/* 顶层卡片 */}
       <motion.div
         layoutId={`ws-card-${top.id}`}
-        className={isGlass ? "liquid-glass-card" : undefined}
         style={{
           position: "absolute",
           top: 0, left: 0, right: 0,
@@ -365,7 +363,7 @@ function WorkspaceStackCollapsed({
           display: "flex", alignItems: "center", gap: 10,
           padding: "0 12px",
           boxShadow: "var(--ci-inset-highlight), var(--ci-card-shadow-strong)",
-          backdropFilter: "blur(20px) saturate(1.15)",
+          backdropFilter: isGlass ? "none" : "blur(20px) saturate(1.15)",
         }}
         whileHover={isGlass ? undefined : { scale: 1.01 }}
         transition={SPRING}
@@ -428,7 +426,7 @@ function WorkspaceStackCollapsed({
 export function WorkspaceStack() {
   const { workspaces, activeWorkspaceId, bringToFront, removeWorkspace } = useWorkspaceStore();
   const { removeSessionsByWorkspace } = useSessionStore();
-  const isGlass = useSettingsStore((s) => s.settings.theme === "glass");
+  const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
   const sorted = useWorkspacesSorted();
 
   const [expanded, setExpanded] = useState(false);
