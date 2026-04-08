@@ -1,11 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useSessionStore } from "../store/sessionStore";
-import { useSettingsStore } from "../store/settingsStore";
+import { useSettingsStore, isGlassTheme } from "../store/settingsStore";
 import { TrafficLights } from "./TrafficLights";
 
 export function TitleBar() {
   const sessions = useSessionStore((s) => s.sessions);
   const { openSettings } = useSettingsStore();
+  const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
+  const textShadow = isGlass ? "var(--ci-glass-text-shadow)" : "none";
+  const strongTextShadow = isGlass ? "var(--ci-glass-text-shadow-strong)" : "none";
 
   return (
     <div
@@ -14,12 +17,17 @@ export function TitleBar() {
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
-        padding: "11px 14px 10px",
-        borderBottom: "1px solid var(--ci-border)",
+        padding: "14px 16px 12px",
+        borderBottom: isGlass ? "none" : "1px solid var(--ci-toolbar-border)",
         cursor: "grab",
         userSelect: "none",
         WebkitUserSelect: "none",
-        background: "transparent",
+        background: isGlass ? "var(--ci-toolbar-bg)" : "var(--ci-toolbar-bg)",
+        backdropFilter: isGlass ? "none" : "blur(18px) saturate(1.3)",
+        WebkitBackdropFilter: isGlass ? "none" : "blur(18px) saturate(1.3)",
+        position: "relative",
+        zIndex: 2,
+        textShadow,
       }}
     >
       {/* 左侧：交通灯按钮区 */}
@@ -33,32 +41,48 @@ export function TitleBar() {
         gap: 6,
       }}>
         <div style={{
-          width: 18, height: 18, borderRadius: 5,
-          background: "linear-gradient(135deg, #5e5ce6, #7c6df0)",
+          width: 20, height: 20, borderRadius: 7,
+          background: "linear-gradient(135deg, var(--ci-accent), #a78bfa)",
           display: "flex", alignItems: "center", justifyContent: "center",
           fontSize: 10, flexShrink: 0,
-          boxShadow: "0 1px 4px rgba(94,92,230,0.4)",
+          boxShadow: "0 6px 18px rgba(90,120,255,0.28)",
+          color: "#fff",
         }}>
           ⌘
         </div>
-        <span style={{
-          color: "var(--ci-text)",
-          fontSize: 13,
-          fontWeight: 600,
-          letterSpacing: "-0.02em",
+        <div style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "7px 11px",
+          borderRadius: 999,
+          background: "var(--ci-pill-bg)",
+          border: "1px solid var(--ci-pill-border)",
+          boxShadow: "var(--ci-inset-highlight), var(--ci-card-shadow)",
+          backdropFilter: isGlass ? "none" : "blur(18px) saturate(1.2)",
+          WebkitBackdropFilter: isGlass ? "none" : "blur(18px) saturate(1.2)",
+          opacity: 1,
+          textShadow: strongTextShadow,
         }}>
-          Code Bar
-        </span>
-        {sessions.length > 0 && (
           <span style={{
-            fontSize: 10, padding: "1px 6px", borderRadius: 99,
-            background: "var(--ci-accent-bg)",
-            color: "var(--ci-accent)",
+            color: "var(--ci-text)",
+            fontSize: 13,
             fontWeight: 600,
+            letterSpacing: "-0.02em",
           }}>
-            {sessions.length}
+            Code Bar
           </span>
-        )}
+          {sessions.length > 0 && (
+            <span style={{
+              fontSize: 10, padding: "2px 7px", borderRadius: 99,
+              background: "var(--ci-accent-bg)",
+              color: "var(--ci-accent)",
+              fontWeight: 700,
+            }}>
+              {sessions.length}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* 右侧：设置按钮 */}
@@ -66,20 +90,25 @@ export function TitleBar() {
         onClick={() => openSettings()}
         title="设置"
         style={{
-          background: "var(--ci-btn-ghost-bg)",
-          border: "0.5px solid var(--ci-border)",
+          background: "var(--ci-pill-bg)",
+          border: "1px solid var(--ci-pill-border)",
           color: "var(--ci-text-muted)",
-          borderRadius: 6, width: 26, height: 26,
+          borderRadius: 999, width: 30, height: 30,
           cursor: "pointer",
           display: "flex", alignItems: "center", justifyContent: "center",
-          transition: "all 0.15s",
+          transition: "color 0.15s, border-color 0.15s",
+          boxShadow: "var(--ci-inset-highlight), var(--ci-card-shadow)",
+          backdropFilter: isGlass ? "none" : "blur(18px) saturate(1.2)",
+          WebkitBackdropFilter: isGlass ? "none" : "blur(18px) saturate(1.2)",
+          opacity: 1,
+          textShadow,
         }}
         onMouseEnter={e => {
-          e.currentTarget.style.background = "var(--ci-btn-ghost-hover)";
+          e.currentTarget.style.background = isGlass ? "var(--ci-pill-bg)" : "var(--ci-btn-ghost-hover)";
           e.currentTarget.style.color = "var(--ci-text)";
         }}
         onMouseLeave={e => {
-          e.currentTarget.style.background = "var(--ci-btn-ghost-bg)";
+          e.currentTarget.style.background = "var(--ci-pill-bg)";
           e.currentTarget.style.color = "var(--ci-text-muted)";
         }}
       >

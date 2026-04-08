@@ -1,4 +1,5 @@
 import { ClaudeSession, SessionStatus } from "../store/sessionStore";
+import { useSettingsStore, isGlassTheme } from "../store/settingsStore";
 
 const STATUS_LABEL: Record<SessionStatus, string> = {
   idle:    "空闲",
@@ -18,11 +19,18 @@ const STATUS_COLOR: Record<SessionStatus, string> = {
 };
 
 export function StatusBar({ session }: { session?: ClaudeSession }) {
+  const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
+  const textShadow = isGlass ? "var(--ci-glass-text-shadow)" : "none";
+
   return (
     <div style={{
-      padding: "5px 14px 9px",
+      padding: "10px 16px 12px",
       display: "flex", alignItems: "center", justifyContent: "space-between",
-      borderTop: "1px solid var(--ci-border)",
+      borderTop: isGlass ? "none" : "1px solid var(--ci-toolbar-border)",
+      background: "var(--ci-status-bg)",
+      backdropFilter: isGlass ? "none" : "blur(18px) saturate(1.2)",
+      WebkitBackdropFilter: isGlass ? "none" : "blur(18px) saturate(1.2)",
+      textShadow,
     }}>
       <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
         {session && (
@@ -36,6 +44,11 @@ export function StatusBar({ session }: { session?: ClaudeSession }) {
               fontSize: 10, color: "var(--ci-text-dim)",
               overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
               fontFamily: "-apple-system, monospace",
+              padding: "4px 8px",
+              borderRadius: 999,
+              background: "var(--ci-pill-bg)",
+              border: "1px solid var(--ci-pill-border)",
+              boxShadow: "var(--ci-inset-highlight)",
             }}>
               {session.workdir}
             </span>
@@ -59,6 +72,8 @@ export function StatusBar({ session }: { session?: ClaudeSession }) {
         flexShrink: 0,
         fontWeight: 400,
         opacity: 0.7,
+        letterSpacing: "0.04em",
+        textTransform: "uppercase",
       }}>
         esc 关闭
       </span>

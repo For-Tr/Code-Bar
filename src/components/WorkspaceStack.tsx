@@ -10,6 +10,7 @@ import {
   type WorkspaceColorId,
 } from "../store/workspaceStore";
 import { useSessionStore } from "../store/sessionStore";
+import { useSettingsStore, isGlassTheme } from "../store/settingsStore";
 
 // ── 常量 ─────────────────────────────────────────────────────
 const CARD_H = 38;
@@ -20,6 +21,8 @@ const SPRING = { type: "spring" as const, stiffness: 380, damping: 30 };
 // ── 新建 Workspace 内联表单 ───────────────────────────────────
 function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
   const { addWorkspace } = useWorkspaceStore();
+  const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
+  const textShadow = isGlass ? "var(--ci-glass-text-shadow)" : "none";
   const [name, setName] = useState("");
   const [path, setPath] = useState("");
   const [color, setColor] = useState<WorkspaceColorId>("blue");
@@ -66,12 +69,14 @@ function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
       style={{ overflow: "hidden" }}
     >
       <div style={{
-        background: "var(--ci-surface-hi)",
-        border: "1px solid var(--ci-border)",
-        borderRadius: 12, padding: 14,
+        background: isGlass ? "var(--ci-card-grad)" : "var(--ci-card-grad)",
+        border: "1px solid var(--ci-pill-border)",
+        borderRadius: 18, padding: 16,
         display: "flex", flexDirection: "column", gap: 10,
         marginBottom: 6,
-        boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
+        boxShadow: "var(--ci-inset-highlight), var(--ci-card-shadow-strong)",
+        backdropFilter: isGlass ? "none" : "blur(18px) saturate(1.2)",
+        textShadow,
       }}>
         <div style={{
           fontSize: 12, fontWeight: 600,
@@ -157,7 +162,10 @@ function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
               boxShadow: "0 1px 4px rgba(0,122,255,0.35)",
               transition: "filter 0.12s",
             }}
-            onMouseEnter={e => e.currentTarget.style.filter = "brightness(1.1)"}
+            onMouseEnter={e => {
+              if (isGlass) return;
+              e.currentTarget.style.filter = "brightness(1.1)";
+            }}
             onMouseLeave={e => e.currentTarget.style.filter = "none"}
           >创建</button>
         </div>
@@ -177,6 +185,8 @@ function WorkspaceCardExpanded({
   onClick: () => void;
   onRemove: () => void;
 }) {
+  const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
+  const textShadow = isGlass ? "var(--ci-glass-text-shadow)" : "none";
   const color = getWorkspaceColor(ws.color);
   const sessionCount = useSessionStore((s) =>
     s.sessions.filter((sess) => sess.workspaceId === ws.id).length
@@ -198,15 +208,19 @@ function WorkspaceCardExpanded({
         position: "relative",
         display: "flex", alignItems: "center", gap: 10,
         padding: "9px 12px",
-        borderRadius: 10,
-        background: isActive ? "var(--ci-surface-hi)" : "var(--ci-surface)",
+        borderRadius: 16,
+        background: isActive ? "var(--ci-card-grad)" : "var(--ci-panel-grad)",
         border: isActive
-          ? `1px solid ${color}50`
-          : "1px solid var(--ci-border)",
+          ? `1px solid ${color}58`
+          : "1px solid var(--ci-pill-border)",
         cursor: "pointer",
         zIndex: total - index,
-        transition: "background 0.15s, border-color 0.15s",
-        boxShadow: isActive ? `0 1px 6px rgba(0,0,0,0.08)` : "none",
+        transition: isGlass ? "border-color 0.15s, color 0.15s" : "background 0.15s, border-color 0.15s",
+        boxShadow: isActive
+          ? `var(--ci-inset-highlight), var(--ci-card-shadow-strong)`
+          : "var(--ci-inset-highlight), var(--ci-card-shadow)",
+        backdropFilter: isGlass ? "none" : "blur(20px) saturate(1.15)",
+        textShadow,
       }}
     >
       {/* 颜色圆点 */}
@@ -272,7 +286,7 @@ function WorkspaceCardExpanded({
         }}
         onMouseEnter={e => {
           e.currentTarget.style.color = "var(--ci-red)";
-          e.currentTarget.style.background = "var(--ci-deleted-bg)";
+          e.currentTarget.style.background = isGlass ? "none" : "var(--ci-deleted-bg)";
         }}
         onMouseLeave={e => {
           e.currentTarget.style.color = "var(--ci-text-dim)";
@@ -299,6 +313,8 @@ function WorkspaceStackCollapsed({
 }) {
   const sorted = [...workspaces].sort((a, b) => a.order - b.order);
   const top = sorted[0];
+  const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
+  const textShadow = isGlass ? "var(--ci-glass-text-shadow)" : "none";
 
   if (!top) return null;
 
@@ -326,11 +342,11 @@ function WorkspaceStackCollapsed({
             left: CARD_OFFSET_X * layerIdx,
             right: -(CARD_OFFSET_X * layerIdx),
             height: CARD_H,
-            borderRadius: 10,
-            background: "var(--ci-surface)",
-            border: "1px solid var(--ci-border)",
+            borderRadius: 14,
+            background: "var(--ci-panel-grad)",
+            border: "1px solid var(--ci-pill-border)",
             zIndex: 10 - layerIdx,
-            boxShadow: `0 1px 3px rgba(0,0,0,0.05)`,
+            boxShadow: "var(--ci-inset-highlight), var(--ci-card-shadow)",
             // 颜色细条提示
             borderTop: `2.5px solid ${pColor}50`,
           }} />
@@ -344,16 +360,18 @@ function WorkspaceStackCollapsed({
           position: "absolute",
           top: 0, left: 0, right: 0,
           height: CARD_H,
-          borderRadius: 10,
-          background: "var(--ci-surface-hi)",
-          border: "1px solid var(--ci-border-med)",
+          borderRadius: 16,
+          background: "var(--ci-card-grad)",
+          border: "1px solid var(--ci-pill-border)",
           borderTop: `2.5px solid ${topColor}`,
           zIndex: 20,
           display: "flex", alignItems: "center", gap: 10,
           padding: "0 12px",
-          boxShadow: "0 2px 8px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.06)",
+          boxShadow: "var(--ci-inset-highlight), var(--ci-card-shadow-strong)",
+          backdropFilter: isGlass ? "none" : "blur(20px) saturate(1.15)",
+          textShadow,
         }}
-        whileHover={{ scale: 1.01 }}
+        whileHover={isGlass ? undefined : { scale: 1.01 }}
         transition={SPRING}
       >
         {/* 颜色点 */}
@@ -414,6 +432,7 @@ function WorkspaceStackCollapsed({
 export function WorkspaceStack() {
   const { workspaces, activeWorkspaceId, bringToFront, removeWorkspace } = useWorkspaceStore();
   const { removeSessionsByWorkspace } = useSessionStore();
+  const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
   const sorted = useWorkspacesSorted();
 
   const [expanded, setExpanded] = useState(false);
@@ -444,6 +463,10 @@ export function WorkspaceStack() {
                 transition: "background 0.15s, border-color 0.15s",
               }}
               onMouseEnter={e => {
+                if (isGlass) {
+                  e.currentTarget.style.borderColor = "var(--ci-pill-border)";
+                  return;
+                }
                 e.currentTarget.style.background = "var(--ci-surface-hi)";
                 e.currentTarget.style.borderColor = "var(--ci-accent-bdr)";
               }}
@@ -467,11 +490,11 @@ export function WorkspaceStack() {
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       {/* ── 标题栏 ── */}
       <div style={{
         display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "0 2px 4px",
+        padding: "0 2px 6px",
       }}>
         <span style={{
           fontSize: 11, color: "var(--ci-text-dim)", fontWeight: 600,
@@ -485,14 +508,22 @@ export function WorkspaceStack() {
             <button
               onClick={() => setExpanded(v => !v)}
               style={{
-                background: "none", border: "none",
+                background: "var(--ci-pill-bg)", border: "1px solid var(--ci-pill-border)",
                 color: "var(--ci-accent)", fontSize: 11,
-                cursor: "pointer", padding: "2px 6px", borderRadius: 5,
+                cursor: "pointer", padding: "4px 9px", borderRadius: 999,
                 fontWeight: 500,
-                transition: "background 0.12s",
+                transition: "background 0.12s, border-color 0.12s",
+                boxShadow: "var(--ci-inset-highlight)",
               }}
-              onMouseEnter={e => e.currentTarget.style.background = "var(--ci-accent-bg)"}
-              onMouseLeave={e => e.currentTarget.style.background = "none"}
+              onMouseEnter={e => {
+                if (isGlass) return;
+                e.currentTarget.style.background = "var(--ci-accent-bg)";
+                e.currentTarget.style.borderColor = "var(--ci-accent-bdr)";
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.background = "var(--ci-pill-bg)";
+                e.currentTarget.style.borderColor = "var(--ci-pill-border)";
+              }}
             >
               {expanded ? "收起" : "全部"}
             </button>
@@ -501,15 +532,16 @@ export function WorkspaceStack() {
           <button
             onClick={() => setShowForm(v => !v)}
             style={{
-              background: showForm ? "var(--ci-accent)" : "var(--ci-btn-ghost-bg)",
-              border: "none",
-              borderRadius: 6, padding: "3px 8px",
+              background: showForm ? "var(--ci-accent)" : "var(--ci-card-grad)",
+              border: `1px solid ${showForm ? "transparent" : "var(--ci-toolbar-border)"}`,
+              borderRadius: 999, padding: "5px 10px",
               color: showForm ? "#fff" : "var(--ci-accent)",
               fontSize: 13, cursor: "pointer",
               display: "flex", alignItems: "center", gap: 2,
               fontWeight: 600,
               transition: "background 0.12s",
               lineHeight: 1,
+              boxShadow: showForm ? "0 14px 32px rgba(64,156,255,0.22)" : "var(--ci-inset-highlight)",
             }}
           >
             +

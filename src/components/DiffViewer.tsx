@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { DiffFile, DiffLine } from "../store/sessionStore";
+import { useSettingsStore, isGlassTheme } from "../store/settingsStore";
 
 // 保留静态颜色（文件类型图标颜色保持固定，diff 行颜色改用 CSS 变量）
 const MONO = "'JetBrains Mono', 'Fira Code', 'SF Mono', monospace";
@@ -28,15 +29,47 @@ const LINE_STYLES: Record<DiffLine["type"], LineStyle> = {
   },
 };
 
-function DiffLineRow({ line }: { line: DiffLine }) {
-  const c = LINE_STYLES[line.type];
+function getLineStyle(type: DiffLine["type"], isGlass: boolean): LineStyle {
+  if (!isGlass) return LINE_STYLES[type];
+
+  if (type === "added") {
+    return {
+      bg: "rgba(52,199,89,0.18)",
+      text: "#166534",
+      gutter: "rgba(52,199,89,0.14)",
+      prefix: "var(--ci-green)",
+    };
+  }
+
+  if (type === "deleted") {
+    return {
+      bg: "rgba(255,59,48,0.16)",
+      text: "#b42318",
+      gutter: "rgba(255,59,48,0.12)",
+      prefix: "var(--ci-red)",
+    };
+  }
+
+  return {
+    bg: "transparent",
+    text: "rgba(11,34,56,0.76)",
+    gutter: "transparent",
+    prefix: "transparent",
+  };
+}
+
+function DiffLineRow({ line, isGlass }: { line: DiffLine; isGlass: boolean }) {
+  const c = getLineStyle(line.type, isGlass);
   const prefix = line.type === "added" ? "+" : line.type === "deleted" ? "−" : " ";
+  const gutterBorder = isGlass ? "rgba(16,38,61,0.08)" : "var(--ci-border)";
   return (
     <div style={{
       display: "flex",
+      width: "max-content",
+      minWidth: "100%",
       fontFamily: MONO,
-      fontSize: 11,
-      lineHeight: "18px",
+      fontSize: isGlass ? 12 : 11,
+      lineHeight: isGlass ? "19px" : "18px",
       background: c.bg,
     }}>
       {/* 旧行号 */}
@@ -44,7 +77,7 @@ function DiffLineRow({ line }: { line: DiffLine }) {
         width: 32, textAlign: "right", padding: "0 6px",
         color: "var(--ci-text-dim)", flexShrink: 0,
         background: c.gutter, userSelect: "none",
-        borderRight: "1px solid var(--ci-border)",
+        borderRight: `1px solid ${gutterBorder}`,
       }}>
         {line.oldLineNo ?? ""}
       </span>
@@ -53,7 +86,7 @@ function DiffLineRow({ line }: { line: DiffLine }) {
         width: 32, textAlign: "right", padding: "0 6px",
         color: "var(--ci-text-dim)", flexShrink: 0,
         background: c.gutter, userSelect: "none",
-        borderRight: "1px solid var(--ci-border)",
+        borderRight: `1px solid ${gutterBorder}`,
       }}>
         {line.newLineNo ?? ""}
       </span>
@@ -68,8 +101,8 @@ function DiffLineRow({ line }: { line: DiffLine }) {
       </span>
       {/* 代码内容 */}
       <span style={{
-        flex: 1, padding: "0 8px", color: c.text,
-        whiteSpace: "pre", overflow: "hidden", textOverflow: "ellipsis",
+        flex: 1, padding: "0 10px", color: c.text,
+        whiteSpace: "pre",
       }}>
         {line.content || " "}
       </span>
@@ -116,11 +149,12 @@ function FileStat({ additions, deletions }: { additions: number; deletions: numb
 function DiffFileRow({ file }: { file: DiffFile }) {
   const [isOpen, setIsOpen] = useState(false);
   const isBinary = !!file.binary;
+  const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
 
   return (
     <div style={{
-      borderBottom: "1px solid var(--ci-border)",
-      background: "var(--ci-surface)",
+      borderBottom: "1px solid var(--ci-toolbar-border)",
+      background: "transparent",
     }}>
       {/* 文件头 */}
       <button
@@ -131,6 +165,7 @@ function DiffFileRow({ file }: { file: DiffFile }) {
           cursor: "pointer", color: "var(--ci-text)",
           textAlign: "left",
           transition: "background 0.12s",
+          textShadow: "none",
         }}
         onMouseEnter={e => (e.currentTarget.style.background = "var(--ci-btn-ghost-bg)")}
         onMouseLeave={e => (e.currentTarget.style.background = "none")}
@@ -175,10 +210,12 @@ function DiffFileRow({ file }: { file: DiffFile }) {
             style={{ overflow: "hidden" }}
           >
             <div style={{
-              background: "var(--ci-bg)",
-              borderTop: "1px solid var(--ci-border)",
-              maxHeight: 320, overflowY: "auto",
-              scrollbarWidth: "none",
+              background: isGlass ? "rgba(248,249,252,0.88)" : "var(--ci-code-bg)",
+              borderTop: "1px solid var(--ci-toolbar-border)",
+              maxHeight: 320,
+              overflowY: "auto",
+              overflowX: "auto",
+              scrollbarWidth: isGlass ? "thin" : "none",
             }}>
               {isBinary ? (
                 <div style={{
@@ -212,7 +249,7 @@ function DiffFileRow({ file }: { file: DiffFile }) {
                     {/* hunk header */}
                     <div style={{
                       padding: "2px 8px 2px 82px",
-                      background: "var(--ci-accent-bg)",
+                      background: isGlass ? "rgba(45,140,255,0.14)" : "var(--ci-accent-bg)",
                       color: "var(--ci-accent)",
                       fontSize: 10, fontFamily: MONO,
                       borderTop: "1px solid var(--ci-accent-bdr)",
@@ -221,7 +258,7 @@ function DiffFileRow({ file }: { file: DiffFile }) {
                       {hunk.header}
                     </div>
                     {hunk.lines.map((line, li) => (
-                      <DiffLineRow key={li} line={line} />
+                      <DiffLineRow key={li} line={line} isGlass={isGlass} />
                     ))}
                   </div>
                 ))
@@ -235,12 +272,15 @@ function DiffFileRow({ file }: { file: DiffFile }) {
 }
 
 export function DiffViewer({ files }: { files: DiffFile[] }) {
+  const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
+
   if (files.length === 0) {
     return (
       <div style={{
         padding: "20px 0", textAlign: "center",
         color: "var(--ci-text-muted)", fontSize: 12,
         fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+        textShadow: "none",
       }}>
         暂无代码变更
       </div>
@@ -251,13 +291,14 @@ export function DiffViewer({ files }: { files: DiffFile[] }) {
   const totalDeletions = files.reduce((s, f) => s + f.deletions, 0);
 
   return (
-    <div style={{ background: "var(--ci-surface)" }}>
+    <div style={{ background: "transparent" }}>
       {/* 汇总统计 */}
       <div style={{
         display: "flex", alignItems: "center", justifyContent: "space-between",
         padding: "7px 12px",
-        borderBottom: "1px solid var(--ci-border)",
-        background: "var(--ci-bg)",
+        borderBottom: "1px solid var(--ci-toolbar-border)",
+        background: isGlass ? "rgba(248,249,252,0.88)" : "var(--ci-panel-grad)",
+        textShadow: "none",
       }}>
         <span style={{
           fontSize: 11, color: "var(--ci-text-muted)",

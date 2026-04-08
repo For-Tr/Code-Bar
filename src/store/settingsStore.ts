@@ -64,6 +64,18 @@ export interface HarnessPermissions {
   confirmBeforeRun: boolean;
 }
 
+export type ThemeMode = "light" | "dark" | "glass" | "system";
+
+export function isGlassTheme(theme: ThemeMode): theme is "glass" {
+  return theme === "glass";
+}
+
+export function normalizeThemeMode(theme: string | undefined): ThemeMode {
+  if (theme === "liquid") return "glass";
+  if (theme === "dark" || theme === "glass" || theme === "system") return theme;
+  return "light";
+}
+
 // ── 完整 Settings ────────────────────────────────────────────
 
 export interface Settings {
@@ -75,7 +87,93 @@ export interface Settings {
   // 通用
   autoRefreshDiff: boolean;
   diffRefreshIntervalSec: number;
-  theme: "light" | "dark" | "system";
+  theme: ThemeMode;
+}
+
+const DEFAULT_RUNNER_PROFILE: RunnerProfile = {
+  cliPath: "",
+  cliArgs: "",
+  apiBaseUrl: "",
+  apiKeyOverride: "",
+};
+
+const DEFAULT_RUNNER_PROFILES: RunnerProfiles = {
+  "claude-code": { ...DEFAULT_RUNNER_PROFILE },
+  "codex": { ...DEFAULT_RUNNER_PROFILE },
+  "custom-cli": { ...DEFAULT_RUNNER_PROFILE },
+  "native": { ...DEFAULT_RUNNER_PROFILE },
+};
+
+function cliPathBasename(cliPath?: string): string {
+  return (cliPath ?? "").split(/[\\/]/).pop()?.toLowerCase() ?? "";
+}
+
+function sanitizeRunnerCliPath(type: RunnerType, cliPath?: string): string {
+  const normalizedPath = cliPath ?? "";
+  const base = cliPathBasename(normalizedPath);
+  if (!base) return normalizedPath;
+
+  // 兼容旧版污染：codex runner 误继承了 claude 路径，或反之。
+  if (type === "codex" && base.includes("claude")) return "";
+  if (type === "claude-code" && base.includes("codex")) return "";
+  return normalizedPath;
+}
+
+export function sanitizeRunnerConfig(runner: RunnerConfig): RunnerConfig {
+  return {
+    ...runner,
+    cliPath: sanitizeRunnerCliPath(runner.type, runner.cliPath),
+  };
+}
+
+function normalizeRunnerProfile(profile?: Partial<RunnerProfile>): RunnerProfile {
+  return {
+    ...DEFAULT_RUNNER_PROFILE,
+    ...(profile ?? {}),
+  };
+}
+
+function extractRunnerProfile(runner: RunnerConfig): RunnerProfile {
+  return {
+    cliPath: runner.cliPath ?? "",
+    cliArgs: runner.cliArgs ?? "",
+    apiBaseUrl: runner.apiBaseUrl ?? "",
+    apiKeyOverride: runner.apiKeyOverride ?? "",
+  };
+}
+
+function mergeRunnerProfiles(
+  persistedProfiles?: Partial<RunnerProfiles>,
+  legacyRunner?: Partial<RunnerConfig>
+): RunnerProfiles {
+  const profiles: RunnerProfiles = {
+    "claude-code": normalizeRunnerProfile(persistedProfiles?.["claude-code"]),
+    "codex": normalizeRunnerProfile(persistedProfiles?.codex),
+    "custom-cli": normalizeRunnerProfile(persistedProfiles?.["custom-cli"]),
+    "native": normalizeRunnerProfile(persistedProfiles?.native),
+  };
+
+  if (legacyRunner?.type) {
+    profiles[legacyRunner.type] = {
+      ...profiles[legacyRunner.type],
+      ...extractRunnerProfile({ type: legacyRunner.type, ...profiles[legacyRunner.type], ...legacyRunner }),
+    };
+  }
+
+  return profiles;
+}
+
+function resolveRunnerConfig(
+  type: RunnerType,
+  profiles: RunnerProfiles,
+  currentRunner?: Partial<RunnerConfig>
+): RunnerConfig {
+  const profile = normalizeRunnerProfile(profiles[type]);
+  return sanitizeRunnerConfig({
+    type,
+    ...profile,
+    ...(currentRunner?.type === type ? extractRunnerProfile({ type, ...profile, ...currentRunner }) : {}),
+  });
 }
 
 const DEFAULT_RUNNER_PROFILE: RunnerProfile = {
@@ -312,25 +410,37 @@ export const useSettingsStore = create<SettingsStore>()(
       // 深度合并：旧版持久化数据缺失字段时，用 DEFAULT_SETTINGS 补全
       merge: (persisted: unknown, current) => {
         const p = persisted as Partial<typeof current>;
+        const persistedSettings = (p.settings ?? {}) as Partial<Settings> & {
+          glassFrost?: number;
+          liquidFrost?: number;
+          theme?: string;
+        };
+        const {
+          glassFrost: _legacyGlassFrost,
+          liquidFrost: _legacyLiquidFrost,
+          theme: persistedTheme,
+          ...persistedSettingsRest
+        } = persistedSettings;
         const runnerProfiles = mergeRunnerProfiles(
-          p.settings?.runnerProfiles,
-          p.settings?.runner
+          persistedSettings?.runnerProfiles,
+          persistedSettings?.runner
         );
         return {
           ...current,
           ...p,
           settings: {
             ...DEFAULT_SETTINGS,
-            ...(p.settings ?? {}),
+            ...persistedSettingsRest,
+            theme: normalizeThemeMode(persistedTheme),
             runnerProfiles,
             runner: resolveRunnerConfig(
-              p.settings?.runner?.type ?? DEFAULT_SETTINGS.runner.type,
+              persistedSettings.runner?.type ?? DEFAULT_SETTINGS.runner.type,
               runnerProfiles,
-              p.settings?.runner
+              persistedSettings.runner
             ),
-            model: { ...DEFAULT_SETTINGS.model, ...(p.settings?.model ?? {}), apiKey: "" },
-            apiKeys: { ...DEFAULT_SETTINGS.apiKeys, ...(p.settings?.apiKeys ?? {}) },
-            harness: { ...DEFAULT_SETTINGS.harness, ...(p.settings?.harness ?? {}) },
+            model: { ...DEFAULT_SETTINGS.model, ...(persistedSettings.model ?? {}), apiKey: "" },
+            apiKeys: { ...DEFAULT_SETTINGS.apiKeys, ...(persistedSettings.apiKeys ?? {}) },
+            harness: { ...DEFAULT_SETTINGS.harness, ...(persistedSettings.harness ?? {}) },
           },
         };
       },

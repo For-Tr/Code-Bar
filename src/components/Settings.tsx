@@ -7,6 +7,8 @@ import {
   RUNNER_PROVIDER,
   type RunnerType,
   type ModelProvider,
+  type ThemeMode,
+  isGlassTheme,
 } from "../store/settingsStore";
 // ── Design tokens（使用 CSS 变量，支持深/浅色主题）─────────────
 const C = {
@@ -794,11 +796,12 @@ function HarnessTab() {
 function AppearanceTab() {
   const { settings, patchSettings } = useSettingsStore();
 
-  type ThemeOption = "light" | "dark" | "system";
+  type ThemeOption = ThemeMode;
 
   const themeOptions: { value: ThemeOption; label: string; hint: string; icon: string }[] = [
     { value: "light",  label: "浅色",   hint: "始终使用浅色主题",     icon: "☀️" },
     { value: "dark",   label: "深色",   hint: "始终使用深色主题",     icon: "🌙" },
+    { value: "glass",  label: "原生 Glass",  hint: "使用 Tauri 原生 glass 材质，不再叠前端磨砂", icon: "🫧" },
     { value: "system", label: "跟随系统", hint: "与 macOS 外观设置保持一致", icon: "💻" },
   ];
 
@@ -870,7 +873,7 @@ function AppearanceTab() {
           ✦ 实时生效
         </div>
         <div style={{ fontSize: 11, color: C.textMuted, lineHeight: "1.6" }}>
-          主题切换立即生效，无需重启应用。选择「跟随系统」后，
+          主题切换会立即生效，无需重启应用。选择「跟随系统」后，
           当 macOS 切换深色/浅色模式时界面会自动跟随变化。
         </div>
       </div>
@@ -884,6 +887,9 @@ type SettingsTab = "runner" | "model" | "apikeys" | "harness" | "appearance";
 
 export default function Settings() {
   const { settingsOpen, activeTab, setTab, closeSettings } = useSettingsStore();
+  const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
+  const textShadow = isGlass ? "var(--ci-glass-text-shadow)" : "none";
+  const strongTextShadow = isGlass ? "var(--ci-glass-text-shadow-strong)" : "none";
 
   if (!settingsOpen) return null;
 
@@ -898,95 +904,117 @@ export default function Settings() {
   return (
     <div style={{
       position: "absolute", inset: 0, zIndex: 50,
-      background: "var(--ci-bg)",
-      backdropFilter: "blur(20px) saturate(1.6)",
-      WebkitBackdropFilter: "blur(20px) saturate(1.6)",
+      background: isGlass ? "transparent" : "var(--ci-overlay-bg)",
+      backdropFilter: isGlass ? "none" : "blur(28px) saturate(1.3)",
+      WebkitBackdropFilter: isGlass ? "none" : "blur(28px) saturate(1.3)",
       borderRadius: 16,
       display: "flex",
-      flexDirection: "column",
-      overflow: "hidden",
+      padding: isGlass ? 0 : 10,
+      boxSizing: "border-box",
+      textShadow,
     }}>
-      {/* Header */}
       <div style={{
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "12px 14px 11px",
-        borderBottom: `1px solid ${C.border}`,
-        flexShrink: 0,
+        flex: 1,
+        minWidth: 0,
+        minHeight: 0,
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+        background: isGlass ? "transparent" : "var(--ci-overlay-bg)",
+        border: `1px solid ${isGlass ? "var(--ci-window-edge)" : C.border}`,
+        borderRadius: isGlass ? 0 : 16,
+        boxShadow: isGlass ? "var(--ci-inset-highlight)" : "var(--ci-inset-highlight), var(--ci-card-shadow-strong)",
       }}>
-        <span style={{ fontSize: 13, fontWeight: 600, color: C.text, letterSpacing: -0.2 }}>设置</span>
-        <button
-          onClick={closeSettings}
-          style={{
-            width: 24, height: 24, borderRadius: 7,
-            background: "var(--ci-close-bg)",
-            border: `0.5px solid var(--ci-close-border)`,
-            color: C.textMuted, cursor: "pointer", fontSize: 11,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            transition: "all 0.15s",
-          }}
-          onMouseEnter={e => {
-            e.currentTarget.style.background = "rgba(255,59,48,0.15)";
-            e.currentTarget.style.color = C.red;
-          }}
-          onMouseLeave={e => {
-            e.currentTarget.style.background = "var(--ci-close-bg)";
-            e.currentTarget.style.color = C.textMuted;
-          }}
-        >
-          ✕
-        </button>
-      </div>
-
-      {/* Tab bar（分段控件风格）*/}
-      <div style={{
-        display: "flex", gap: 0,
-        padding: "8px 12px",
-        borderBottom: `1px solid ${C.border}`,
-        flexShrink: 0,
-      }}>
+        {/* Header */}
         <div style={{
-          display: "flex",
-          background: "rgba(118,118,128,0.12)",
-          borderRadius: 9, padding: 2, gap: 0,
-          width: "100%",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "12px 14px 11px",
+          borderBottom: `1px solid ${C.border}`,
+          flexShrink: 0,
+          background: isGlass ? "var(--ci-toolbar-bg)" : "transparent",
         }}>
-          {tabs.map((t) => {
-            const active = activeTab === t.id;
-            return (
-              <button
-                key={t.id}
-                onClick={() => setTab(t.id as SettingsTab)}
-                style={{
-                  flex: 1,
-                  padding: "5px 0",
-                  borderRadius: 7,
-                  border: "none",
-                  background: active ? "var(--ci-surface-hi)" : "transparent",
-                  color: active ? C.text : C.textMuted,
-                  fontSize: 11, fontWeight: active ? 600 : 400,
-                  cursor: "pointer",
-                  transition: "all 0.18s",
-                  boxShadow: active ? "0 1px 3px rgba(0,0,0,0.12), 0 0.5px 1px rgba(0,0,0,0.08)" : "none",
-                }}
-              >
-                {t.label}
-              </button>
-            );
-          })}
+          <span style={{ fontSize: 13, fontWeight: 600, color: C.text, letterSpacing: -0.2, textShadow: strongTextShadow }}>设置</span>
+          <button
+            onClick={closeSettings}
+            style={{
+              width: 24, height: 24, borderRadius: 7,
+              background: "var(--ci-close-bg)",
+              border: `0.5px solid var(--ci-close-border)`,
+              color: C.textMuted, cursor: "pointer", fontSize: 11,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              transition: "all 0.15s",
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.background = isGlass ? "var(--ci-close-bg)" : "rgba(255,59,48,0.15)";
+              e.currentTarget.style.color = C.red;
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.background = "var(--ci-close-bg)";
+              e.currentTarget.style.color = C.textMuted;
+            }}
+          >
+            ✕
+          </button>
         </div>
-      </div>
 
-      {/* Content */}
-      <div style={{
-        flex: 1, overflowY: "auto",
-        padding: "12px 14px 16px",
-        scrollbarWidth: "none",
-      }}>
-        {activeTab === "runner"     && <RunnerTab />}
-        {activeTab === "model"      && <ModelTab />}
-        {activeTab === "apikeys"    && <ApiKeysTab />}
-        {activeTab === "harness"    && <HarnessTab />}
-        {activeTab === "appearance" && <AppearanceTab />}
+        {/* Tab bar（分段控件风格）*/}
+        <div style={{
+          display: "flex", gap: 0,
+          padding: "8px 12px",
+          borderBottom: `1px solid ${C.border}`,
+          flexShrink: 0,
+          background: isGlass ? "var(--ci-toolbar-bg)" : "transparent",
+        }}>
+          <div style={{
+            display: "flex",
+            background: "var(--ci-pill-bg)",
+            border: `1px solid var(--ci-pill-border)`,
+            borderRadius: 9, padding: 2, gap: 0,
+            width: "100%",
+            boxShadow: "var(--ci-inset-highlight)",
+          }}>
+            {tabs.map((t) => {
+              const active = activeTab === t.id;
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => setTab(t.id as SettingsTab)}
+                  style={{
+                    flex: 1,
+                    padding: "5px 0",
+                    borderRadius: 7,
+                    border: "none",
+                    background: active ? "var(--ci-surface-hi)" : "transparent",
+                    color: active ? C.text : C.textMuted,
+                    fontSize: 11, fontWeight: active ? 600 : 400,
+                    cursor: "pointer",
+                    transition: isGlass ? "color 0.18s, border-color 0.18s" : "all 0.18s",
+                    boxShadow: active
+                      ? (isGlass ? "var(--ci-inset-highlight)" : "0 1px 3px rgba(0,0,0,0.12), 0 0.5px 1px rgba(0,0,0,0.08)")
+                      : "none",
+                    textShadow: active ? strongTextShadow : textShadow,
+                  }}
+                >
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Content */}
+        <div style={{
+          flex: 1, overflowY: "auto",
+          padding: "12px 14px 16px",
+          scrollbarWidth: "none",
+          background: isGlass ? "var(--ci-bg-grad)" : "transparent",
+        }}>
+          {activeTab === "runner"     && <RunnerTab />}
+          {activeTab === "model"      && <ModelTab />}
+          {activeTab === "apikeys"    && <ApiKeysTab />}
+          {activeTab === "harness"    && <HarnessTab />}
+          {activeTab === "appearance" && <AppearanceTab />}
+        </div>
       </div>
     </div>
   );
