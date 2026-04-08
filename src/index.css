@@ -43,6 +43,23 @@ select {
   font: inherit;
 }
 
+[data-theme="glass"] .ci-pty-terminal .xterm .xterm-scrollable-element > .scrollbar.vertical {
+  width: 4px !important;
+  right: 1px !important;
+}
+
+[data-theme="glass"] .ci-pty-terminal .xterm .xterm-scrollable-element > .scrollbar.vertical > .slider {
+  width: 3px !important;
+  left: 0.5px !important;
+  border-radius: 999px !important;
+  background: rgba(16, 38, 61, 0.14) !important;
+}
+
+[data-theme="glass"] .ci-pty-terminal .xterm .xterm-viewport {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(16, 38, 61, 0.14) transparent;
+}
+
 /* 全局隐藏 WebKit 滚动条（保留滚动功能，只隐藏视觉滚动条轨道） */
 ::-webkit-scrollbar {
   display: none;

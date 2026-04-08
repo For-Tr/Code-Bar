@@ -140,6 +140,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
   const { updateSession, appendOutput, clearOutput } = useSessionStore();
   const { settings, patchRunner, openSettings, getRunnerConfigForType } = useSettingsStore();
   const isGlass = isGlassTheme(settings.theme);
+  const textShadow = isGlass ? "var(--ci-glass-text-shadow)" : "none";
   const workspaces = useWorkspaceStore((s) => s.workspaces);
   const hasOpenedRef = useRef(false);
   const [hidden, setHidden] = useState(!isOpen);
@@ -533,13 +534,45 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
       : runner.cliArgs ? runner.cliArgs.split(/\s+/).filter(Boolean) : [];
 
   const contextEnv = buildContextEnv();
+  const panelRadius = isGlass ? "var(--ci-shell-radius)" : 14;
+  const panelBackground = isGlass ? "transparent" : "var(--ci-pty-panel-bg)";
+  const panelBorder = isGlass ? "none" : "1px solid var(--ci-pty-panel-border)";
+  const titlebarBackground = isGlass ? "var(--ci-toolbar-bg)" : "var(--ci-pty-titlebar-bg)";
+  const titlebarBorder = isGlass ? "none" : "1px solid var(--ci-pty-titlebar-bdr)";
+  const titlebarText = isGlass ? "var(--ci-text)" : "var(--ci-pty-title-color)";
+  const actionButtonBackground = isGlass ? "var(--ci-pill-bg)" : "var(--ci-pty-btn-bg)";
+  const actionButtonBorder = isGlass ? "1px solid var(--ci-pill-border)" : "1px solid var(--ci-pty-btn-border)";
+  const actionButtonText = isGlass ? "var(--ci-text-muted)" : "var(--ci-pty-btn-text)";
+  const actionButtonHoverBackground = isGlass ? "var(--ci-surface-hi)" : "var(--ci-pty-btn-hover-bg)";
+  const actionButtonHoverText = isGlass ? "var(--ci-text)" : "var(--ci-pty-btn-hover-text)";
+  const runnerChipBackground = isGlass ? "var(--ci-accent-bg)" : "var(--ci-pty-runner-bg)";
+  const runnerChipBorder = isGlass ? "1px solid var(--ci-accent-bdr)" : "1px solid var(--ci-pty-runner-border)";
+  const runnerChipText = isGlass ? "var(--ci-accent)" : "var(--ci-pty-runner-text)";
+  const runnerChipHoverBackground = isGlass ? "rgba(63,145,255,0.16)" : "var(--ci-pty-runner-bg-hover)";
+  const overlayBackground = isGlass ? "transparent" : "var(--ci-pty-mask-bg)";
+  const overlayTitle = isGlass ? "var(--ci-text)" : "var(--ci-pty-mask-title)";
+  const overlayHint = isGlass ? "var(--ci-text-muted)" : "var(--ci-pty-mask-hint)";
+  const overlayFooter = isGlass ? "var(--ci-text-dim)" : "var(--ci-pty-mask-footer)";
+  const inputBackground = isGlass ? "var(--ci-surface-hi)" : "var(--ci-pty-input-bg)";
+  const inputBorder = isGlass ? "1px solid var(--ci-border)" : "1px solid var(--ci-pty-input-border)";
+  const inputText = isGlass ? "var(--ci-text)" : "var(--ci-pty-input-text)";
+  const installOverlayBackground = isGlass ? "transparent" : "var(--ci-pty-panel-bg)";
+  const installStripBackground = isGlass ? "var(--ci-toolbar-bg)" : "transparent";
+  const installPromptColor = isGlass ? "var(--ci-text-dim)" : "var(--ci-pty-mask-footer)";
+  const terminalSurface = isGlass ? "var(--ci-code-bg)" : "var(--ci-pty-term-bg)";
+  const queryCardShadow = isGlass
+    ? "var(--ci-inset-highlight), var(--ci-card-shadow-strong)"
+    : "none";
+  const queryInputShadow = isGlass
+    ? "var(--ci-inset-highlight), var(--ci-card-shadow)"
+    : "0 1px 6px rgba(0,0,0,0.1), inset 0 0 0 0.5px rgba(0,0,0,0.04)";
 
   return (
     <motion.div
       initial={false}
       animate={isOpen
-        ? { opacity: 1, scale: 1, pointerEvents: "auto" as const }
-        : { opacity: 0, scale: 0.96, pointerEvents: "none" as const }
+        ? { opacity: 1, pointerEvents: "auto" as const }
+        : { opacity: 0, pointerEvents: "none" as const }
       }
       transition={SPRING}
       onAnimationComplete={() => {
@@ -549,15 +582,16 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
         position: "fixed",
         top: 6, left: 6, right: 6, bottom: 6,
         zIndex: hidden ? -1 : 200,
-        borderRadius: 14,
+        borderRadius: panelRadius,
         overflow: "hidden",
-        background: "var(--ci-pty-panel-bg)",
+        background: panelBackground,
         backdropFilter: isGlass ? "none" : "blur(48px) saturate(1.5)",
         WebkitBackdropFilter: isGlass ? "none" : "blur(48px) saturate(1.5)",
-        border: "1px solid var(--ci-pty-panel-border)",
+        border: panelBorder,
         display: "flex",
         flexDirection: "column",
         visibility: hidden ? "hidden" : "visible",
+        textShadow,
       }}
     >
       {/* ── 标题栏（data-tauri-drag-region 让整条都可拖动窗口）── */}
@@ -566,19 +600,19 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
         style={{
           display: "flex", alignItems: "center", gap: 10,
           padding: "12px 16px 10px",
-          borderBottom: "1px solid var(--ci-pty-titlebar-bdr)",
+          borderBottom: titlebarBorder,
           flexShrink: 0,
           cursor: "grab",
           userSelect: "none",
           WebkitUserSelect: "none",
-          background: "var(--ci-pty-titlebar-bg)",
+          background: titlebarBackground,
         }}
       >
         <TrafficLights onClose={onClose} size={12} gap={6} />
 
         <span data-tauri-drag-region style={{
           flex: 1, fontSize: 12, fontWeight: 600,
-          color: "var(--ci-pty-title-color)",
+          color: titlebarText,
           overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
           cursor: "grab",
           letterSpacing: -0.2,
@@ -593,14 +627,14 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
           title="切换 Runner"
           style={{
             fontSize: 10, padding: "2px 8px", borderRadius: 99,
-            background: "var(--ci-pty-runner-bg)",
-            border: "1px solid var(--ci-pty-runner-border)",
-            color: "var(--ci-pty-runner-text)", fontFamily: "monospace",
+            background: runnerChipBackground,
+            border: runnerChipBorder,
+            color: runnerChipText, fontFamily: "monospace",
             cursor: "pointer",
             transition: "background 0.15s",
           }}
-          onMouseEnter={e => (e.currentTarget.style.background = "var(--ci-pty-runner-bg-hover)")}
-          onMouseLeave={e => (e.currentTarget.style.background = "var(--ci-pty-runner-bg)")}
+          onMouseEnter={e => (e.currentTarget.style.background = runnerChipHoverBackground)}
+          onMouseLeave={e => (e.currentTarget.style.background = runnerChipBackground)}
         >
           {runnerBadge}
         </button>
@@ -627,10 +661,10 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
             data-tauri-drag-region
             onClick={() => { setInstalling(false); recheckCli(); }}
             style={{
-              background: "var(--ci-pty-btn-bg)",
-              border: "1px solid var(--ci-pty-btn-border)",
+              background: actionButtonBackground,
+              border: actionButtonBorder,
               borderRadius: 6, padding: "2px 8px",
-              color: "var(--ci-pty-btn-text)", fontSize: 11, cursor: "pointer",
+              color: actionButtonText, fontSize: 11, cursor: "pointer",
             }}
           >
             取消
@@ -642,19 +676,19 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
             data-tauri-drag-region
             onClick={onClose}
             style={{
-              background: "var(--ci-pty-btn-bg)",
-              border: "1px solid var(--ci-pty-btn-border)",
+              background: actionButtonBackground,
+              border: actionButtonBorder,
               borderRadius: 6, padding: "2px 8px",
-              color: "var(--ci-pty-btn-text)", fontSize: 11, cursor: "pointer",
+              color: actionButtonText, fontSize: 11, cursor: "pointer",
               transition: "background 0.15s, color 0.15s",
             }}
             onMouseEnter={e => {
-              e.currentTarget.style.background = "var(--ci-pty-btn-hover-bg)";
-              e.currentTarget.style.color = "var(--ci-pty-btn-hover-text)";
+              e.currentTarget.style.background = actionButtonHoverBackground;
+              e.currentTarget.style.color = actionButtonHoverText;
             }}
             onMouseLeave={e => {
-              e.currentTarget.style.background = "var(--ci-pty-btn-bg)";
-              e.currentTarget.style.color = "var(--ci-pty-btn-text)";
+              e.currentTarget.style.background = actionButtonBackground;
+              e.currentTarget.style.color = actionButtonText;
             }}
           >
             收起
@@ -677,16 +711,17 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
               style={{
                 position: "absolute", inset: 0, zIndex: 10,
                 display: "flex", flexDirection: "column",
-                background: "var(--ci-pty-panel-bg)",
+                background: installOverlayBackground,
               }}
             >
               <div style={{
                 flexShrink: 0,
                 padding: "8px 14px",
-                borderBottom: "1px solid var(--ci-pty-titlebar-bdr)",
+                borderBottom: titlebarBorder,
+                background: installStripBackground,
                 display: "flex", alignItems: "center", gap: 8,
               }}>
-                <span style={{ fontSize: 10, color: "var(--ci-pty-mask-footer)", fontFamily: "monospace" }}>$</span>
+                <span style={{ fontSize: 10, color: installPromptColor, fontFamily: "monospace" }}>$</span>
                 <code style={{
                   flex: 1, fontSize: 11,
                   color: "rgba(251,191,36,0.8)",
@@ -695,7 +730,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
                   {installCmd}
                 </code>
               </div>
-              <div style={{ flex: 1, overflow: "hidden", padding: "4px" }}>
+              <div style={{ flex: 1, overflow: "hidden", padding: isGlass ? 0 : "4px" }}>
                 <InstallTerminal
                   installId={installId}
                   installCmd={installCmd}
@@ -711,13 +746,13 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
           <div style={{
             flex: 1, overflow: "auto",
             padding: "12px 16px",
-            background: "var(--ci-pty-term-bg)",
+            background: terminalSurface,
           }}>
             <pre style={{
               fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-              fontSize: 12,
-              lineHeight: "1.6",
-              color: "rgba(230,230,235,0.82)",
+              fontSize: isGlass ? 12.5 : 12,
+              lineHeight: isGlass ? "1.7" : "1.6",
+              color: isGlass ? "rgba(11,34,56,0.94)" : "rgba(230,230,235,0.82)",
               whiteSpace: "pre-wrap",
               wordBreak: "break-word",
               margin: 0,
@@ -730,7 +765,10 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
         {/* ── PTY 终端：面板打开即启动（常驻），发送 query 后可见 ── */}
         {!isNativeMode && (
           <div style={{
-            flex: 1, overflow: "hidden", padding: "8px 4px 4px",
+            position: "absolute",
+            inset: 0,
+            overflow: "hidden",
+            padding: isGlass ? 0 : "8px 4px 4px",
             opacity: querySent ? 1 : 0,
             pointerEvents: querySent ? "auto" : "none",
           }}>
@@ -769,137 +807,152 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
                 position: "absolute", inset: 0,
                 display: "flex", flexDirection: "column",
                 alignItems: "center", justifyContent: "center",
-                padding: "24px 32px", gap: 16,
+                padding: isGlass ? "22px 28px 28px" : "24px 32px",
+                gap: 16,
                 overflowY: "auto",
-                background: "var(--ci-pty-mask-bg)",
+                background: overlayBackground,
               }}
             >
               <div style={{
-                width: 40, height: 40, borderRadius: 12,
-                background: "rgba(0,122,255,0.14)",
-                border: "1px solid rgba(0,122,255,0.28)",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 20, flexShrink: 0,
-                color: "#60a5fa",
+                width: "min(100%, 560px)",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: 16,
+                padding: isGlass ? "0" : "22px 22px 20px",
+                borderRadius: isGlass ? 0 : 20,
+                background: isGlass ? "transparent" : "transparent",
+                border: "none",
+                boxShadow: isGlass ? "none" : queryCardShadow,
               }}>
-                ✦
-              </div>
-
-              <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ci-pty-mask-title)", marginBottom: 4 }}>
-                  描述你的任务
+                <div style={{
+                  width: 40, height: 40, borderRadius: 12,
+                  background: "var(--ci-accent-bg)",
+                  border: "1px solid var(--ci-accent-bdr)",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 20, flexShrink: 0,
+                  color: "var(--ci-accent)",
+                }}>
+                  ✦
                 </div>
-                <div style={{ fontSize: 11, color: "var(--ci-pty-mask-hint)" }}>
-                  {isNativeMode
-                    ? `使用内置 Harness 调用 ${settings.model.model}`
-                    : `回车后将自动启动 ${runnerBadge} 并透传给 AI`}
+
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: overlayTitle, marginBottom: 4 }}>
+                    描述你的任务
+                  </div>
+                  <div style={{ fontSize: 11, color: overlayHint }}>
+                    {isNativeMode
+                      ? `使用内置 Harness 调用 ${settings.model.model}`
+                      : `回车后将自动启动 ${runnerBadge} 并透传给 AI`}
+                  </div>
                 </div>
-              </div>
 
-              {/* Runner 快速切换 */}
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "center" }}>
-                {(Object.entries(RUNNER_LABELS) as [RunnerType, string][]).map(([type, label]) => {
-                  const active = runner.type === type;
-                  return (
-                    <button
-                      key={type}
-                      onClick={() => handleSwitchRunner(type)}
-                      style={{
-                        fontSize: 10, padding: "3px 10px", borderRadius: 99,
-                        background: active ? "var(--ci-pty-runner-bg)" : "var(--ci-pty-btn-bg)",
-                        border: `1px solid ${active ? "var(--ci-pty-runner-border)" : "var(--ci-pty-btn-border)"}`,
-                        color: active ? "var(--ci-pty-runner-text)" : "var(--ci-pty-btn-text)",
-                        cursor: "pointer",
-                        transition: "all 0.15s",
-                        fontWeight: active ? 600 : 400,
-                      }}
-                    >
-                      {label}
-                    </button>
-                  );
-                })}
-              </div>
+                {/* Runner 快速切换 */}
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "center" }}>
+                  {(Object.entries(RUNNER_LABELS) as [RunnerType, string][]).map(([type, label]) => {
+                    const active = runner.type === type;
+                    return (
+                      <button
+                        key={type}
+                        onClick={() => handleSwitchRunner(type)}
+                        style={{
+                          fontSize: 10, padding: "3px 10px", borderRadius: 99,
+                          background: active ? "var(--ci-accent-bg)" : actionButtonBackground,
+                          border: active ? "1px solid var(--ci-accent-bdr)" : actionButtonBorder,
+                          color: active ? "var(--ci-accent)" : actionButtonText,
+                          cursor: "pointer",
+                          transition: "all 0.15s",
+                          fontWeight: active ? 600 : 400,
+                        }}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
 
-              {/* CLI 不可用警告 + 一键安装 */}
-              {!isNativeMode && cliAvailable === false && (
+                {/* CLI 不可用警告 + 一键安装 */}
+                {!isNativeMode && cliAvailable === false && (
+                  <div style={{
+                    width: "100%",
+                    background: "var(--ci-yellow-bg)",
+                    border: "1px solid var(--ci-yellow-bdr)",
+                    borderRadius: 9,
+                    padding: "10px 14px",
+                    fontSize: 11,
+                    color: "var(--ci-yellow-dark)",
+                    lineHeight: "1.6",
+                  }}>
+                    <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                      ⚠️  找不到 {cliCommand}
+                    </div>
+                    <div style={{ color: overlayHint, marginBottom: 8 }}>
+                      {runner.type === "claude-code" && (
+                        <>安装命令：<code style={{ color: "rgba(255,195,80,0.8)", fontFamily: "'JetBrains Mono', monospace", fontSize: 10 }}>npm install -g @anthropic-ai/claude-code</code></>
+                      )}
+                      {runner.type === "codex" && (
+                        <>安装命令：<code style={{ color: "rgba(255,195,80,0.8)", fontFamily: "'JetBrains Mono', monospace", fontSize: 10 }}>npm install -g @openai/codex</code></>
+                      )}
+                      {runner.type === "custom-cli" && (
+                        <>请在设置中配置正确的可执行文件路径</>
+                      )}
+                    </div>
+                    {installCmd && (
+                      <button
+                        onClick={handleInstall}
+                        style={{
+                          width: "100%",
+                          padding: "8px 0",
+                          borderRadius: 6,
+                          background: "var(--ci-accent-bg)",
+                          border: "1px solid var(--ci-accent-bdr)",
+                          color: "var(--ci-accent)",
+                          fontSize: 11,
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          transition: "background 0.15s",
+                        }}
+                        onMouseEnter={e => (e.currentTarget.style.background = runnerChipHoverBackground)}
+                        onMouseLeave={e => (e.currentTarget.style.background = "var(--ci-accent-bg)")}
+                      >
+                        一键安装
+                      </button>
+                    )}
+                  </div>
+                )}
+
                 <div style={{
                   width: "100%",
-                  background: "rgba(255,159,10,0.10)",
-                  border: "1px solid rgba(255,159,10,0.28)",
-                  borderRadius: 9,
+                  background: inputBackground,
+                  border: inputBorder,
+                  borderRadius: 12,
+                  display: "flex", alignItems: "flex-start", gap: 8,
                   padding: "10px 14px",
-                  fontSize: 11,
-                  color: "rgba(255,195,80,0.92)",
-                  lineHeight: "1.6",
-                }}>
-                  <div style={{ fontWeight: 600, marginBottom: 4 }}>
-                    ⚠️  找不到 {cliCommand}
-                  </div>
-                  <div style={{ color: "rgba(220,210,180,0.55)", marginBottom: 8 }}>
-                    {runner.type === "claude-code" && (
-                      <>安装命令：<code style={{ color: "rgba(255,195,80,0.8)", fontFamily: "'JetBrains Mono', monospace", fontSize: 10 }}>npm install -g @anthropic-ai/claude-code</code></>
-                    )}
-                    {runner.type === "codex" && (
-                      <>安装命令：<code style={{ color: "rgba(255,195,80,0.8)", fontFamily: "'JetBrains Mono', monospace", fontSize: 10 }}>npm install -g @openai/codex</code></>
-                    )}
-                    {runner.type === "custom-cli" && (
-                      <>请在设置中配置正确的可执行文件路径</>
-                    )}
-                  </div>
-                  {installCmd && (
-                    <button
-                      onClick={handleInstall}
-                      style={{
-                        width: "100%",
-                        padding: "8px 0",
-                        borderRadius: 6,
-                        background: "rgba(255,159,10,0.16)",
-                        border: "1px solid rgba(255,159,10,0.36)",
-                        color: "#ffbf40",
-                        fontSize: 11,
-                        fontWeight: 600,
-                        cursor: "pointer",
-                        transition: "background 0.15s",
-                      }}
-                      onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,159,10,0.26)")}
-                      onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,159,10,0.16)")}
-                    >
-                      一键安装
-                    </button>
-                  )}
+                  backdropFilter: isGlass ? "none" : "blur(8px)",
+                  boxShadow: queryInputShadow,
+                  transition: "border-color 0.15s, box-shadow 0.15s",
+                  textShadow: "none",
+                }}
+                onFocus={() => {}}
+                >
+                  <span style={{ color: "rgba(0,122,255,0.7)", fontSize: 13, marginTop: 1, flexShrink: 0 }}>›</span>
+                  <textarea
+                    ref={queryInputRef}
+                    value={pendingQuery}
+                    onChange={e => setPendingQuery(e.target.value)}
+                    placeholder="例：重构 auth 模块，添加 JWT 支持…"
+                    rows={3}
+                    style={{
+                      flex: 1, background: "none", border: "none", outline: "none",
+                      color: inputText, fontSize: 13, lineHeight: "1.6",
+                      resize: "none", fontFamily: "inherit",
+                    }}
+                  />
                 </div>
-              )}
 
-              <div style={{
-                width: "100%",
-                background: "var(--ci-pty-input-bg)",
-                border: "1px solid var(--ci-pty-input-border)",
-                borderRadius: 12,
-                display: "flex", alignItems: "flex-start", gap: 8,
-                padding: "10px 14px",
-                backdropFilter: isGlass ? "none" : "blur(8px)",
-                boxShadow: "0 1px 6px rgba(0,0,0,0.1), inset 0 0 0 0.5px rgba(0,0,0,0.04)",
-                transition: "border-color 0.15s, box-shadow 0.15s",
-              }}
-              onFocus={() => {}}
-              >
-                <span style={{ color: "rgba(0,122,255,0.7)", fontSize: 13, marginTop: 1, flexShrink: 0 }}>›</span>
-                <textarea
-                  ref={queryInputRef}
-                  value={pendingQuery}
-                  onChange={e => setPendingQuery(e.target.value)}
-                  placeholder="例：重构 auth 模块，添加 JWT 支持…"
-                  rows={3}
-                  style={{
-                    flex: 1, background: "none", border: "none", outline: "none",
-                    color: "var(--ci-pty-input-text)", fontSize: 13, lineHeight: "1.6",
-                    resize: "none", fontFamily: "inherit",
-                  }}
-                />
-              </div>
-
-              <div style={{ fontSize: 10, color: "var(--ci-pty-mask-footer)" }}>
-                Enter 发送 · Shift+Enter 换行 · Esc 关闭
+                <div style={{ fontSize: 10, color: overlayFooter }}>
+                  Enter 发送 · Shift+Enter 换行 · Esc 关闭
+                </div>
               </div>
             </motion.div>
           )}

@@ -22,6 +22,7 @@ const SPRING = { type: "spring" as const, stiffness: 380, damping: 30 };
 function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
   const { addWorkspace } = useWorkspaceStore();
   const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
+  const textShadow = isGlass ? "var(--ci-glass-text-shadow)" : "none";
   const [name, setName] = useState("");
   const [path, setPath] = useState("");
   const [color, setColor] = useState<WorkspaceColorId>("blue");
@@ -68,13 +69,14 @@ function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
       style={{ overflow: "hidden" }}
     >
       <div style={{
-        background: "var(--ci-card-grad)",
+        background: isGlass ? "var(--ci-card-grad)" : "var(--ci-card-grad)",
         border: "1px solid var(--ci-pill-border)",
         borderRadius: 18, padding: 16,
         display: "flex", flexDirection: "column", gap: 10,
         marginBottom: 6,
         boxShadow: "var(--ci-inset-highlight), var(--ci-card-shadow-strong)",
         backdropFilter: isGlass ? "none" : "blur(18px) saturate(1.2)",
+        textShadow,
       }}>
         <div style={{
           fontSize: 12, fontWeight: 600,
@@ -184,6 +186,7 @@ function WorkspaceCardExpanded({
   onRemove: () => void;
 }) {
   const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
+  const textShadow = isGlass ? "var(--ci-glass-text-shadow)" : "none";
   const color = getWorkspaceColor(ws.color);
   const sessionCount = useSessionStore((s) =>
     s.sessions.filter((sess) => sess.workspaceId === ws.id).length
@@ -217,6 +220,7 @@ function WorkspaceCardExpanded({
           ? `var(--ci-inset-highlight), var(--ci-card-shadow-strong)`
           : "var(--ci-inset-highlight), var(--ci-card-shadow)",
         backdropFilter: isGlass ? "none" : "blur(20px) saturate(1.15)",
+        textShadow,
       }}
     >
       {/* 颜色圆点 */}
@@ -310,6 +314,7 @@ function WorkspaceStackCollapsed({
   const sorted = [...workspaces].sort((a, b) => a.order - b.order);
   const top = sorted[0];
   const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
+  const textShadow = isGlass ? "var(--ci-glass-text-shadow)" : "none";
 
   if (!top) return null;
 
@@ -364,6 +369,7 @@ function WorkspaceStackCollapsed({
           padding: "0 12px",
           boxShadow: "var(--ci-inset-highlight), var(--ci-card-shadow-strong)",
           backdropFilter: isGlass ? "none" : "blur(20px) saturate(1.15)",
+          textShadow,
         }}
         whileHover={isGlass ? undefined : { scale: 1.01 }}
         transition={SPRING}

@@ -7,6 +7,8 @@ export function TitleBar() {
   const sessions = useSessionStore((s) => s.sessions);
   const { openSettings } = useSettingsStore();
   const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
+  const textShadow = isGlass ? "var(--ci-glass-text-shadow)" : "none";
+  const strongTextShadow = isGlass ? "var(--ci-glass-text-shadow-strong)" : "none";
 
   return (
     <div
@@ -16,7 +18,7 @@ export function TitleBar() {
         alignItems: "center",
         justifyContent: "space-between",
         padding: "14px 16px 12px",
-        borderBottom: "1px solid var(--ci-toolbar-border)",
+        borderBottom: isGlass ? "none" : "1px solid var(--ci-toolbar-border)",
         cursor: "grab",
         userSelect: "none",
         WebkitUserSelect: "none",
@@ -25,6 +27,7 @@ export function TitleBar() {
         WebkitBackdropFilter: isGlass ? "none" : "blur(18px) saturate(1.3)",
         position: "relative",
         zIndex: 2,
+        textShadow,
       }}
     >
       {/* 左侧：交通灯按钮区 */}
@@ -59,6 +62,7 @@ export function TitleBar() {
           backdropFilter: isGlass ? "none" : "blur(18px) saturate(1.2)",
           WebkitBackdropFilter: isGlass ? "none" : "blur(18px) saturate(1.2)",
           opacity: 1,
+          textShadow: strongTextShadow,
         }}>
           <span style={{
             color: "var(--ci-text)",
@@ -97,6 +101,7 @@ export function TitleBar() {
           backdropFilter: isGlass ? "none" : "blur(18px) saturate(1.2)",
           WebkitBackdropFilter: isGlass ? "none" : "blur(18px) saturate(1.2)",
           opacity: 1,
+          textShadow,
         }}
         onMouseEnter={e => {
           e.currentTarget.style.background = isGlass ? "var(--ci-pill-bg)" : "var(--ci-btn-ghost-hover)";

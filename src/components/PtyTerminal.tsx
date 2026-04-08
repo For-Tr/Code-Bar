@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
-import { useSettingsStore, type ThemeMode } from "../store/settingsStore";
+import { useSettingsStore, isGlassTheme, type ThemeMode } from "../store/settingsStore";
 
 interface Props {
   sessionId: string;
@@ -77,8 +77,23 @@ const TERM_THEME_LIGHT = {
 function getIsDark(theme: ThemeMode): boolean {
   if (theme === "dark") return true;
   if (theme === "light") return false;
-  if (theme === "glass") return false;
+  if (theme === "glass") return true;
   return window.matchMedia("(prefers-color-scheme: dark)").matches;
+}
+
+function getTerminalLook(theme: ThemeMode) {
+  const isDark = getIsDark(theme);
+  return {
+    termTheme: isDark ? TERM_THEME_DARK : TERM_THEME_LIGHT,
+    termBg: isDark ? "#0a0a0c" : "#1e1e2e",
+  };
+}
+
+function getTerminalMetrics() {
+  return {
+    fontSize: 13,
+    lineHeight: 1.4,
+  };
 }
 
 export function PtyTerminal({
@@ -109,19 +124,18 @@ export function PtyTerminal({
   useEffect(() => {
     if (!containerRef.current) return;
 
-    const isDark = getIsDark(theme);
-    const termTheme = isDark ? TERM_THEME_DARK : TERM_THEME_LIGHT;
-    const termBg = isDark ? "#0a0a0c" : "#1e1e2e";
+    const { termTheme, termBg } = getTerminalLook(theme);
+    const { fontSize, lineHeight } = getTerminalMetrics();
 
     const term = new Terminal({
       theme: termTheme,
       fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
-      fontSize: 13,
-      lineHeight: 1.4,
+      fontSize,
+      lineHeight,
       cursorBlink: true,
       cursorStyle: "bar",
       scrollback: 5000,
-      allowTransparency: true,
+      allowTransparency: false,
       convertEol: true,
     });
 
@@ -165,16 +179,21 @@ export function PtyTerminal({
     const term = termRef.current;
     if (!term) return;
 
-    const isDark = getIsDark(theme);
-    const termTheme = isDark ? TERM_THEME_DARK : TERM_THEME_LIGHT;
-    const termBg = isDark ? "#0a0a0c" : "#1e1e2e";
+    const { termTheme, termBg } = getTerminalLook(theme);
+    const { fontSize, lineHeight } = getTerminalMetrics();
 
     // xterm 5.x 支持直接更新 options.theme
     term.options.theme = termTheme;
+    term.options.fontSize = fontSize;
+    term.options.lineHeight = lineHeight;
 
     if (containerRef.current) {
       containerRef.current.style.background = termBg;
     }
+
+    requestAnimationFrame(() => {
+      fitRef.current?.fit();
+    });
 
     // system 模式：监听系统颜色变化
     if (theme === "system") {
@@ -183,8 +202,13 @@ export function PtyTerminal({
         const t = termRef.current;
         if (!t) return;
         t.options.theme = e.matches ? TERM_THEME_DARK : TERM_THEME_LIGHT;
+        t.options.fontSize = 13;
+        t.options.lineHeight = 1.4;
         const bg = e.matches ? "#0a0a0c" : "#1e1e2e";
         if (containerRef.current) containerRef.current.style.background = bg;
+        requestAnimationFrame(() => {
+          fitRef.current?.fit();
+        });
       };
       mq.addEventListener("change", listener);
       return () => mq.removeEventListener("change", listener);
@@ -406,11 +430,20 @@ export function PtyTerminal({
     return () => ro.disconnect();
   }, [sessionId]);
 
-  const isDark = getIsDark(theme);
-  const termBg = isDark ? "#0a0a0c" : "#1e1e2e";
+  const isGlass = isGlassTheme(theme);
+  const { termBg } = getTerminalLook(theme);
 
   return (
-    <div style={{ position: "relative", width: "100%", height: "100%" }}>
+    <div
+      className="ci-pty-terminal"
+      style={{
+        position: "relative",
+        width: "100%",
+        height: "100%",
+        overflow: "hidden",
+        background: termBg,
+      }}
+    >
       {/* xterm canvas */}
       <div
         ref={containerRef}
@@ -425,7 +458,11 @@ export function PtyTerminal({
           background: `linear-gradient(to top, ${termBg} 70%, transparent)`,
           display: "flex", alignItems: "center", justifyContent: "center", gap: 12,
         }}>
-          <span style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", fontFamily: "monospace" }}>
+          <span style={{
+            fontSize: 11,
+            color: isGlass ? "var(--ci-text-dim)" : "rgba(255,255,255,0.35)",
+            fontFamily: "monospace",
+          }}>
             会话已结束
           </span>
           <button
@@ -433,18 +470,18 @@ export function PtyTerminal({
             style={{
               display: "flex", alignItems: "center", gap: 6,
               padding: "5px 14px", borderRadius: 8,
-              border: "1px solid rgba(96,165,250,0.35)",
-              background: "rgba(96,165,250,0.1)",
-              color: "#60a5fa", fontSize: 12, fontWeight: 600,
+              border: isGlass ? "1px solid var(--ci-accent-bdr)" : "1px solid rgba(96,165,250,0.35)",
+              background: isGlass ? "var(--ci-accent-bg)" : "rgba(96,165,250,0.1)",
+              color: isGlass ? "var(--ci-accent)" : "#60a5fa", fontSize: 12, fontWeight: 600,
               cursor: "pointer", transition: "background 0.15s, border-color 0.15s",
             }}
             onMouseEnter={e => {
-              e.currentTarget.style.background = "rgba(96,165,250,0.2)";
-              e.currentTarget.style.borderColor = "rgba(96,165,250,0.6)";
+              e.currentTarget.style.background = isGlass ? "rgba(63,145,255,0.16)" : "rgba(96,165,250,0.2)";
+              e.currentTarget.style.borderColor = isGlass ? "rgba(96,175,255,0.26)" : "rgba(96,165,250,0.6)";
             }}
             onMouseLeave={e => {
-              e.currentTarget.style.background = "rgba(96,165,250,0.1)";
-              e.currentTarget.style.borderColor = "rgba(96,165,250,0.35)";
+              e.currentTarget.style.background = isGlass ? "var(--ci-accent-bg)" : "rgba(96,165,250,0.1)";
+              e.currentTarget.style.borderColor = isGlass ? "rgba(96,175,255,0.20)" : "rgba(96,165,250,0.35)";
             }}
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">

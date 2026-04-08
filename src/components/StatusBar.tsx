@@ -20,15 +20,17 @@ const STATUS_COLOR: Record<SessionStatus, string> = {
 
 export function StatusBar({ session }: { session?: ClaudeSession }) {
   const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
+  const textShadow = isGlass ? "var(--ci-glass-text-shadow)" : "none";
 
   return (
     <div style={{
       padding: "10px 16px 12px",
       display: "flex", alignItems: "center", justifyContent: "space-between",
-      borderTop: "1px solid var(--ci-toolbar-border)",
+      borderTop: isGlass ? "none" : "1px solid var(--ci-toolbar-border)",
       background: "var(--ci-status-bg)",
       backdropFilter: isGlass ? "none" : "blur(18px) saturate(1.2)",
       WebkitBackdropFilter: isGlass ? "none" : "blur(18px) saturate(1.2)",
+      textShadow,
     }}>
       <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
         {session && (

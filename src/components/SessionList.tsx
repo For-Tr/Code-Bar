@@ -95,6 +95,7 @@ function SessionCard({
   const isWaiting = session.status === "waiting";
   const isRunning = session.status === "running";
   const isError   = session.status === "error";
+  const textShadow = isGlass ? "var(--ci-glass-text-shadow)" : "none";
 
   return (
     <motion.div
@@ -131,6 +132,7 @@ function SessionCard({
           ? "var(--ci-inset-highlight), var(--ci-card-shadow-strong)"
           : "var(--ci-inset-highlight), var(--ci-card-shadow)",
         backdropFilter: isGlass ? "none" : "blur(18px) saturate(1.14)",
+        textShadow,
       }}
     >
       <div style={{
@@ -359,6 +361,7 @@ export function SessionList() {
   const runnerType = runner.type;
   const runnerLabel = RUNNER_LABELS[runnerType];
   const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
+  const textShadow = isGlass ? "var(--ci-glass-text-shadow)" : "none";
 
   if (!activeWorkspace) return null;
 
@@ -488,6 +491,7 @@ export function SessionList() {
           borderRadius: 18,
           background: "var(--ci-panel-grad)",
           boxShadow: "var(--ci-inset-highlight), var(--ci-card-shadow)",
+          textShadow,
         }}>
           点击「+ 新建」开始 {runnerLabel} 会话
         </div>
