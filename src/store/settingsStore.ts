@@ -176,6 +176,91 @@ function resolveRunnerConfig(
   });
 }
 
+const DEFAULT_RUNNER_PROFILE: RunnerProfile = {
+  cliPath: "",
+  cliArgs: "",
+  apiBaseUrl: "",
+  apiKeyOverride: "",
+};
+
+const DEFAULT_RUNNER_PROFILES: RunnerProfiles = {
+  "claude-code": { ...DEFAULT_RUNNER_PROFILE },
+  "codex": { ...DEFAULT_RUNNER_PROFILE },
+  "custom-cli": { ...DEFAULT_RUNNER_PROFILE },
+  "native": { ...DEFAULT_RUNNER_PROFILE },
+};
+
+function cliPathBasename(cliPath?: string): string {
+  return (cliPath ?? "").split(/[\\/]/).pop()?.toLowerCase() ?? "";
+}
+
+function sanitizeRunnerCliPath(type: RunnerType, cliPath?: string): string {
+  const normalizedPath = cliPath ?? "";
+  const base = cliPathBasename(normalizedPath);
+  if (!base) return normalizedPath;
+
+  if (type === "codex" && base.includes("claude")) return "";
+  if (type === "claude-code" && base.includes("codex")) return "";
+  return normalizedPath;
+}
+
+export function sanitizeRunnerConfig(runner: RunnerConfig): RunnerConfig {
+  return {
+    ...runner,
+    cliPath: sanitizeRunnerCliPath(runner.type, runner.cliPath),
+  };
+}
+
+function normalizeRunnerProfile(profile?: Partial<RunnerProfile>): RunnerProfile {
+  return {
+    ...DEFAULT_RUNNER_PROFILE,
+    ...(profile ?? {}),
+  };
+}
+
+function extractRunnerProfile(runner: RunnerConfig): RunnerProfile {
+  return {
+    cliPath: runner.cliPath ?? "",
+    cliArgs: runner.cliArgs ?? "",
+    apiBaseUrl: runner.apiBaseUrl ?? "",
+    apiKeyOverride: runner.apiKeyOverride ?? "",
+  };
+}
+
+function mergeRunnerProfiles(
+  persistedProfiles?: Partial<RunnerProfiles>,
+  legacyRunner?: Partial<RunnerConfig>
+): RunnerProfiles {
+  const profiles: RunnerProfiles = {
+    "claude-code": normalizeRunnerProfile(persistedProfiles?.["claude-code"]),
+    "codex": normalizeRunnerProfile(persistedProfiles?.codex),
+    "custom-cli": normalizeRunnerProfile(persistedProfiles?.["custom-cli"]),
+    "native": normalizeRunnerProfile(persistedProfiles?.native),
+  };
+
+  if (legacyRunner?.type) {
+    profiles[legacyRunner.type] = {
+      ...profiles[legacyRunner.type],
+      ...extractRunnerProfile({ type: legacyRunner.type, ...profiles[legacyRunner.type], ...legacyRunner }),
+    };
+  }
+
+  return profiles;
+}
+
+function resolveRunnerConfig(
+  type: RunnerType,
+  profiles: RunnerProfiles,
+  currentRunner?: Partial<RunnerConfig>
+): RunnerConfig {
+  const profile = normalizeRunnerProfile(profiles[type]);
+  return sanitizeRunnerConfig({
+    type,
+    ...profile,
+    ...(currentRunner?.type === type ? extractRunnerProfile({ type, ...profile, ...currentRunner }) : {}),
+  });
+}
+
 const DEFAULT_SETTINGS: Settings = {
   runner: resolveRunnerConfig("claude-code", DEFAULT_RUNNER_PROFILES),
   runnerProfiles: DEFAULT_RUNNER_PROFILES,
@@ -337,8 +422,8 @@ export const useSettingsStore = create<SettingsStore>()(
           ...persistedSettingsRest
         } = persistedSettings;
         const runnerProfiles = mergeRunnerProfiles(
-          persistedSettings.runnerProfiles,
-          persistedSettings.runner
+          persistedSettings?.runnerProfiles,
+          persistedSettings?.runner
         );
         return {
           ...current,
