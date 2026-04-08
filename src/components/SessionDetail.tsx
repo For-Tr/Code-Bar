@@ -138,7 +138,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
   const session = useSessionStore((s) => s.sessions.find((x) => x.id === sessionId));
   const worktreeReady = useSessionStore((s) => s.worktreeReadyIds.has(sessionId));
   const { updateSession, appendOutput, clearOutput } = useSessionStore();
-  const { settings, patchRunner, openSettings } = useSettingsStore();
+  const { settings, patchRunner, openSettings, getRunnerConfigForType } = useSettingsStore();
   const workspaces = useWorkspaceStore((s) => s.workspaces);
   const hasOpenedRef = useRef(false);
   const [hidden, setHidden] = useState(!isOpen);
@@ -255,7 +255,13 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     }
   }, [isOpen, querySent]);
 
-  const { runner } = settings;
+  useEffect(() => {
+    if (!session?.runner) {
+      updateSession(sessionId, { runner: { ...settings.runner } });
+    }
+  }, [session?.runner, sessionId, settings.runner, updateSession]);
+
+  const runner = session?.runner ?? settings.runner;
   const isNativeMode = runner.type === "native";
 
   const cliCommand =
@@ -377,7 +383,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
         sessionId: session.id,
         workdir: session.workdir,
         task: trimmed,
-        runner: settings.runner,
+        runner,
         model: { ...settings.model, apiKey: activeApiKey },
         harness: settings.harness,
         onOutput: (line) => appendOutput(sessionIdRef.current, line),
@@ -414,7 +420,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
       pendingQueryRef.current = trimmed;
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, updateSession, appendOutput, clearOutput, isNativeMode]);
+  }, [session, updateSession, appendOutput, clearOutput, isNativeMode, runner, settings.apiKeys, settings.model, settings.harness]);
 
   const handleStopNative = useCallback(() => {
     nativeRunnerRef.current?.stop();
@@ -432,6 +438,14 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     setInstallId(id);
     setInstalling(true);
   }, [runner.type, sessionId]);
+
+  const handleSwitchRunner = useCallback((type: RunnerType) => {
+    const nextRunner = getRunnerConfigForType(type);
+    if (session) {
+      updateSession(session.id, { runner: { ...nextRunner } });
+    }
+    patchRunner({ type });
+  }, [getRunnerConfigForType, patchRunner, session, updateSession]);
 
   // pendingQuery 同步到 ref，供原生 DOM 事件回调读取最新值
   useEffect(() => {
@@ -762,7 +776,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
                   return (
                     <button
                       key={type}
-                      onClick={() => patchRunner({ type })}
+                      onClick={() => handleSwitchRunner(type)}
                       style={{
                         fontSize: 10, padding: "3px 10px", borderRadius: 99,
                         background: active ? "var(--ci-pty-runner-bg)" : "var(--ci-pty-btn-bg)",

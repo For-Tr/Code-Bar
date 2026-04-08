@@ -356,7 +356,8 @@ export function SessionList() {
   const activeWorkspace = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === activeWorkspaceId)
   );
-  const runnerType = useSettingsStore((s) => s.settings.runner.type);
+  const runner = useSettingsStore((s) => s.settings.runner);
+  const runnerType = runner.type;
   const runnerLabel = RUNNER_LABELS[runnerType];
   const isGlass = useSettingsStore((s) => s.settings.theme === "glass");
 
@@ -366,7 +367,7 @@ export function SessionList() {
   const wsSessions = sessions.filter((s) => s.workspaceId === activeWorkspaceId);
 
   const handleNewSession = async () => {
-    const id = addSession(activeWorkspace.id, activeWorkspace.path);
+    const id = addSession(activeWorkspace.id, activeWorkspace.path, undefined, { ...runner });
     setExpandedSession(id);
 
     if ("__TAURI_INTERNALS__" in window) {

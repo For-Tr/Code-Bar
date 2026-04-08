@@ -72,7 +72,7 @@ export default function App() {
         root.style.setProperty("--ci-btn-ghost-hover","rgba(255,255,255,0.14)");
         root.style.setProperty("--ci-close-bg",      "rgba(255,255,255,0.08)");
         root.style.setProperty("--ci-close-border",  "rgba(255,255,255,0.10)");
-        root.style.setProperty("--ci-window-bg",      "rgba(28,28,30,0.96)");
+        root.style.setProperty("--ci-window-bg",      "rgb(28,28,30)");
         root.style.setProperty("--ci-window-edge",    "rgba(255,255,255,0.10)");
         root.style.setProperty("--ci-window-shadow",  "0 18px 44px rgba(0,0,0,0.34)");
         root.style.setProperty("--ci-panel-grad",     "var(--ci-surface)");
@@ -116,12 +116,12 @@ export default function App() {
         root.style.setProperty("--ci-pty-term-bg",          "#0a0a0c");
         root.setAttribute("data-theme", "dark");
       } else if (mode === "glass") {
-        root.style.setProperty("--ci-bg",          "rgba(255,255,255,0.025)");
-        root.style.setProperty("--ci-bg-grad",      "rgba(255,255,255,0.018)");
-        root.style.setProperty("--ci-surface",      "rgba(255,255,255,0.04)");
-        root.style.setProperty("--ci-surface-hi",   "rgba(255,255,255,0.06)");
-        root.style.setProperty("--ci-border",       "rgba(255,255,255,0.18)");
-        root.style.setProperty("--ci-border-med",   "rgba(255,255,255,0.28)");
+        root.style.setProperty("--ci-bg",          "rgba(255,255,255,0.016)");
+        root.style.setProperty("--ci-bg-grad",      "rgba(255,255,255,0.012)");
+        root.style.setProperty("--ci-surface",      "rgba(255,255,255,0.028)");
+        root.style.setProperty("--ci-surface-hi",   "rgba(255,255,255,0.042)");
+        root.style.setProperty("--ci-border",       "rgba(255,255,255,0.22)");
+        root.style.setProperty("--ci-border-med",   "rgba(255,255,255,0.30)");
         root.style.setProperty("--ci-border-hi",    "rgba(134,194,255,0.44)");
         root.style.setProperty("--ci-text",         "#16304e");
         root.style.setProperty("--ci-text-muted",   "rgba(39,69,104,0.68)");
@@ -147,29 +147,29 @@ export default function App() {
         root.style.setProperty("--ci-deleted-bg",   "rgba(255,59,48,0.08)");
         root.style.setProperty("--ci-deleted-text", "#c0392b");
         root.style.setProperty("--ci-scrollbar",    "rgba(29,53,87,0.10)");
-        root.style.setProperty("--ci-btn-ghost-bg",  "rgba(255,255,255,0.05)");
-        root.style.setProperty("--ci-btn-ghost-hover","rgba(255,255,255,0.05)");
-        root.style.setProperty("--ci-close-bg",      "rgba(255,255,255,0.08)");
-        root.style.setProperty("--ci-close-border",  "rgba(255,255,255,0.18)");
-        root.style.setProperty("--ci-window-bg",      "rgba(255,255,255,0.024)");
-        root.style.setProperty("--ci-window-edge",    "rgba(255,255,255,0.22)");
-        root.style.setProperty("--ci-window-shadow",  "0 18px 48px rgba(92,110,138,0.06)");
-        root.style.setProperty("--ci-panel-grad",     "linear-gradient(180deg, rgba(255,255,255,0.055) 0%, rgba(255,255,255,0.028) 100%)");
-        root.style.setProperty("--ci-card-grad",      "linear-gradient(180deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.032) 100%)");
-        root.style.setProperty("--ci-toolbar-bg",     "rgba(255,255,255,0.045)");
-        root.style.setProperty("--ci-toolbar-border", "rgba(255,255,255,0.14)");
-        root.style.setProperty("--ci-status-bg",      "rgba(255,255,255,0.042)");
-        root.style.setProperty("--ci-overlay-bg",     "rgba(242,242,244,0.16)");
+        root.style.setProperty("--ci-btn-ghost-bg",  "rgba(255,255,255,0.032)");
+        root.style.setProperty("--ci-btn-ghost-hover","rgba(255,255,255,0.032)");
+        root.style.setProperty("--ci-close-bg",      "rgba(255,255,255,0.055)");
+        root.style.setProperty("--ci-close-border",  "rgba(255,255,255,0.20)");
+        root.style.setProperty("--ci-window-bg",      "rgba(255,255,255,0.010)");
+        root.style.setProperty("--ci-window-edge",    "rgba(255,255,255,0.24)");
+        root.style.setProperty("--ci-window-shadow",  "0 10px 28px rgba(92,110,138,0.03)");
+        root.style.setProperty("--ci-panel-grad",     "linear-gradient(180deg, rgba(255,255,255,0.040) 0%, rgba(255,255,255,0.018) 100%)");
+        root.style.setProperty("--ci-card-grad",      "linear-gradient(180deg, rgba(255,255,255,0.050) 0%, rgba(255,255,255,0.022) 100%)");
+        root.style.setProperty("--ci-toolbar-bg",     "rgba(255,255,255,0.030)");
+        root.style.setProperty("--ci-toolbar-border", "rgba(255,255,255,0.12)");
+        root.style.setProperty("--ci-status-bg",      "rgba(255,255,255,0.028)");
+        root.style.setProperty("--ci-overlay-bg",     "rgba(242,242,244,0.10)");
         root.style.setProperty("--ci-glow-a",         "transparent");
         root.style.setProperty("--ci-glow-b",         "transparent");
-        root.style.setProperty("--ci-inset-highlight","inset 0 0 0 0.5px rgba(255,255,255,0.10)");
-        root.style.setProperty("--ci-shell-blur",     "blur(20px) saturate(1.16) brightness(1.05) contrast(0.84)");
+        root.style.setProperty("--ci-inset-highlight","inset 0 0 0 0.5px rgba(255,255,255,0.08)");
+        root.style.setProperty("--ci-shell-blur",     "blur(14px) saturate(1.08) brightness(1.06) contrast(0.92)");
         root.style.setProperty("--ci-shell-radius",   "24px");
-        root.style.setProperty("--ci-card-shadow",    "0 8px 20px rgba(92,110,138,0.04)");
-        root.style.setProperty("--ci-card-shadow-strong","0 12px 24px rgba(92,110,138,0.05)");
-        root.style.setProperty("--ci-pill-bg",        "rgba(255,255,255,0.05)");
-        root.style.setProperty("--ci-pill-border",    "rgba(255,255,255,0.16)");
-        root.style.setProperty("--ci-primary-shadow", "0 10px 24px rgba(81,149,234,0.06)");
+        root.style.setProperty("--ci-card-shadow",    "0 6px 18px rgba(92,110,138,0.025)");
+        root.style.setProperty("--ci-card-shadow-strong","0 10px 22px rgba(92,110,138,0.035)");
+        root.style.setProperty("--ci-pill-bg",        "rgba(255,255,255,0.030)");
+        root.style.setProperty("--ci-pill-border",    "rgba(255,255,255,0.14)");
+        root.style.setProperty("--ci-primary-shadow", "0 8px 18px rgba(81,149,234,0.045)");
         root.style.setProperty("--ci-pty-panel-bg",    "rgba(242,242,247,0.97)");
         root.style.setProperty("--ci-pty-panel-border","rgba(0,0,0,0.09)");
         root.style.setProperty("--ci-pty-titlebar-bg", "rgba(255,255,255,0.60)");
@@ -230,7 +230,7 @@ export default function App() {
         root.style.setProperty("--ci-btn-ghost-hover","rgba(0,0,0,0.08)");
         root.style.setProperty("--ci-close-bg",      "rgba(0,0,0,0.05)");
         root.style.setProperty("--ci-close-border",  "rgba(0,0,0,0.08)");
-        root.style.setProperty("--ci-window-bg",      "rgba(246,246,248,0.92)");
+        root.style.setProperty("--ci-window-bg",      "rgb(246,246,248)");
         root.style.setProperty("--ci-window-edge",    "rgba(0,0,0,0.06)");
         root.style.setProperty("--ci-window-shadow",  "0 18px 40px rgba(0,0,0,0.14)");
         root.style.setProperty("--ci-panel-grad",     "var(--ci-surface)");
@@ -602,7 +602,7 @@ export default function App() {
     <div style={{
       width: "100vw",
       height: "100vh",
-      padding: "10px",
+      padding: isGlass ? 0 : "10px",
       boxSizing: "border-box",
       background: "transparent",
     }}>
@@ -611,10 +611,11 @@ export default function App() {
         className={isGlass ? "liquid-glass-shell" : undefined}
         style={{
           width: "100%",
-          height: "calc(100vh - 20px)",
+          height: isGlass ? "100vh" : "calc(100vh - 20px)",
           position: "relative",
           borderRadius: "var(--ci-shell-radius)",
           border: "1px solid var(--ci-window-edge)",
+          background: isGlass ? "transparent" : "var(--ci-window-bg)",
           boxShadow: "var(--ci-window-shadow)",
           clipPath: "inset(0 round var(--ci-shell-radius))",
           overflow: "hidden",
