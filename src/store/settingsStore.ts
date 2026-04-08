@@ -23,6 +23,9 @@ export interface RunnerConfig {
   apiKeyOverride?: string;
 }
 
+export type RunnerProfile = Omit<RunnerConfig, "type">;
+export type RunnerProfiles = Record<RunnerType, RunnerProfile>;
+
 // ── 模型配置 ─────────────────────────────────────────────────
 
 export type ModelProvider =
@@ -65,6 +68,7 @@ export interface HarnessPermissions {
 
 export interface Settings {
   runner: RunnerConfig;
+  runnerProfiles: RunnerProfiles;
   model: ModelConfig;
   apiKeys: ApiKeys;
   harness: HarnessPermissions;
@@ -74,14 +78,94 @@ export interface Settings {
   theme: "light" | "dark" | "system";
 }
 
+const DEFAULT_RUNNER_PROFILE: RunnerProfile = {
+  cliPath: "",
+  cliArgs: "",
+  apiBaseUrl: "",
+  apiKeyOverride: "",
+};
+
+const DEFAULT_RUNNER_PROFILES: RunnerProfiles = {
+  "claude-code": { ...DEFAULT_RUNNER_PROFILE },
+  "codex": { ...DEFAULT_RUNNER_PROFILE },
+  "custom-cli": { ...DEFAULT_RUNNER_PROFILE },
+  "native": { ...DEFAULT_RUNNER_PROFILE },
+};
+
+function cliPathBasename(cliPath?: string): string {
+  return (cliPath ?? "").split(/[\\/]/).pop()?.toLowerCase() ?? "";
+}
+
+function sanitizeRunnerCliPath(type: RunnerType, cliPath?: string): string {
+  const normalizedPath = cliPath ?? "";
+  const base = cliPathBasename(normalizedPath);
+  if (!base) return normalizedPath;
+
+  if (type === "codex" && base.includes("claude")) return "";
+  if (type === "claude-code" && base.includes("codex")) return "";
+  return normalizedPath;
+}
+
+export function sanitizeRunnerConfig(runner: RunnerConfig): RunnerConfig {
+  return {
+    ...runner,
+    cliPath: sanitizeRunnerCliPath(runner.type, runner.cliPath),
+  };
+}
+
+function normalizeRunnerProfile(profile?: Partial<RunnerProfile>): RunnerProfile {
+  return {
+    ...DEFAULT_RUNNER_PROFILE,
+    ...(profile ?? {}),
+  };
+}
+
+function extractRunnerProfile(runner: RunnerConfig): RunnerProfile {
+  return {
+    cliPath: runner.cliPath ?? "",
+    cliArgs: runner.cliArgs ?? "",
+    apiBaseUrl: runner.apiBaseUrl ?? "",
+    apiKeyOverride: runner.apiKeyOverride ?? "",
+  };
+}
+
+function mergeRunnerProfiles(
+  persistedProfiles?: Partial<RunnerProfiles>,
+  legacyRunner?: Partial<RunnerConfig>
+): RunnerProfiles {
+  const profiles: RunnerProfiles = {
+    "claude-code": normalizeRunnerProfile(persistedProfiles?.["claude-code"]),
+    "codex": normalizeRunnerProfile(persistedProfiles?.codex),
+    "custom-cli": normalizeRunnerProfile(persistedProfiles?.["custom-cli"]),
+    "native": normalizeRunnerProfile(persistedProfiles?.native),
+  };
+
+  if (legacyRunner?.type) {
+    profiles[legacyRunner.type] = {
+      ...profiles[legacyRunner.type],
+      ...extractRunnerProfile({ type: legacyRunner.type, ...profiles[legacyRunner.type], ...legacyRunner }),
+    };
+  }
+
+  return profiles;
+}
+
+function resolveRunnerConfig(
+  type: RunnerType,
+  profiles: RunnerProfiles,
+  currentRunner?: Partial<RunnerConfig>
+): RunnerConfig {
+  const profile = normalizeRunnerProfile(profiles[type]);
+  return sanitizeRunnerConfig({
+    type,
+    ...profile,
+    ...(currentRunner?.type === type ? extractRunnerProfile({ type, ...profile, ...currentRunner }) : {}),
+  });
+}
+
 const DEFAULT_SETTINGS: Settings = {
-  runner: {
-    type: "claude-code",
-    cliPath: "",
-    cliArgs: "",
-    apiBaseUrl: "",
-    apiKeyOverride: "",
-  },
+  runner: resolveRunnerConfig("claude-code", DEFAULT_RUNNER_PROFILES),
+  runnerProfiles: DEFAULT_RUNNER_PROFILES,
   model: {
     provider: "openai-compatible",
     model: "glm-4-flash",
@@ -120,11 +204,12 @@ interface SettingsStore {
   patchRunner: (patch: Partial<RunnerConfig>) => void;
   patchModel: (patch: Partial<ModelConfig>) => void;
   patchHarness: (patch: Partial<HarnessPermissions>) => void;
-  patchSettings: (patch: Partial<Omit<Settings, "runner" | "model" | "harness" | "apiKeys">>) => void;
+  patchSettings: (patch: Partial<Omit<Settings, "runner" | "runnerProfiles" | "model" | "harness" | "apiKeys">>) => void;
   // 单个 provider 存 key（同时写 Rust keychain）
   saveProviderApiKey: (provider: ModelProvider, key: string) => Promise<void>;
   // 获取当前激活 provider 的 key（供 harness 使用）
   getActiveApiKey: () => string;
+  getRunnerConfigForType: (type: RunnerType) => RunnerConfig;
   // 兼容旧接口
   saveApiKey: (key: string) => Promise<void>;
 }
@@ -142,9 +227,29 @@ export const useSettingsStore = create<SettingsStore>()(
       setTab: (tab) => set({ activeTab: tab }),
 
       patchRunner: (patch) =>
-        set((s) => ({
-          settings: { ...s.settings, runner: { ...s.settings.runner, ...patch } },
-        })),
+        set((s) => {
+          const currentRunner = s.settings.runner;
+          const nextType = patch.type ?? currentRunner.type;
+          const baseRunner = nextType === currentRunner.type
+            ? currentRunner
+            : resolveRunnerConfig(nextType, s.settings.runnerProfiles);
+          const nextRunner = sanitizeRunnerConfig({
+            ...baseRunner,
+            ...patch,
+            type: nextType,
+          });
+          const nextProfiles: RunnerProfiles = {
+            ...s.settings.runnerProfiles,
+            [nextType]: extractRunnerProfile(nextRunner),
+          };
+          return {
+            settings: {
+              ...s.settings,
+              runner: nextRunner,
+              runnerProfiles: nextProfiles,
+            },
+          };
+        }),
 
       patchModel: (patch) =>
         set((s) => ({
@@ -179,6 +284,11 @@ export const useSettingsStore = create<SettingsStore>()(
         return settings.apiKeys[settings.model.provider] || settings.model.apiKey || "";
       },
 
+      getRunnerConfigForType: (type) => {
+        const { settings } = get();
+        return resolveRunnerConfig(type, settings.runnerProfiles, settings.runner);
+      },
+
       saveApiKey: async (key: string) => {
         const { settings } = get();
         await get().saveProviderApiKey(settings.model.provider, key);
@@ -202,13 +312,22 @@ export const useSettingsStore = create<SettingsStore>()(
       // 深度合并：旧版持久化数据缺失字段时，用 DEFAULT_SETTINGS 补全
       merge: (persisted: unknown, current) => {
         const p = persisted as Partial<typeof current>;
+        const runnerProfiles = mergeRunnerProfiles(
+          p.settings?.runnerProfiles,
+          p.settings?.runner
+        );
         return {
           ...current,
           ...p,
           settings: {
             ...DEFAULT_SETTINGS,
             ...(p.settings ?? {}),
-            runner: { ...DEFAULT_SETTINGS.runner, ...(p.settings?.runner ?? {}), apiBaseUrl: p.settings?.runner?.apiBaseUrl ?? "", apiKeyOverride: p.settings?.runner?.apiKeyOverride ?? "" },
+            runnerProfiles,
+            runner: resolveRunnerConfig(
+              p.settings?.runner?.type ?? DEFAULT_SETTINGS.runner.type,
+              runnerProfiles,
+              p.settings?.runner
+            ),
             model: { ...DEFAULT_SETTINGS.model, ...(p.settings?.model ?? {}), apiKey: "" },
             apiKeys: { ...DEFAULT_SETTINGS.apiKeys, ...(p.settings?.apiKeys ?? {}) },
             harness: { ...DEFAULT_SETTINGS.harness, ...(p.settings?.harness ?? {}) },

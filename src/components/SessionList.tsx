@@ -2,7 +2,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { invoke } from "@tauri-apps/api/core";
 import { ClaudeSession, SessionStatus, useSessionStore } from "../store/sessionStore";
 import { useWorkspaceStore, getWorkspaceColor } from "../store/workspaceStore";
-import { useSettingsStore, RUNNER_LABELS } from "../store/settingsStore";
+import { useSettingsStore, RUNNER_LABELS, sanitizeRunnerConfig } from "../store/settingsStore";
 
 // ── 状态配置（使用 CSS 变量）────────────────────────────────
 const STATUS_CONFIG: Record<SessionStatus, {
@@ -328,7 +328,8 @@ export function SessionList() {
   const activeWorkspace = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === activeWorkspaceId)
   );
-  const runnerType = useSettingsStore((s) => s.settings.runner.type);
+  const runner = sanitizeRunnerConfig(useSettingsStore((s) => s.settings.runner));
+  const runnerType = runner.type;
   const runnerLabel = RUNNER_LABELS[runnerType];
 
   if (!activeWorkspace) return null;
@@ -337,7 +338,7 @@ export function SessionList() {
   const wsSessions = sessions.filter((s) => s.workspaceId === activeWorkspaceId);
 
   const handleNewSession = async () => {
-    const id = addSession(activeWorkspace.id, activeWorkspace.path);
+    const id = addSession(activeWorkspace.id, activeWorkspace.path, undefined, { ...runner });
     setExpandedSession(id);
 
     if ("__TAURI_INTERNALS__" in window) {

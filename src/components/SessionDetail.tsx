@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { motion, AnimatePresence } from "framer-motion";
 import { invoke } from "@tauri-apps/api/core";
 import { useSessionStore } from "../store/sessionStore";
-import { useSettingsStore, RUNNER_LABELS, type RunnerType } from "../store/settingsStore";
+import { useSettingsStore, RUNNER_LABELS, sanitizeRunnerConfig, type RunnerType } from "../store/settingsStore";
 import { useWorkspaceStore } from "../store/workspaceStore";
 import { PtyTerminal } from "./PtyTerminal";
 import { TrafficLights } from "./TrafficLights";
@@ -138,7 +138,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
   const session = useSessionStore((s) => s.sessions.find((x) => x.id === sessionId));
   const worktreeReady = useSessionStore((s) => s.worktreeReadyIds.has(sessionId));
   const { updateSession, appendOutput, clearOutput } = useSessionStore();
-  const { settings, patchRunner, openSettings } = useSettingsStore();
+  const { settings, patchRunner, openSettings, getRunnerConfigForType } = useSettingsStore();
   const workspaces = useWorkspaceStore((s) => s.workspaces);
   const hasOpenedRef = useRef(false);
   const [hidden, setHidden] = useState(!isOpen);
@@ -157,6 +157,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
   const [installing, setInstalling] = useState(false);
   const installCountRef = useRef(0);
   const [installId, setInstallId] = useState("");
+  const [launchPrompt, setLaunchPrompt] = useState<string | null>(null);
 
   // PTY 是否已启动过（首次展开后就保持 true，避免收起时 active=false 触发重启逻辑）
   const [ptyEverActive, setPtyEverActive] = useState(false);
@@ -175,6 +176,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
   const pendingQueryRef = useRef<string | null>(null);
   const handlePtyReady = useCallback(() => {
     ptyReadyRef.current = true;
+    setLaunchPrompt(null);
     const q = pendingQueryRef.current;
     if (!q) return;
     pendingQueryRef.current = null;
@@ -223,6 +225,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     const s = useSessionStore.getState().sessions.find((x) => x.id === sessionId);
     setQuerySent(!!s && (s.status === "running" || s.status === "waiting"));
     setPendingQuery("");
+    setLaunchPrompt(null);
     ptyReadyRef.current = false;
     pendingQueryRef.current = null;
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -240,12 +243,10 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     }
   }, [isOpen]);
 
-  // 面板打开 且 worktree 已就绪（创建完成或不是 git 仓库）时才激活 PTY
-  // worktreeReady 由 SessionList.handleNewSession 在 worktree 创建完毕后标记
-  // 持久化恢复的 session（已有 worktreePath）在 store 初始化时即标记为 ready
+  // 首条 query 提交后才激活 PTY，避免 CLI 初始化阶段的输入竞争。
   useEffect(() => {
-    if (isOpen && worktreeReady && !ptyEverActive) setPtyEverActive(true);
-  }, [isOpen, worktreeReady, ptyEverActive]);
+    if (querySent && worktreeReady && !ptyEverActive) setPtyEverActive(true);
+  }, [querySent, worktreeReady, ptyEverActive]);
 
   // 展开且未发送 query 时自动聚焦输入框
   useEffect(() => {
@@ -255,8 +256,27 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     }
   }, [isOpen, querySent]);
 
-  const { runner } = settings;
+  useEffect(() => {
+    if (!session?.runner) {
+      updateSession(sessionId, { runner: { ...sanitizeRunnerConfig(settings.runner) } });
+      return;
+    }
+
+    const normalizedRunner = sanitizeRunnerConfig(session.runner);
+    if (
+      normalizedRunner.type !== session.runner.type
+      || (normalizedRunner.cliPath ?? "") !== (session.runner.cliPath ?? "")
+      || (normalizedRunner.cliArgs ?? "") !== (session.runner.cliArgs ?? "")
+      || (normalizedRunner.apiBaseUrl ?? "") !== (session.runner.apiBaseUrl ?? "")
+      || (normalizedRunner.apiKeyOverride ?? "") !== (session.runner.apiKeyOverride ?? "")
+    ) {
+      updateSession(sessionId, { runner: normalizedRunner });
+    }
+  }, [session?.runner, sessionId, settings.runner, updateSession]);
+
+  const runner = sanitizeRunnerConfig(session?.runner ?? settings.runner);
   const isNativeMode = runner.type === "native";
+  const supportsPromptLaunch = runner.type === "claude-code" || runner.type === "codex";
 
   const cliCommand =
     runner.type === "claude-code" ? runner.cliPath || "claude"
@@ -281,6 +301,12 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     recheckCli();
     setInstalling(false);
   }, [recheckCli]);
+
+  useEffect(() => {
+    setLaunchPrompt(null);
+    ptyReadyRef.current = false;
+    pendingQueryRef.current = null;
+  }, [sessionId, runner.type, cliCommand, session?.workdir]);
 
   // PTY 退出后标记 done
   useEffect(() => {
@@ -377,7 +403,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
         sessionId: session.id,
         workdir: session.workdir,
         task: trimmed,
-        runner: settings.runner,
+        runner,
         model: { ...settings.model, apiKey: activeApiKey },
         harness: settings.harness,
         onOutput: (line) => appendOutput(sessionIdRef.current, line),
@@ -398,8 +424,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
       return;
     }
 
-    // ── PTY 模式：PTY 已预启动，直接写入 query ──
-    // CODE_BAR_* 环境变量已在 PTY 启动时注入，claude 可感知 session 上下文
+    // ── PTY 模式 ──
     const sendQuery = () => {
       const bytes = new TextEncoder().encode(trimmed + "\r");
       const b64 = btoa(String.fromCharCode(...bytes));
@@ -407,14 +432,14 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     };
 
     if (ptyReadyRef.current) {
-      // PTY 已就绪：稍作延迟后直接写入
       setTimeout(sendQuery, 100);
+    } else if (supportsPromptLaunch && !ptyEverActive) {
+      setLaunchPrompt(trimmed);
     } else {
-      // PTY 还未就绪（启动中）：存入 pendingQuery，等 onReady 回调后再发送
       pendingQueryRef.current = trimmed;
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, updateSession, appendOutput, clearOutput, isNativeMode]);
+  }, [session, updateSession, appendOutput, clearOutput, isNativeMode, ptyEverActive, runner, settings.apiKeys, settings.model, settings.harness, supportsPromptLaunch]);
 
   const handleStopNative = useCallback(() => {
     nativeRunnerRef.current?.stop();
@@ -432,6 +457,18 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     setInstallId(id);
     setInstalling(true);
   }, [runner.type, sessionId]);
+
+  const handleSwitchRunner = useCallback((type: RunnerType) => {
+    const nextRunner = getRunnerConfigForType(type);
+    setLaunchPrompt(null);
+    ptyReadyRef.current = false;
+    pendingQueryRef.current = null;
+    invoke("stop_pty_session", { sessionId }).catch(() => {});
+    if (session) {
+      updateSession(session.id, { runner: { ...nextRunner } });
+    }
+    patchRunner({ type });
+  }, [getRunnerConfigForType, patchRunner, session, sessionId, updateSession]);
 
   // pendingQuery 同步到 ref，供原生 DOM 事件回调读取最新值
   useEffect(() => {
@@ -702,6 +739,8 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
               args={cliBaseArgs}
               workdir={session.workdir}
               active={ptyEverActive}
+              initialPrompt={launchPrompt}
+              supportsPromptArg={supportsPromptLaunch}
               onReady={handlePtyReady}
               onWaiting={handlePtyWaiting}
               onRunning={handlePtyRunning}
@@ -762,7 +801,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
                   return (
                     <button
                       key={type}
-                      onClick={() => patchRunner({ type })}
+                      onClick={() => handleSwitchRunner(type)}
                       style={{
                         fontSize: 10, padding: "3px 10px", borderRadius: 99,
                         background: active ? "var(--ci-pty-runner-bg)" : "var(--ci-pty-btn-bg)",

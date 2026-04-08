@@ -12,6 +12,8 @@ interface Props {
   args?: string[];     // e.g. ["--dangerously-skip-permissions"]
   workdir: string;
   active: boolean;     // 是否可见/激活
+  initialPrompt?: string | null;
+  supportsPromptArg?: boolean;
   onReady?: () => void; // PTY 进程启动成功后回调（用于透传初始 query）
   onWaiting?: () => void; // CLI 完成任务、等待下一条 query 时回调
   onRunning?: () => void; // CLI 开始处理 query 时回调
@@ -78,7 +80,21 @@ function getIsDark(theme: "light" | "dark" | "system"): boolean {
   return window.matchMedia("(prefers-color-scheme: dark)").matches;
 }
 
-export function PtyTerminal({ sessionId, command, args = [], workdir, active, onReady, onWaiting, onRunning, onError, onNotification, env }: Props) {
+export function PtyTerminal({
+  sessionId,
+  command,
+  args = [],
+  workdir,
+  active,
+  initialPrompt,
+  supportsPromptArg = false,
+  onReady,
+  onWaiting,
+  onRunning,
+  onError,
+  onNotification,
+  env,
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -134,6 +150,12 @@ export function PtyTerminal({ sessionId, command, args = [], workdir, active, on
       fitRef.current = null;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId]);
+
+  useEffect(() => {
+    return () => {
+      invoke("stop_pty_session", { sessionId }).catch(() => {});
+    };
   }, [sessionId]);
 
   // ── 主题切换时动态更新 xterm 颜色 ────────────────────────
@@ -254,10 +276,23 @@ export function PtyTerminal({ sessionId, command, args = [], workdir, active, on
   // 用 ref 保存最新的 args/onReady/env，避免加入依赖导致每次渲染重启
   const argsRef = useRef(args);
   argsRef.current = args;
+  const initialPromptRef = useRef(initialPrompt);
+  initialPromptRef.current = initialPrompt;
+  const supportsPromptArgRef = useRef(supportsPromptArg);
+  supportsPromptArgRef.current = supportsPromptArg;
   const onReadyRef = useRef(onReady);
   onReadyRef.current = onReady;
   const envRef = useRef(env);
   envRef.current = env;
+
+  const buildLaunchArgs = () => {
+    const launchArgs = [...argsRef.current];
+    const prompt = initialPromptRef.current?.trim();
+    if (supportsPromptArgRef.current && prompt) {
+      launchArgs.push(prompt);
+    }
+    return launchArgs;
+  };
 
   useEffect(() => {
     if (!active || startedRef.current) return;
@@ -271,16 +306,20 @@ export function PtyTerminal({ sessionId, command, args = [], workdir, active, on
       if (fit) fit.fit();
       const cols = Math.max(term?.cols ?? 80, 40);
       const rows = Math.max(term?.rows ?? 24, 12);
+      const launchArgs = buildLaunchArgs();
+      const prompt = initialPromptRef.current?.trim();
 
       // 打印启动提示，方便调试确认实际启动的命令
-      const displayCmd = [command, ...argsRef.current].join(" ");
+      const displayCmd = prompt && supportsPromptArgRef.current
+        ? [command, ...argsRef.current, "<prompt>"].join(" ")
+        : [command, ...launchArgs].join(" ");
       term?.writeln(`\x1b[90m$ ${displayCmd}\x1b[0m`);
 
       invoke("start_pty_session", {
         sessionId,
         workdir,
         command,
-        args: argsRef.current,
+        args: launchArgs,
         cols,
         rows,
         env: envRef.current ?? null,
