@@ -5,7 +5,7 @@ use tauri::{Emitter, Manager};
 use crate::{
     cli_detect::resolve_command_path,
     state::{PtyKillerMap, PtyMasterMap, PtyWriterMap},
-    util::expand_path,
+    util::{expand_path, home_dir},
 };
 
 // ── 辅助：从 AppHandle 获取 PTY 状态 ─────────────────────────────
@@ -116,33 +116,54 @@ pub async fn start_pty_session(
     let resolved_command = resolve_command_path(&command);
     eprintln!("[start_pty_session] spawn: {resolved_command} {:?}", args);
 
-    let mut cmd = CommandBuilder::new(&resolved_command);
-    for arg in &args {
-        cmd.arg(arg);
-    }
+    let mut cmd = if cfg!(windows)
+        && std::path::Path::new(&resolved_command)
+            .extension()
+            .and_then(|s| s.to_str())
+            .map(|ext| matches!(ext.to_ascii_lowercase().as_str(), "cmd" | "bat"))
+            .unwrap_or(false)
+    {
+        let mut builder = CommandBuilder::new("cmd.exe");
+        builder.arg("/d");
+        builder.arg("/c");
+        builder.arg(&resolved_command);
+        for arg in &args {
+            builder.arg(arg);
+        }
+        builder
+    } else {
+        let mut builder = CommandBuilder::new(&resolved_command);
+        for arg in &args {
+            builder.arg(arg);
+        }
+        builder
+    };
     cmd.cwd(&expanded);
 
     // 继承基础环境变量
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
-    if let Ok(home) = std::env::var("HOME") {
-        cmd.env("HOME", home);
+    if let Some(home) = home_dir() {
+        cmd.env("HOME", home.to_string_lossy().to_string());
+        #[cfg(windows)]
+        cmd.env("USERPROFILE", home.to_string_lossy().to_string());
     }
 
     // 构建子进程 PATH（补充 node 所在目录，供 claude/codex 等 Node.js 脚本使用）
     {
         let base_path = std::env::var("PATH").unwrap_or_default();
         let node_path = resolve_command_path("node");
-        let node_dir = if node_path.contains('/') {
+        let node_dir = if std::path::Path::new(&node_path).parent().is_some() {
             std::path::Path::new(&node_path)
                 .parent()
                 .map(|d| d.to_string_lossy().to_string())
         } else {
             None
         };
+        let sep = if cfg!(windows) { ';' } else { ':' };
         let enriched_path = match node_dir {
-            Some(dir) if !base_path.split(':').any(|s| s == dir) => {
-                format!("{dir}:{base_path}")
+            Some(dir) if !base_path.split(sep).any(|s| s == dir) => {
+                format!("{dir}{sep}{base_path}")
             }
             _ => base_path,
         };

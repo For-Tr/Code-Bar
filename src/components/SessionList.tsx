@@ -1,5 +1,6 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ClaudeSession, SessionStatus, useSessionStore } from "../store/sessionStore";
 import { useWorkspaceStore, getWorkspaceColor } from "../store/workspaceStore";
 import { useSettingsStore, RUNNER_LABELS } from "../store/settingsStore";
@@ -272,6 +273,10 @@ function SessionCard({
       {/* 展开终端 */}
       <button
         onClick={(e) => { e.stopPropagation(); onExpand(); }}
+        onMouseDown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
         title="展开终端"
         style={{
           background: isWaiting ? "var(--ci-yellow-bg)" : "var(--ci-btn-ghost-bg)",
@@ -302,6 +307,10 @@ function SessionCard({
       {/* 删除 */}
       <button
         onClick={(e) => { e.stopPropagation(); onRemove(); }}
+        onMouseDown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
         style={{
           background: "none", border: "none",
           color: "var(--ci-text-dim)", fontSize: 11,
@@ -367,17 +376,30 @@ export function SessionList() {
   };
 
   const handleRemoveSession = (session: ClaudeSession) => {
-    removeSession(session.id);
-
-    if ("__TAURI_INTERNALS__" in window && session.worktreePath && session.branchName) {
-      invoke("teardown_session_worktree", {
-        workdir: activeWorkspace.path,
-        worktreePath: session.worktreePath,
-        branch: session.branchName,
-      }).catch((e) => {
-        console.warn("[worktree] teardown failed:", e);
-      });
+    const activeEl = document.activeElement;
+    if (activeEl instanceof HTMLElement) {
+      activeEl.blur();
     }
+
+    window.setTimeout(() => {
+      removeSession(session.id);
+
+      if ("__TAURI_INTERNALS__" in window) {
+        const popup = getCurrentWindow();
+        popup.show().catch(() => {});
+        popup.setFocus().catch(() => {});
+      }
+
+      if ("__TAURI_INTERNALS__" in window && session.worktreePath && session.branchName) {
+        invoke("teardown_session_worktree", {
+          workdir: activeWorkspace.path,
+          worktreePath: session.worktreePath,
+          branch: session.branchName,
+        }).catch((e) => {
+          console.warn("[worktree] teardown failed:", e);
+        });
+      }
+    }, 0);
   };
 
   return (

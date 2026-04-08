@@ -247,6 +247,18 @@ pub fn show_popup(app: &tauri::AppHandle, win: &tauri::WebviewWindow) {
     eprintln!("[popup] shown");
 }
 
+fn dismiss_popup_window(win: &tauri::WebviewWindow) {
+    #[cfg(target_os = "windows")]
+    {
+        let _ = win.destroy();
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = win.hide();
+    }
+}
+
 pub fn toggle_popup(app: &tauri::AppHandle) {
     eprintln!("[popup] toggle_popup called");
 
@@ -261,7 +273,7 @@ pub fn toggle_popup(app: &tauri::AppHandle) {
         if is_visible {
             eprintln!("[popup] hiding");
             app.state::<PopupVisible>().set(false);
-            let _ = win.hide();
+            dismiss_popup_window(&win);
         } else {
             eprintln!("[popup] showing");
             show_popup(app, &win);
@@ -293,6 +305,7 @@ fn create_popup(app: &tauri::AppHandle) {
     #[cfg(target_os = "macos")]
     setup_popup_window(&win);
 
+    position_popup(app, &win);
     show_popup(app, &win);
 }
 
@@ -302,7 +315,7 @@ fn create_popup(app: &tauri::AppHandle) {
 #[tauri::command]
 pub fn close_popup(app: tauri::AppHandle, window: tauri::WebviewWindow) {
     app.state::<PopupVisible>().set(false);
-    let _ = window.hide();
+    dismiss_popup_window(&window);
 }
 
 /// 从通知点击回调中激活并显示弹窗。

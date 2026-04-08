@@ -1,5 +1,7 @@
 use std::{
     collections::HashMap,
+    path::{Path, PathBuf},
+    process::{Command, Stdio},
     sync::{Mutex, OnceLock},
 };
 
@@ -21,7 +23,7 @@ fn cmd_path_cache() -> &'static Mutex<HashMap<String, Option<String>>> {
 ///   4. 静态扫描常见版本管理器目录（shell 失败时的无进程兜底）
 pub fn resolve_command_path(command: &str) -> String {
     // 已是完整路径，跳过缓存直接返回
-    if command.contains('/') {
+    if is_direct_command_path(command) {
         return command.to_string();
     }
 
@@ -51,14 +53,85 @@ pub fn resolve_command_path(command: &str) -> String {
         cache.insert(command.to_string(), result.clone());
     }
 
-    result.unwrap_or_else(|| command.to_string())
+    normalize_windows_command_path(result.unwrap_or_else(|| command.to_string()))
+}
+
+fn is_direct_command_path(command: &str) -> bool {
+    #[cfg(windows)]
+    {
+        Path::new(command).is_absolute()
+            || command.contains('\\')
+            || command.contains('/')
+    }
+
+    #[cfg(not(windows))]
+    {
+        command.contains('/')
+    }
+}
+
+fn normalize_windows_command_path(command: String) -> String {
+    #[cfg(windows)]
+    {
+        let path = PathBuf::from(&command);
+        if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
+            if ext.eq_ignore_ascii_case("ps1") {
+                for sibling_ext in ["cmd", "bat", "exe", "com"] {
+                    let sibling = path.with_extension(sibling_ext);
+                    if sibling.exists() {
+                        return sibling.to_string_lossy().to_string();
+                    }
+                }
+            }
+            return command;
+        }
+
+        for ext in ["cmd", "bat", "exe", "com"] {
+            let candidate = PathBuf::from(format!("{command}.{}", ext));
+            if candidate.exists() {
+                return candidate.to_string_lossy().to_string();
+            }
+        }
+
+        command
+    }
+
+    #[cfg(not(windows))]
+    {
+        command
+    }
+}
+
+#[cfg(windows)]
+fn windows_candidates(command: &str) -> Vec<String> {
+    if Path::new(command).extension().is_some() {
+        return vec![command.to_string()];
+    }
+
+    let pathext = std::env::var("PATHEXT")
+        .unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_string());
+    let mut candidates = Vec::new();
+    for ext in pathext.split(';').filter(|s| !s.is_empty()) {
+        candidates.push(format!("{command}{ext}"));
+        candidates.push(format!("{command}{}", ext.to_ascii_lowercase()));
+    }
+    candidates.push(command.to_string());
+    candidates.dedup();
+    candidates
 }
 
 /// 扫进程 PATH，找到可执行文件返回完整路径
 fn scan_path_env(command: &str) -> Option<String> {
     let path_var = std::env::var("PATH").ok()?;
-    for dir in path_var.split(':') {
-        let full = std::path::PathBuf::from(dir).join(command);
+    let sep = if cfg!(windows) { ';' } else { ':' };
+    for dir in path_var.split(sep).filter(|s| !s.is_empty()) {
+        #[cfg(windows)]
+        let candidates = windows_candidates(command);
+        #[cfg(not(windows))]
+        let candidates = vec![command.to_string()];
+
+        for candidate in candidates {
+            let full = std::path::PathBuf::from(dir).join(&candidate);
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -72,11 +145,32 @@ fn scan_path_env(command: &str) -> Option<String> {
         if full.exists() {
             return Some(full.to_string_lossy().to_string());
         }
+        }
     }
     None
 }
 
+#[cfg(windows)]
+fn shell_which(command: &str) -> Option<String> {
+    let script = format!(
+        "(Get-Command {command} -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source)"
+    );
+    let out = Command::new("powershell")
+        .args(["-NoProfile", "-Command", &script])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    let resolved = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if resolved.is_empty() || !Path::new(&resolved).exists() {
+        None
+    } else {
+        Some(resolved)
+    }
+}
+
 /// 通过用户 shell source 完整配置文件后执行 which（3s 超时）
+#[cfg(not(windows))]
 fn shell_which(command: &str) -> Option<String> {
     use std::time::Duration;
 
@@ -153,6 +247,27 @@ which {command} 2>/dev/null | head -1"#
 
 /// 静态扫描常见版本管理器安装目录（nvm/fnm/volta/mise/asdf/pyenv/rbenv/cargo/go）
 fn static_venv_scan(command: &str) -> Option<String> {
+    #[cfg(windows)]
+    {
+        let home = crate::util::home_dir()?;
+        let dirs = [
+            home.join("AppData\\Roaming\\npm"),
+            home.join("scoop\\shims"),
+            home.join(".cargo\\bin"),
+        ];
+        for dir in dirs {
+            for candidate in windows_candidates(command) {
+                let full = dir.join(&candidate);
+                if full.exists() {
+                    return Some(full.to_string_lossy().to_string());
+                }
+            }
+        }
+        return None;
+    }
+
+    #[cfg(not(windows))]
+    {
     let home = std::path::PathBuf::from(std::env::var("HOME").ok()?);
 
     let mut dirs: Vec<std::path::PathBuf> = vec![
@@ -217,6 +332,7 @@ fn static_venv_scan(command: &str) -> Option<String> {
     }
 
     None
+    }
 }
 
 /// 在 PATH 和常见路径中查找指定命令
@@ -245,17 +361,37 @@ pub fn find_in_path(cmd: &str) -> Option<String> {
 #[tauri::command]
 pub async fn check_cli(command: String) -> bool {
     let resolved = resolve_command_path(&command);
-    resolved.contains('/') && std::path::Path::new(&resolved).exists()
+    std::path::Path::new(&resolved).exists()
 }
 
 /// 调试用：返回进程环境信息，用于诊断打包后 PATH/SHELL 问题
 #[tauri::command]
 pub fn debug_env(command: String) -> serde_json::Value {
     let path = std::env::var("PATH").unwrap_or_else(|_| "<unset>".to_string());
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "<unset>".to_string());
-    let home = std::env::var("HOME").unwrap_or_else(|_| "<unset>".to_string());
+    let shell = if cfg!(windows) {
+        std::env::var("ComSpec").unwrap_or_else(|_| "<unset>".to_string())
+    } else {
+        std::env::var("SHELL").unwrap_or_else(|_| "<unset>".to_string())
+    };
+    let home = crate::util::home_dir()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|| "<unset>".to_string());
     let resolved = resolve_command_path(&command);
 
+    #[cfg(windows)]
+    let shell_which = match Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            &format!("(Get-Command {command} -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source)"),
+        ])
+        .output()
+    {
+        Ok(out) => String::from_utf8_lossy(&out.stdout).trim().to_string(),
+        Err(e) => format!("error: {e}"),
+    };
+
+    #[cfg(not(windows))]
     let shell_which = if shell != "<unset>" {
         match std::process::Command::new(&shell)
             .args([
@@ -433,15 +569,35 @@ pub fn detect_cli_config() -> serde_json::Value {
         if let Ok(path_var) = std::env::var("PATH") {
             let sep = if cfg!(windows) { ';' } else { ':' };
             for dir in path_var.split(sep) {
-                let claude = std::path::PathBuf::from(dir).join("claude");
-                let codex = std::path::PathBuf::from(dir).join("codex");
-                if claude.exists() && result["claude_cli_path"].as_str().unwrap_or("").is_empty() {
-                    result["claude_cli_path"] =
-                        serde_json::Value::String(claude.to_string_lossy().to_string());
+                #[cfg(windows)]
+                let claude_candidates = windows_candidates("claude");
+                #[cfg(not(windows))]
+                let claude_candidates = vec!["claude".to_string()];
+                #[cfg(windows)]
+                let codex_candidates = windows_candidates("codex");
+                #[cfg(not(windows))]
+                let codex_candidates = vec!["codex".to_string()];
+
+                if result["claude_cli_path"].as_str().unwrap_or("").is_empty() {
+                    for candidate in &claude_candidates {
+                        let full = std::path::PathBuf::from(dir).join(candidate);
+                        if full.exists() {
+                            result["claude_cli_path"] =
+                                serde_json::Value::String(full.to_string_lossy().to_string());
+                            break;
+                        }
+                    }
                 }
-                if codex.exists() && result["codex_cli_path"].as_str().unwrap_or("").is_empty() {
-                    result["codex_cli_path"] =
-                        serde_json::Value::String(codex.to_string_lossy().to_string());
+
+                if result["codex_cli_path"].as_str().unwrap_or("").is_empty() {
+                    for candidate in &codex_candidates {
+                        let full = std::path::PathBuf::from(dir).join(candidate);
+                        if full.exists() {
+                            result["codex_cli_path"] =
+                                serde_json::Value::String(full.to_string_lossy().to_string());
+                            break;
+                        }
+                    }
                 }
             }
         }

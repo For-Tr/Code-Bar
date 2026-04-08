@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
+const isWindows = navigator.userAgent.toLowerCase().includes("windows");
+
 // macOS 原生交通灯 hover 图标 SVG
 // 关闭：× 交叉线
 const IconClose = () => (
@@ -40,9 +42,11 @@ export function TrafficLights({ onClose, size = 13, gap = 7 }: TrafficLightsProp
   const [hoverMin,   setHoverMin]   = useState(false);
   const [hoverMax,   setHoverMax]   = useState(false);
 
-  const handleMinimize = () => getCurrentWindow().minimize().catch(() => {});
+  const handleDismiss = onClose ?? (() => getCurrentWindow().hide().catch(() => {}));
+  const handleMinimize = () =>
+    (isWindows ? handleDismiss() : getCurrentWindow().minimize().catch(() => {}));
   const handleMaximize = () => getCurrentWindow().toggleMaximize().catch(() => {});
-  const handleClose    = onClose ?? (() => getCurrentWindow().hide().catch(() => {}));
+  const handleClose = handleDismiss;
 
   const dot = (
     color: string,
@@ -56,6 +60,7 @@ export function TrafficLights({ onClose, size = 13, gap = 7 }: TrafficLightsProp
   ) => (
     <button
       onClick={onClick}
+      onMouseDown={(e) => e.stopPropagation()}
       onMouseEnter={onEnter}
       onMouseLeave={onLeave}
       title={title}

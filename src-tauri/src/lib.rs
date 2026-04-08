@@ -1,5 +1,6 @@
 // ── 模块声明 ──────────────────────────────────────────────────────
 mod cli_detect;
+mod dialog;
 mod git;
 mod harness;
 mod hooks;
@@ -96,6 +97,8 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             window::setup_popup_window(&win);
 
+            window::position_popup(app.handle(), &win);
+
             // 系统托盘
             let quit_item =
                 MenuItem::with_id(app, "quit", "退出 Code Bar", true, None::<&str>)?;
@@ -145,6 +148,7 @@ pub fn run() {
             window::resize_popup,
             window::resize_popup_full,
             window::pick_folder,
+            dialog::pick_folder_cross_platform,
             window::save_popup_bounds,
             window::load_popup_bounds,
             window::restore_popup_bounds,

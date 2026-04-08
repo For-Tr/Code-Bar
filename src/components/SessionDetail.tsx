@@ -36,6 +36,7 @@ function InstallTerminal({ installId, installCmd, onFinished }: InstallTerminalP
   const termRef = useRef<import("@xterm/xterm").Terminal | null>(null);
   const fitRef = useRef<import("@xterm/addon-fit").FitAddon | null>(null);
   const startedRef = useRef(false);
+  const isWindows = navigator.userAgent.toLowerCase().includes("windows");
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -71,8 +72,8 @@ function InstallTerminal({ installId, installCmd, onFinished }: InstallTerminalP
       invoke("start_pty_session", {
         sessionId: installId,
         workdir: "~",
-        command: "sh",
-        args: ["-c", installCmd],
+        command: isWindows ? "cmd.exe" : "sh",
+        args: isWindows ? ["/d", "/c", installCmd] : ["-c", installCmd],
         cols,
         rows,
         env: null,
@@ -107,7 +108,7 @@ function InstallTerminal({ installId, installCmd, onFinished }: InstallTerminalP
       fitRef.current = null;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [installCmd, installId, isWindows, onFinished]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -485,6 +486,11 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
   // 由于 worktree 完成前 PTY 还未启动（querySent=false），重挂载无副作用
   const ptyKey = `${sessionId}::${runner.type}::${cliCommand}::${session.workdir}`;
 
+  useEffect(() => {
+    ptyReadyRef.current = false;
+    pendingQueryRef.current = null;
+  }, [ptyKey]);
+
   // CLI 基础 args（不含 task，task 通过 write_pty 写入）
   const cliBaseArgs: string[] =
     runner.type === "claude-code"
@@ -549,8 +555,8 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
 
         {/* Runner 快速切换 badge */}
         <button
-          data-tauri-drag-region
           onClick={() => openSettings("runner")}
+          onMouseDown={(e) => e.stopPropagation()}
           title="切换 Runner"
           style={{
             fontSize: 10, padding: "2px 8px", borderRadius: 99,
@@ -585,8 +591,8 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
 
         {installing && (
           <button
-            data-tauri-drag-region
             onClick={() => { setInstalling(false); recheckCli(); }}
+            onMouseDown={(e) => e.stopPropagation()}
             style={{
               background: "var(--ci-pty-btn-bg)",
               border: "1px solid var(--ci-pty-btn-border)",
@@ -600,8 +606,8 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
 
         {!installing && (
           <button
-            data-tauri-drag-region
             onClick={onClose}
+            onMouseDown={(e) => e.stopPropagation()}
             style={{
               background: "var(--ci-pty-btn-bg)",
               border: "1px solid var(--ci-pty-btn-border)",

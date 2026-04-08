@@ -103,14 +103,22 @@ export const useSessionStore = create<SessionStore>()(
 
       removeSession: (id) =>
         set((state) => {
+          const removed = state.sessions.find((s) => s.id === id);
           const sessions = state.sessions.filter((s) => s.id !== id);
+          const fallbackSession = removed
+            ? sessions.find((s) => s.workspaceId === removed.workspaceId) ?? sessions[0] ?? null
+            : sessions[0] ?? null;
           const activeSessionId =
             state.activeSessionId === id
-              ? (sessions[0]?.id ?? null)
+              ? (fallbackSession?.id ?? null)
               : state.activeSessionId;
+          const expandedSessionId =
+            state.expandedSessionId === id
+              ? null
+              : state.expandedSessionId;
           const worktreeReadyIds = new Set(state.worktreeReadyIds);
           worktreeReadyIds.delete(id);
-          return { sessions, activeSessionId, worktreeReadyIds };
+          return { sessions, activeSessionId, expandedSessionId, worktreeReadyIds };
         }),
 
       setActiveSession: (id) =>
@@ -152,16 +160,25 @@ export const useSessionStore = create<SessionStore>()(
       removeSessionsByWorkspace: (workspaceId) =>
         set((state) => {
           const sessions = state.sessions.filter((s) => s.workspaceId !== workspaceId);
+          const activeSession = state.sessions.find((s) => s.id === state.activeSessionId);
+          const fallbackSession =
+            activeSession && activeSession.workspaceId !== workspaceId
+              ? sessions.find((s) => s.workspaceId === activeSession.workspaceId) ?? sessions[0] ?? null
+              : sessions[0] ?? null;
           const activeSessionId =
-            state.sessions.find((s) => s.id === state.activeSessionId)?.workspaceId === workspaceId
-              ? (sessions[0]?.id ?? null)
+            activeSession?.workspaceId === workspaceId
+              ? (fallbackSession?.id ?? null)
               : state.activeSessionId;
+          const expandedSessionId =
+            state.sessions.find((s) => s.id === state.expandedSessionId)?.workspaceId === workspaceId
+              ? null
+              : state.expandedSessionId;
           const removedIds = state.sessions
             .filter((s) => s.workspaceId === workspaceId)
             .map((s) => s.id);
           const worktreeReadyIds = new Set(state.worktreeReadyIds);
           removedIds.forEach((id) => worktreeReadyIds.delete(id));
-          return { sessions, activeSessionId, worktreeReadyIds };
+          return { sessions, activeSessionId, expandedSessionId, worktreeReadyIds };
         }),
 
       markWorktreeReady: (id) =>

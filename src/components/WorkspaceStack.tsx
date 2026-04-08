@@ -30,7 +30,7 @@ function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
     setPicking(true);
     setError("");
     try {
-      const picked = await invoke<string>("pick_folder");
+      const picked = await invoke<string>("pick_folder_cross_platform");
       if (picked) setPath(picked);
     } catch {
       setError("无法打开文件夹选择器");

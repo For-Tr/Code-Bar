@@ -64,6 +64,7 @@ export function TitleBar() {
       {/* 右侧：设置按钮 */}
       <button
         onClick={() => openSettings()}
+        onMouseDown={(e) => e.stopPropagation()}
         title="设置"
         style={{
           background: "var(--ci-btn-ghost-bg)",

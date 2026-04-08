@@ -1,11 +1,52 @@
+use std::path::PathBuf;
+
+pub fn home_dir() -> Option<PathBuf> {
+    if let Ok(home) = std::env::var("HOME") {
+        if !home.trim().is_empty() {
+            return Some(PathBuf::from(home));
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        if let Ok(profile) = std::env::var("USERPROFILE") {
+            if !profile.trim().is_empty() {
+                return Some(PathBuf::from(profile));
+            }
+        }
+
+        let drive = std::env::var("HOMEDRIVE").ok();
+        let path = std::env::var("HOMEPATH").ok();
+        if let (Some(drive), Some(path)) = (drive, path) {
+            let combined = format!("{drive}{path}");
+            if !combined.trim().is_empty() {
+                return Some(PathBuf::from(combined));
+            }
+        }
+    }
+
+    None
+}
+
+pub fn trim_trailing_path_separators(path: &str) -> String {
+    path.trim_end_matches(['/', '\\']).to_string()
+}
+
 /// 展开路径中的 `~` 前缀为用户 HOME 目录
 pub fn expand_path(path: &str) -> String {
-    if path.starts_with("~/") {
-        let home = std::env::var("HOME").unwrap_or_default();
-        path.replacen('~', &home, 1)
-    } else {
-        path.to_string()
+    if path == "~" {
+        return home_dir()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|| path.to_string());
     }
+
+    if path.starts_with("~/") || path.starts_with("~\\") {
+        if let Some(home) = home_dir() {
+            return home.join(&path[2..]).to_string_lossy().to_string();
+        }
+    }
+
+    path.to_string()
 }
 
 /// 根据 runner_type 查找 CLI 可执行文件路径
