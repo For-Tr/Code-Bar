@@ -4,9 +4,30 @@
 
 一个基于 Tauri + React 的 macOS / Windows 菜单栏 / 系统托盘应用，统一管理多种 AI 编程工具（Claude Code、Codex、自定义 CLI、内置 Harness）的会话，提供 Git worktree 隔离、PTY 终端集成、会话状态持久化等开发增强功能。
 
+<p>
+  <a href="https://github.com/For-Tr/Code-Bar/releases/latest/download/code-bar-windows-x64-setup.exe">Windows x64</a> |
+  <a href="https://github.com/For-Tr/Code-Bar/releases/latest/download/code-bar-macos-apple-silicon.dmg">macOS Apple Silicon</a> |
+  <a href="https://github.com/For-Tr/Code-Bar/releases/latest/download/code-bar-macos-intel.dmg">macOS Intel</a>
+</p>
+
+<p>
+  <a href="https://github.com/For-Tr/Code-Bar/releases/latest">最新 Release</a> |
+  <a href="https://github.com/For-Tr/Code-Bar/actions/workflows/release.yml">Release Action</a> |
+  <a href="https://github.com/For-Tr/Code-Bar/actions">全部 Actions</a>
+</p>
+
 [English](./README.md) | 简体中文
 
 </div>
+
+## 👀 界面预览
+
+<p align="center">
+  <img src="https://meee.com.tw/LQHF9Yg" alt="主页" width="31%" />
+  <img src="https://meee.com.tw/PIGq5LH" alt="会话创建页" width="31%" />
+  <img src="https://meee.com.tw/Bee0jnq" alt="CLI 页面" width="31%" />
+</p>
+<p align="center"><em>主页 · 会话创建页 · CLI 页面</em></p>
 
 ## ✨ 特性
 

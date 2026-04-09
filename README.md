@@ -4,9 +4,30 @@
 
 A macOS / Windows menu bar and tray app built with Tauri + React. Unified management of multiple AI coding tools (Claude Code, Codex, custom CLI, built-in Harness) with Git worktree isolation, PTY terminal integration, and persistent session state.
 
+<p>
+  <a href="https://github.com/For-Tr/Code-Bar/releases/latest/download/code-bar-windows-x64-setup.exe">Windows x64</a> |
+  <a href="https://github.com/For-Tr/Code-Bar/releases/latest/download/code-bar-macos-apple-silicon.dmg">macOS Apple Silicon</a> |
+  <a href="https://github.com/For-Tr/Code-Bar/releases/latest/download/code-bar-macos-intel.dmg">macOS Intel</a>
+</p>
+
+<p>
+  <a href="https://github.com/For-Tr/Code-Bar/releases/latest">Latest Release</a> |
+  <a href="https://github.com/For-Tr/Code-Bar/actions/workflows/release.yml">Release Action</a> |
+  <a href="https://github.com/For-Tr/Code-Bar/actions">All Actions</a>
+</p>
+
 English | [简体中文](./README.zh.md)
 
 </div>
+
+## 👀 Screenshots
+
+<p align="center">
+  <img src="https://meee.com.tw/LQHF9Yg" alt="Home" width="31%" />
+  <img src="https://meee.com.tw/PIGq5LH" alt="Session Creation" width="31%" />
+  <img src="https://meee.com.tw/Bee0jnq" alt="CLI Settings" width="31%" />
+</p>
+<p align="center"><em>Home · Session Creation · CLI Settings</em></p>
 
 ## ✨ Features
 

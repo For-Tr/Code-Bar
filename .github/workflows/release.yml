@@ -1,0 +1,160 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  prepare-release:
+    name: Prepare Release
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.release.outputs.release_id }}
+      release_url: ${{ steps.release.outputs.release_url }}
+    steps:
+      - name: Ensure release exists
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          release_json="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" 2>/dev/null || true)"
+
+          if [ -z "$release_json" ]; then
+            release_json="$(gh api --method POST "repos/${GITHUB_REPOSITORY}/releases" \
+              -f tag_name="${GITHUB_REF_NAME}" \
+              -f name="Code Bar ${GITHUB_REF_NAME}" \
+              -F draft=true \
+              -F prerelease=false)"
+          fi
+
+          echo "release_id=$(jq -r '.id' <<<"$release_json")" >> "$GITHUB_OUTPUT"
+          echo "release_url=$(jq -r '.html_url' <<<"$release_json")" >> "$GITHUB_OUTPUT"
+
+  build-and-upload:
+    name: Build ${{ matrix.label }}
+    needs: prepare-release
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Windows x64
+            runner: windows-latest
+            args: --bundles nsis --target x86_64-pc-windows-msvc
+            asset_name_pattern: code-bar-windows-x64[setup][ext]
+          - label: macOS Apple Silicon
+            runner: macos-15
+            args: --bundles dmg --target aarch64-apple-darwin
+            asset_name_pattern: code-bar-macos-apple-silicon[ext]
+          - label: macOS Intel
+            runner: macos-15-intel
+            args: --bundles dmg --target x86_64-apple-darwin
+            asset_name_pattern: code-bar-macos-intel[ext]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build and upload release assets
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          releaseId: ${{ needs.prepare-release.outputs.release_id }}
+          tagName: ${{ github.ref_name }}
+          args: ${{ matrix.args }}
+          releaseAssetNamePattern: ${{ matrix.asset_name_pattern }}
+
+  publish-release:
+    name: Publish Release Links
+    needs:
+      - prepare-release
+      - build-and-upload
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve installer URLs
+        id: links
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" > release.json
+
+          windows_url="$(jq -r '.assets[] | select(.name == "code-bar-windows-x64-setup.exe") | .browser_download_url' release.json | head -n1)"
+          mac_arm_url="$(jq -r '.assets[] | select(.name == "code-bar-macos-apple-silicon.dmg") | .browser_download_url' release.json | head -n1)"
+          mac_intel_url="$(jq -r '.assets[] | select(.name == "code-bar-macos-intel.dmg") | .browser_download_url' release.json | head -n1)"
+
+          if [ -z "$windows_url" ] || [ -z "$mac_arm_url" ] || [ -z "$mac_intel_url" ]; then
+            echo "Failed to resolve one or more release assets." >&2
+            echo "Assets found:" >&2
+            jq -r '.assets[].name' release.json >&2
+            exit 1
+          fi
+
+          {
+            echo "windows_url=$windows_url"
+            echo "mac_arm_url=$mac_arm_url"
+            echo "mac_intel_url=$mac_intel_url"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Update release body
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_URL: ${{ needs.prepare-release.outputs.release_url }}
+          WINDOWS_URL: ${{ steps.links.outputs.windows_url }}
+          MAC_ARM_URL: ${{ steps.links.outputs.mac_arm_url }}
+          MAC_INTEL_URL: ${{ steps.links.outputs.mac_intel_url }}
+        run: |
+          cat <<EOF > release-notes.md
+          ## Downloads
+
+          - [Windows x64 Installer](${WINDOWS_URL})
+          - [macOS Apple Silicon (M-series)](${MAC_ARM_URL})
+          - [macOS Intel](${MAC_INTEL_URL})
+
+          ## Release Page
+
+          - [All assets](${RELEASE_URL})
+          EOF
+
+          gh release edit "${GITHUB_REF_NAME}" \
+            --title "Code Bar ${GITHUB_REF_NAME}" \
+            --draft=false \
+            --notes-file release-notes.md
+
+      - name: Add workflow summary
+        env:
+          RELEASE_URL: ${{ needs.prepare-release.outputs.release_url }}
+          WINDOWS_URL: ${{ steps.links.outputs.windows_url }}
+          MAC_ARM_URL: ${{ steps.links.outputs.mac_arm_url }}
+          MAC_INTEL_URL: ${{ steps.links.outputs.mac_intel_url }}
+        run: |
+          {
+            echo "## Release Download Links"
+            echo
+            echo "- [Windows x64 Installer](${WINDOWS_URL})"
+            echo "- [macOS Apple Silicon (M-series)](${MAC_ARM_URL})"
+            echo "- [macOS Intel](${MAC_INTEL_URL})"
+            echo
+            echo "- [Release page](${RELEASE_URL})"
+          } >> "$GITHUB_STEP_SUMMARY"
