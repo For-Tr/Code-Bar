@@ -173,6 +173,10 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
 
   // PTY 是否已启动过（首次展开后就保持 true，避免收起时 active=false 触发重启逻辑）
   const [ptyEverActive, setPtyEverActive] = useState(false);
+  // 锁定当前这轮 PTY 启动时使用的 resume session id。
+  // providerSessionId 可能在首条 prompt 发出后几秒才回填；如果立刻参与 key/args 计算，
+  // 会导致正在运行的 PTY 被卸载并改用 resume 重启。
+  const [launchResumeSessionId, setLaunchResumeSessionId] = useState("");
 
   // PTY 是否已就绪（start_pty_session 成功返回后置为 true）
   const ptyReadyRef = useRef(false);
@@ -291,6 +295,11 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     setQuerySent(!!s && ((s.status === "running" || s.status === "waiting") || hasNativeResumeBinding(s)));
     setPendingQuery("");
     setLaunchPrompt(null);
+    setLaunchResumeSessionId(
+      s && (s.runner?.type === "claude-code" || s.runner?.type === "codex")
+        ? (s.providerSessionId?.trim() ?? "")
+        : ""
+    );
     clearPendingQueryTimer();
     ptyReadyRef.current = false;
     pendingQueryRef.current = null;
@@ -343,8 +352,20 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
   const runner = sanitizeRunnerConfig(session?.runner ?? settings.runner);
   const isNativeMode = runner.type === "native";
   const supportsPromptLaunch = runner.type === "claude-code" || runner.type === "codex";
-  const resumeSessionId = supportsPromptLaunch ? (session?.providerSessionId?.trim() ?? "") : "";
+  const boundResumeSessionId = supportsPromptLaunch ? (session?.providerSessionId?.trim() ?? "") : "";
+  const resumeSessionId = supportsPromptLaunch
+    ? (ptyEverActive ? launchResumeSessionId : boundResumeSessionId)
+    : "";
   const isResumeLaunch = resumeSessionId.length > 0;
+
+  useEffect(() => {
+    if (!supportsPromptLaunch) {
+      setLaunchResumeSessionId("");
+      return;
+    }
+    if (ptyEverActive) return;
+    setLaunchResumeSessionId(boundResumeSessionId);
+  }, [boundResumeSessionId, ptyEverActive, supportsPromptLaunch]);
 
   const cliCommand =
     runner.type === "claude-code" ? runner.cliPath || "claude"
