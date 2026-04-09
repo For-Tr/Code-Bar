@@ -96,7 +96,7 @@ fn active_session_ids(app: &AppHandle) -> Vec<String> {
     km.keys().cloned().collect()
 }
 
-fn resolve_session_ids(app: &AppHandle, routing: &SessionRoutingHint) -> Vec<String> {
+pub(crate) fn resolve_session_ids(app: &AppHandle, routing: &SessionRoutingHint) -> Vec<String> {
     let active_ids = active_session_ids(app);
     if active_ids.is_empty() {
         return Vec::new();

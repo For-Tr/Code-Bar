@@ -569,8 +569,26 @@ export default function App() {
       }
     );
 
+    // Provider 原生会话绑定（用于下次进入时 resume）
+    const u7 = listen<{ session_id: string; runner_type: string; provider_session_id: string }>(
+      "provider-session-bound",
+      ({ payload }) => {
+        if (!payload.session_id || !payload.provider_session_id) return;
+        const existing = useSessionStore
+          .getState()
+          .sessions.find((x) => x.id === payload.session_id)?.providerSessionId?.trim();
+        // 避免被“新建但空壳”的 provider 会话覆盖已有可恢复会话 ID
+        if (existing && existing !== payload.provider_session_id) {
+          return;
+        }
+        updateSession(payload.session_id, {
+          providerSessionId: payload.provider_session_id,
+        });
+      }
+    );
+
     return () => {
-      [u1, u2, u3, u4, u5, u6].forEach((p) => p.then((f) => f()));
+      [u1, u2, u3, u4, u5, u6, u7].forEach((p) => p.then((f) => f()));
     };
   }, [appendOutput, updateSession, setDiffFiles]);
 

@@ -135,6 +135,14 @@ interface PanelProps {
   onClose: () => void;
 }
 
+function hasNativeResumeBinding(
+  session: { runner?: { type?: string }; providerSessionId?: string } | undefined
+): boolean {
+  if (!session?.providerSessionId?.trim()) return false;
+  const runnerType = session.runner?.type;
+  return runnerType === "claude-code" || runnerType === "codex";
+}
+
 function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
   const isWindows = navigator.userAgent.toLowerCase().includes("windows");
   const session = useSessionStore((s) => s.sessions.find((x) => x.id === sessionId));
@@ -152,7 +160,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
   // querySent: query 已发送，隐藏输入遮罩，显示终端
   const [querySent, setQuerySent] = useState(() => {
     const s = useSessionStore.getState().sessions.find((x) => x.id === sessionId);
-    return !!s && (s.status === "running" || s.status === "waiting");
+    return !!s && ((s.status === "running" || s.status === "waiting") || hasNativeResumeBinding(s));
   });
   const queryInputRef = useRef<HTMLTextAreaElement>(null);
   const pendingQueryForInputRef = useRef("");
@@ -269,13 +277,18 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
 
   // isOpen 变化：即将展开时立即取消隐藏
   useEffect(() => {
-    if (isOpen) setHidden(false);
-  }, [isOpen]);
+    if (!isOpen) return;
+    setHidden(false);
+    const s = useSessionStore.getState().sessions.find((x) => x.id === sessionId);
+    if (hasNativeResumeBinding(s)) {
+      setQuerySent(true);
+    }
+  }, [isOpen, sessionId]);
 
   // sessionId 变化时重置（切换 session）
   useEffect(() => {
     const s = useSessionStore.getState().sessions.find((x) => x.id === sessionId);
-    setQuerySent(!!s && (s.status === "running" || s.status === "waiting"));
+    setQuerySent(!!s && ((s.status === "running" || s.status === "waiting") || hasNativeResumeBinding(s)));
     setPendingQuery("");
     setLaunchPrompt(null);
     clearPendingQueryTimer();
@@ -330,6 +343,8 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
   const runner = sanitizeRunnerConfig(session?.runner ?? settings.runner);
   const isNativeMode = runner.type === "native";
   const supportsPromptLaunch = runner.type === "claude-code" || runner.type === "codex";
+  const resumeSessionId = supportsPromptLaunch ? (session?.providerSessionId?.trim() ?? "") : "";
+  const isResumeLaunch = resumeSessionId.length > 0;
 
   const cliCommand =
     runner.type === "claude-code" ? runner.cliPath || "claude"
@@ -355,7 +370,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     setInstalling(false);
   }, [recheckCli]);
 
-  const ptyConfigKey = `${runner.type}::${cliCommand}::${session?.workdir ?? ""}`;
+  const ptyConfigKey = `${runner.type}::${cliCommand}::${session?.workdir ?? ""}::${resumeSessionId}`;
   const lastPtyConfigKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -572,21 +587,23 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     : cliCommand.split("/").pop() ?? cliCommand;
 
   const isRunning = session.status === "running";
-  const waitingForPtyLaunch = !isNativeMode && querySent && !ptyEverActive;
+  const waitingForPtyLaunch = !isNativeMode && querySent && !ptyEverActive && !isResumeLaunch;
   const sessionOutput = session.output ?? [];
   const installCmd = CLI_INSTALL_CMD[runner.type];
 
   // PTY key：runner/command 或 workdir 变化时重新挂载
   // workdir 变化场景：新建 session 时 worktree 在后台创建完成，workdir 从原路径更新为 worktree 路径
   // 由于 worktree 完成前 PTY 还未启动（querySent=false），重挂载无副作用
-  const ptyKey = `${sessionId}::${runner.type}::${cliCommand}::${session.workdir}`;
+  const ptyKey = `${sessionId}::${runner.type}::${cliCommand}::${session.workdir}::${resumeSessionId}`;
 
   // CLI 基础 args（不含 task，task 通过 write_pty 写入）
   const cliBaseArgs: string[] =
     runner.type === "claude-code"
-      ? ["--dangerously-skip-permissions"]
+      ? (resumeSessionId
+          ? ["--resume", resumeSessionId, "--dangerously-skip-permissions"]
+          : ["--dangerously-skip-permissions"])
       : runner.type === "codex"
-      ? []
+      ? (resumeSessionId ? ["resume", resumeSessionId] : [])
       : runner.cliArgs ? runner.cliArgs.split(/\s+/).filter(Boolean) : [];
 
   const contextEnv = buildContextEnv();

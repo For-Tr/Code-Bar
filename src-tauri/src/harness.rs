@@ -1,11 +1,11 @@
-use std::{fs, io::Write, path::PathBuf};
+use std::{fs, io::Write};
 
-use crate::util::{background_command, expand_path};
+use crate::util::{background_command, expand_path, resolve_path_from_workdir};
 
 /// 读取文件（相对于 workdir）
 #[tauri::command]
 pub async fn harness_read_file(workdir: String, path: String) -> Result<String, String> {
-    let full = PathBuf::from(expand_path(&workdir)).join(&path);
+    let full = resolve_path_from_workdir(&workdir, &path);
     fs::read_to_string(&full).map_err(|e| format!("读取 {path} 失败: {e}"))
 }
 
@@ -16,7 +16,7 @@ pub async fn harness_write_file(
     path: String,
     content: String,
 ) -> Result<(), String> {
-    let full = PathBuf::from(expand_path(&workdir)).join(&path);
+    let full = resolve_path_from_workdir(&workdir, &path);
     if let Some(parent) = full.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {e}"))?;
     }
@@ -29,7 +29,7 @@ pub async fn harness_write_file(
 #[tauri::command]
 pub async fn harness_list_dir(workdir: String, path: String) -> Result<Vec<String>, String> {
     let target = if path.is_empty() { "." } else { &path };
-    let full = PathBuf::from(expand_path(&workdir)).join(target);
+    let full = resolve_path_from_workdir(&workdir, target);
     let entries = fs::read_dir(&full).map_err(|e| format!("读取目录失败: {e}"))?;
     let mut result: Vec<String> = entries
         .flatten()

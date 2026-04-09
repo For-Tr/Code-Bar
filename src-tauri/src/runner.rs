@@ -9,7 +9,8 @@ use crate::{
     git::diff::get_git_diff_raw,
     state::ProcessMap,
     util::{
-        background_command, expand_path, find_cli_path, home_dir, resolve_windows_pty_command,
+        background_command, expand_path, find_cli_path, resolve_provider_file_path,
+        resolve_windows_pty_command,
     },
 };
 
@@ -75,10 +76,11 @@ pub async fn start_runner(
                 cmd.arg(arg);
             }
 
-            // 读取 ~/.claude/settings.json 中的 env 字段并注入子进程
+            // 读取 Claude settings.json 中的 env 字段并注入子进程
             let mut model_from_settings: Option<String> = None;
-            if let Some(home) = home_dir() {
-                let settings_path = home.join(".claude").join("settings.json");
+            if let Some(settings_path) =
+                resolve_provider_file_path("claude-code", &bin, "settings.json")
+            {
                 if let Ok(content) = std::fs::read_to_string(&settings_path) {
                     if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
                         if let Some(env_obj) = json.get("env").and_then(|v| v.as_object()) {

@@ -700,7 +700,7 @@ function ApiKeysTab() {
         )}
       </div>
       <HintText>
-        自动从 ~/.claude/settings.json、系统环境变量（ANTHROPIC_API_KEY 等）及 Shell 配置文件中检测 API Key 和 Base URL
+        自动从 Claude 配置目录、系统环境变量（ANTHROPIC_API_KEY 等）及 Shell 配置文件中检测 API Key 和 Base URL
       </HintText>
 
       <ApiKeyRow

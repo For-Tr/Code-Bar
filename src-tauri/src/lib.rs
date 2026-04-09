@@ -5,6 +5,7 @@ mod harness;
 mod hooks;
 mod keystore;
 mod notification;
+mod provider_sessions;
 mod pty;
 mod runner;
 mod session_lifecycle;
@@ -67,9 +68,8 @@ pub fn run() {
 
             // 自动配置 Claude / Codex hooks（幂等）
             if let Err(e) = hooks::setup_all_hooks() {
-                eprintln!("[hooks] 自动配置失败（可忽略，CLI 仍可运行）: {e}");
+                let _ = e;
             } else {
-                eprintln!("[hooks] Claude / Codex hooks 已就绪");
             }
 
             // 隐藏默认主窗口
@@ -138,8 +138,7 @@ pub fn run() {
             // 后台预热 CLI 路径缓存（消除冷启动延迟）
             std::thread::spawn(|| {
                 for cli in &["node", "claude", "codex"] {
-                    let resolved = cli_detect::resolve_command_path(cli);
-                    eprintln!("[warmup] {cli} -> {resolved}");
+                    let _ = cli_detect::resolve_command_path(cli);
                 }
             });
 

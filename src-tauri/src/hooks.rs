@@ -4,10 +4,13 @@ use std::path::PathBuf;
 
 use serde_json::{Map, Value};
 
+use crate::provider_sessions::emit_provider_session_bound;
 use crate::session_lifecycle::{
     emit_session_lifecycle, HookSource, SessionLifecycleSignal, SessionRoutingHint,
 };
+#[cfg(not(unix))]
 use crate::util::home_dir;
+use crate::util::resolve_provider_file_path;
 
 #[derive(Debug, Clone)]
 struct HookCommandSpec {
@@ -466,8 +469,8 @@ fn save_json_file(path: &PathBuf, json: &Value) -> Result<(), String> {
 }
 
 fn ensure_claude_hook_settings() -> Result<String, String> {
-    let home = home_dir().ok_or("无法获取 HOME 环境变量")?;
-    let settings_path = home.join(".claude").join("settings.json");
+    let settings_path = resolve_provider_file_path("claude-code", "", "settings.json")
+        .ok_or("无法解析 Claude Code 配置目录")?;
     let mut settings = load_json_file(&settings_path)?;
     let specs = hook_specs(HookSource::ClaudeCode)?;
     let changed = merge_hook_specs(
@@ -518,8 +521,8 @@ fn save_toml_file(path: &PathBuf, table: &toml::Table) -> Result<(), String> {
 
 #[cfg(unix)]
 fn ensure_codex_feature_flag() -> Result<String, String> {
-    let home = home_dir().ok_or("无法获取 HOME 环境变量")?;
-    let config_path = home.join(".codex").join("config.toml");
+    let config_path = resolve_provider_file_path("codex", "", "config.toml")
+        .ok_or("无法解析 Codex 配置目录")?;
     let mut config = load_toml_file(&config_path)?;
 
     let features = config
@@ -556,8 +559,8 @@ fn ensure_codex_feature_flag() -> Result<String, String> {
 fn ensure_codex_notify_settings() -> Result<String, String> {
     ensure_windows_hook_bridge_assets()?;
 
-    let home = home_dir().ok_or("无法获取 HOME 环境变量")?;
-    let config_path = home.join(".codex").join("config.toml");
+    let config_path = resolve_provider_file_path("codex", "", "config.toml")
+        .ok_or("无法解析 Codex 配置目录")?;
     let mut config = load_toml_file(&config_path)?;
     let desired = codex_notify_command()?;
     let desired_values: Vec<toml::Value> =
@@ -586,8 +589,8 @@ fn ensure_codex_notify_settings() -> Result<String, String> {
 
 #[cfg(unix)]
 fn ensure_codex_hook_settings() -> Result<String, String> {
-    let home = home_dir().ok_or("无法获取 HOME 环境变量")?;
-    let hooks_path = home.join(".codex").join("hooks.json");
+    let hooks_path = resolve_provider_file_path("codex", "", "hooks.json")
+        .ok_or("无法解析 Codex 配置目录")?;
     let mut hooks = load_json_file(&hooks_path)?;
     let specs = hook_specs(HookSource::Codex)?;
     let changed = merge_hook_specs(
@@ -662,11 +665,11 @@ pub fn setup_all_hooks() -> Result<String, String> {
     Ok(claude)
 }
 
-/// 将目录写入 ~/.claude/settings.json 的 trustedDirectories
+/// 将目录写入 Claude settings.json 的 trustedDirectories
 #[tauri::command]
 pub fn trust_workspace(path: String) -> Result<(), String> {
-    let home = home_dir().ok_or("无法获取 HOME 环境变量")?;
-    let settings_path = home.join(".claude").join("settings.json");
+    let settings_path = resolve_provider_file_path("claude-code", "", "settings.json")
+        .ok_or("无法解析 Claude Code 配置目录")?;
 
     let content = if settings_path.exists() {
         fs::read_to_string(&settings_path).map_err(|e| e.to_string())?
@@ -763,6 +766,7 @@ fn dispatch_hook_event(app: &tauri::AppHandle, source: HookSource, json: &Value)
     match source {
         HookSource::ClaudeCode => match event_name {
             "UserPromptSubmit" => {
+                emit_provider_session_bound(app, &routing, json);
                 emit_session_lifecycle(app, routing, SessionLifecycleSignal::Running);
             }
             "Stop" => {
@@ -818,6 +822,7 @@ fn dispatch_hook_event(app: &tauri::AppHandle, source: HookSource, json: &Value)
                 }
             }
             "UserPromptSubmit" => {
+                emit_provider_session_bound(app, &routing, json);
                 emit_session_lifecycle(app, routing, SessionLifecycleSignal::Running);
             }
             "Stop" => {

@@ -139,10 +139,6 @@ pub async fn start_pty_session(
 
     let resolved_command = resolve_command_path(&command);
     let (launch_command, launch_args) = resolve_windows_pty_command(&resolved_command, &args);
-    eprintln!(
-        "[start_pty_session] spawn: {launch_command} {:?}",
-        launch_args
-    );
 
     let mut cmd = if cfg!(windows)
         && std::path::Path::new(&launch_command)
