@@ -2,11 +2,32 @@
 
 <div align="center">
 
-一个基于 Tauri + React 的 macOS 菜单栏应用，统一管理多种 AI 编程工具（Claude Code、Codex、自定义 CLI、内置 Harness）的会话，提供 Git worktree 隔离、PTY 终端集成、会话状态持久化等开发增强功能。
+一个基于 Tauri + React 的 macOS / Windows 菜单栏 / 系统托盘应用，统一管理多种 AI 编程工具（Claude Code、Codex、自定义 CLI、内置 Harness）的会话，提供 Git worktree 隔离、PTY 终端集成、会话状态持久化等开发增强功能。
+
+<p>
+  <a href="https://github.com/For-Tr/Code-Bar/releases/latest/download/code-bar-windows-x64-setup.exe">Windows x64</a> |
+  <a href="https://github.com/For-Tr/Code-Bar/releases/latest/download/code-bar-macos-apple-silicon.dmg">macOS Apple Silicon</a> |
+  <a href="https://github.com/For-Tr/Code-Bar/releases/latest/download/code-bar-macos-intel.dmg">macOS Intel</a>
+</p>
+
+<p>
+  <a href="https://github.com/For-Tr/Code-Bar/releases/latest">最新 Release</a> |
+  <a href="https://github.com/For-Tr/Code-Bar/actions/workflows/release.yml">Release Action</a> |
+  <a href="https://github.com/For-Tr/Code-Bar/actions">全部 Actions</a>
+</p>
 
 [English](./README.md) | 简体中文
 
 </div>
+
+## 👀 界面预览
+
+<p align="center">
+  <img src="https://i.meee.com.tw/LQHF9Yg.png" alt="主页" width="31%" />
+  <img src="https://i.meee.com.tw/PIGq5LH.png" alt="会话创建页" width="31%" />
+  <img src="https://i.meee.com.tw/Bee0jnq.png" alt="CLI 页面" width="31%" />
+</p>
+<p align="center"><em>主页 · 会话创建页 · CLI 页面</em></p>
 
 ## ✨ 特性
 
@@ -14,14 +35,20 @@
 - **🤖 多 Provider** - Anthropic Claude、OpenAI GPT、DeepSeek、任意 OpenAI 兼容接口（默认：智谱 GLM-4-Flash）
 - **🌿 Git Worktree 隔离** - 每个 session 自动在独立 `ci/session-N` worktree 分支中工作，彻底消除多 session 代码冲突
 - **🖥️ PTY 终端** - 每个 session 独立 xterm.js PTY 终端，直接在应用中与 AI CLI 交互
+- **🪟 Windows 适配** - 支持 Windows CLI 路径检测、`.cmd` / `.bat` shim 处理、PowerShell hook bridge 以及原生目录选择
 - **📊 Git Diff 查看** - 实时 diff 展示（diff2html 渲染），可配置自动刷新间隔
 - **🔧 内置 Harness** - 无需外部 CLI，直接调用 LLM API 执行任务
-- **🎨 自适应主题** - 浅色 / 深色 / 跟随系统，Framer Motion 流畅动画，macOS 菜单栏常驻
+- **🎨 自适应主题** - 浅色 / 深色 / 跟随系统，Framer Motion 流畅动画，菜单栏 / 托盘常驻
 - **📍 位置记忆** - 浮窗位置与大小跨重启自动恢复
-- **🔔 通知回调** - macOS 原生通知，点击通知可直接唤起并聚焦对应 session
+- **🔔 通知回调** - macOS 原生通知支持点击聚焦，Windows 使用桌面通知降级方案
 - **⚙️ 丰富设置** - Runner、模型、API Key、工具权限、外观，全部可自定义
 
 ## 🚀 快速开始
+
+### 支持平台
+
+- **macOS** - 菜单栏模式，原生通知点击回调
+- **Windows** - 托盘模式，基于 PowerShell / 本地回环 TCP 的 hook 与通知桥接
 
 ### 环境要求
 
@@ -30,6 +57,7 @@
 - Rust（用于 Tauri 后端）
 - 系统依赖：
   - **macOS**: Xcode Command Line Tools
+  - **Windows**: 本地开发 / 构建需要 Microsoft C++ Build Tools 和 WebView2（缺失时请参考 [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)）
 
 ### 安装
 
@@ -89,7 +117,7 @@ pnpm tauri build
 | **DeepSeek** | deepseek-chat、deepseek-reasoner |
 | **OpenAI 兼容** | 任意模型（默认：智谱 glm-4-flash） |
 
-API Key 通过 Tauri Rust 后端加密存储在系统 Keychain 中。
+API Key 通过 Tauri Rust 后端持久化到本地应用数据目录（当前为轻量混淆存储）。
 
 ### 会话管理
 - 创建、删除会话，按工作区分组
@@ -109,7 +137,7 @@ API Key 通过 Tauri Rust 后端加密存储在系统 Keychain 中。
 - 预热启动——终端在用户输入前已就绪
 - 自动注入 `CODE_BAR_*` 上下文环境变量，供 AI 感知 session 信息
 - 可调整大小的面板，尺寸持久化
-- 交互式登录 shell，兼容 nvm/mise/pyenv 管理的 CLI 路径
+- 按平台选择启动方式，Windows 下额外处理 `.cmd` / `.bat` shim 兼容性
 
 ### Git 集成
 - diff2html 可视化 Git diff
@@ -132,10 +160,10 @@ API Key 通过 Tauri Rust 后端加密存储在系统 Keychain 中。
 ### 后端
 - **框架**: Tauri 2 (Rust)
 - **PTY**: portable-pty
-- **密钥管理**: Tauri keystore 系统 Keychain 加密存储
-- **通知**: mac-notification-sys（原生 macOS 点击回调）
+- **密钥存储**: 由 Tauri Rust 命令写入本地应用数据目录
+- **通知**: macOS 使用 `mac-notification-sys`，Windows 使用 `tauri-plugin-notification` 降级
 - **Git**: Rust 命令（分支、worktree、diff）
-- **Hook 服务**: Unix Domain Socket 接收 Claude Code / Codex hooks
+- **Hook 服务**: Unix Domain Socket / 本地回环 TCP 接收 Claude Code / Codex 事件
 
 ### 开发工具
 - **包管理器**: pnpm
@@ -156,8 +184,8 @@ code-bar/
 │   ├── src/
 │   │   ├── cli_detect.rs   # CLI 路径解析（兼容 nvm/mise/pyenv）
 │   │   ├── git/            # Git 分支、worktree、diff 命令
-│   │   ├── hooks.rs        # Claude / Codex hooks 安装与 socket bridge
-│   │   ├── notification.rs # macOS 原生通知（含点击回调）
+│   │   ├── hooks.rs        # Claude / Codex hooks 安装与 Unix Socket / TCP bridge
+│   │   ├── notification.rs # 跨平台通知；macOS 支持点击回调
 │   │   ├── pty.rs          # PTY 会话管理
 │   │   ├── session_lifecycle.rs # CLI 生命周期领域事件与路由
 │   │   ├── window.rs       # 浮窗控制与位置持久化
@@ -179,8 +207,14 @@ code-bar/
 - **窗口**: 初始 360×220 像素，透明背景，始终置顶，不显示在 Dock/任务栏
 - **展开**: 打开 PTY 终端时自动扩展至约 700×600
 - **位置记忆**: 下次启动时自动恢复上次的窗口位置和尺寸
-- **行为**: macOS `Accessory` 激活策略，菜单栏常驻
+- **行为**: macOS 使用 `Accessory` 激活策略常驻菜单栏，Windows 常驻系统托盘
 - **Bundle ID**: `com.xiangbingzhou.code-bar`
+
+## 🪟 平台说明
+
+- **macOS**: 使用原生菜单栏行为、Unix Domain Socket hook bridge，以及支持点击回调的通知
+- **Windows**: 使用托盘模式、位于 `~/.codebar/hooks` 的 PowerShell hook bridge、本地回环 TCP 事件转发，以及 `.cmd` / `.bat` PTY 兼容处理
+- **Windows 上的 Codex**: 由于 Codex 官方当前声明 Windows hooks 已禁用，Code Bar 会改为配置 `~/.codex/config.toml` 的 `notify`，而不是 `~/.codex/hooks.json`
 
 ## 🤝 贡献
 
