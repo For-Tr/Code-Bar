@@ -47,10 +47,10 @@ jobs:
         include:
           - label: Windows x64
             runner: windows-latest
-            bundle: nsis
+            bundle: msi
             target: x86_64-pc-windows-msvc
-            artifact_glob: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
-            asset_name: code-bar-windows-x64-setup.exe
+            artifact_glob: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi
+            asset_name: code-bar-windows-x64.msi
           - label: macOS Apple Silicon
             runner: macos-15
             bundle: dmg
@@ -116,7 +116,7 @@ jobs:
         run: |
           gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" > release.json
 
-          windows_url="$(jq -r '.assets[] | select(.name == "code-bar-windows-x64-setup.exe") | .browser_download_url' release.json | head -n1)"
+          windows_url="$(jq -r '.assets[] | select(.name == "code-bar-windows-x64.msi") | .browser_download_url' release.json | head -n1)"
           mac_arm_url="$(jq -r '.assets[] | select(.name == "code-bar-macos-apple-silicon.dmg") | .browser_download_url' release.json | head -n1)"
           mac_intel_url="$(jq -r '.assets[] | select(.name == "code-bar-macos-intel.dmg") | .browser_download_url' release.json | head -n1)"
 
@@ -144,7 +144,7 @@ jobs:
           cat <<EOF > release-notes.md
           ## Downloads
 
-          - [Windows x64 Installer](${WINDOWS_URL})
+          - [Windows x64 MSI](${WINDOWS_URL})
           - [macOS Apple Silicon (M-series)](${MAC_ARM_URL})
           - [macOS Intel](${MAC_INTEL_URL})
 
@@ -169,7 +169,7 @@ jobs:
           {
             echo "## Release Download Links"
             echo
-            echo "- [Windows x64 Installer](${WINDOWS_URL})"
+            echo "- [Windows x64 MSI](${WINDOWS_URL})"
             echo "- [macOS Apple Silicon (M-series)](${MAC_ARM_URL})"
             echo "- [macOS Intel](${MAC_INTEL_URL})"
             echo

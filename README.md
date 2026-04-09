@@ -5,7 +5,7 @@
 A macOS / Windows menu bar and tray app built with Tauri + React. Unified management of multiple AI coding tools (Claude Code, Codex, custom CLI, built-in Harness) with Git worktree isolation, PTY terminal integration, and persistent session state.
 
 <p>
-  <a href="https://github.com/For-Tr/Code-Bar/releases/latest/download/code-bar-windows-x64-setup.exe">Windows x64</a> |
+  <a href="https://github.com/For-Tr/Code-Bar/releases/latest/download/code-bar-windows-x64.msi">Windows x64 MSI</a> |
   <a href="https://github.com/For-Tr/Code-Bar/releases/latest/download/code-bar-macos-apple-silicon.dmg">macOS Apple Silicon</a> |
   <a href="https://github.com/For-Tr/Code-Bar/releases/latest/download/code-bar-macos-intel.dmg">macOS Intel</a>
 </p>
