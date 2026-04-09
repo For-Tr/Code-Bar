@@ -23,9 +23,9 @@ English | [简体中文](./README.zh.md)
 ## 👀 Screenshots
 
 <p align="center">
-  <img src="https://meee.com.tw/LQHF9Yg" alt="Home" width="31%" />
-  <img src="https://meee.com.tw/PIGq5LH" alt="Session Creation" width="31%" />
-  <img src="https://meee.com.tw/Bee0jnq" alt="CLI Settings" width="31%" />
+  <img src="https://i.meee.com.tw/LQHF9Yg.png" alt="Home" width="31%" />
+  <img src="https://i.meee.com.tw/PIGq5LH.png" alt="Session Creation" width="31%" />
+  <img src="https://i.meee.com.tw/Bee0jnq.png" alt="CLI Settings" width="31%" />
 </p>
 <p align="center"><em>Home · Session Creation · CLI Settings</em></p>
 

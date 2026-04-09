@@ -23,9 +23,9 @@
 ## 👀 界面预览
 
 <p align="center">
-  <img src="https://meee.com.tw/LQHF9Yg" alt="主页" width="31%" />
-  <img src="https://meee.com.tw/PIGq5LH" alt="会话创建页" width="31%" />
-  <img src="https://meee.com.tw/Bee0jnq" alt="CLI 页面" width="31%" />
+  <img src="https://i.meee.com.tw/LQHF9Yg.png" alt="主页" width="31%" />
+  <img src="https://i.meee.com.tw/PIGq5LH.png" alt="会话创建页" width="31%" />
+  <img src="https://i.meee.com.tw/Bee0jnq.png" alt="CLI 页面" width="31%" />
 </p>
 <p align="center"><em>主页 · 会话创建页 · CLI 页面</em></p>
 
