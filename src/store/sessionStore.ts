@@ -43,6 +43,7 @@ export interface ClaudeSession {
   branchName?: string;     // AI 在本 session 中使用的 git 分支名（如 ci/session-3）
   baseBranch?: string;     // 任务开始时的基础分支（如 main/master）
   worktreePath?: string;   // git worktree 路径
+  providerSessionId?: string; // 绑定的 provider 原生会话 ID（用于 codex/claude resume）
 }
 
 interface SessionStore {

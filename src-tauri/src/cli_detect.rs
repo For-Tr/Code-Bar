@@ -1,11 +1,15 @@
 use std::{
     collections::HashMap,
-    path::{Path, PathBuf},
-    process::Stdio,
     sync::{Mutex, OnceLock},
 };
 
-use crate::util::background_command;
+#[cfg(windows)]
+use std::{
+    path::{Path, PathBuf},
+    process::Stdio,
+};
+
+use crate::util::{background_command, resolve_provider_dir, resolve_provider_file_path};
 
 // ── 路径解析缓存 ──────────────────────────────────────────────────
 /// 进程级缓存：命令名 → 完整路径（None 表示找不到，避免重复触发耗时 shell_which）
@@ -495,9 +499,8 @@ pub fn detect_cli_config() -> serde_json::Value {
         }
     }
 
-    // 3. ~/.claude/settings.json
-    if let Some(home) = crate::util::home_dir() {
-        let settings_path = home.join(".claude").join("settings.json");
+    // 3. Claude settings.json
+    if let Some(settings_path) = resolve_provider_file_path("claude-code", "", "settings.json") {
         if let Ok(content) = std::fs::read_to_string(&settings_path) {
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
                 result["claude_settings"] = json.clone();
@@ -526,22 +529,23 @@ pub fn detect_cli_config() -> serde_json::Value {
         }
 
         // 4. Claude Code OAuth 登录状态
-        let claude_dir = home.join(".claude");
-        if claude_dir.exists() {
-            if let Some(bin) = find_in_path("claude") {
-                if let Ok(out) = background_command(&bin)
-                    .args(["config", "get", "userEmail"])
-                    .output()
-                {
-                    let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                    let stderr = String::from_utf8_lossy(&out.stderr);
-                    let not_logged = stderr.to_lowercase().contains("not logged")
-                        || stdout.to_lowercase().contains("not logged");
-                    if !not_logged && stdout.contains('@') {
-                        result["claude_oauth_logged_in"] = serde_json::Value::Bool(true);
-                        result["claude_oauth_email"] = serde_json::Value::String(stdout);
-                    } else if !not_logged && !stdout.is_empty() && out.status.success() {
-                        result["claude_oauth_logged_in"] = serde_json::Value::Bool(true);
+        if let Some(claude_dir) = resolve_provider_dir("claude-code", "") {
+            if claude_dir.exists() {
+                if let Some(bin) = find_in_path("claude") {
+                    if let Ok(out) = background_command(&bin)
+                        .args(["config", "get", "userEmail"])
+                        .output()
+                    {
+                        let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                        let stderr = String::from_utf8_lossy(&out.stderr);
+                        let not_logged = stderr.to_lowercase().contains("not logged")
+                            || stdout.to_lowercase().contains("not logged");
+                        if !not_logged && stdout.contains('@') {
+                            result["claude_oauth_logged_in"] = serde_json::Value::Bool(true);
+                            result["claude_oauth_email"] = serde_json::Value::String(stdout);
+                        } else if !not_logged && !stdout.is_empty() && out.status.success() {
+                            result["claude_oauth_logged_in"] = serde_json::Value::Bool(true);
+                        }
                     }
                 }
             }

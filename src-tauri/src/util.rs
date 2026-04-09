@@ -1,4 +1,8 @@
-use std::{ffi::OsStr, path::PathBuf, process::Command};
+use std::{
+    ffi::OsStr,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -19,6 +23,13 @@ pub fn background_command(program: impl AsRef<OsStr>) -> Command {
     let mut command = Command::new(program);
     configure_background_command(&mut command);
     command
+}
+
+fn push_unique_path(paths: &mut Vec<PathBuf>, candidate: PathBuf) {
+    if paths.iter().any(|existing| existing == &candidate) {
+        return;
+    }
+    paths.push(candidate);
 }
 
 pub fn home_dir() -> Option<PathBuf> {
@@ -126,6 +137,133 @@ pub fn expand_path(path: &str) -> String {
     }
 
     path.to_string()
+}
+
+pub fn resolve_path_from_workdir(workdir: &str, path: &str) -> PathBuf {
+    let expanded_path = PathBuf::from(expand_path(path));
+    if expanded_path.is_absolute() {
+        return expanded_path;
+    }
+    PathBuf::from(expand_path(workdir)).join(expanded_path)
+}
+
+fn provider_storage_spec(
+    runner_type: &str,
+) -> Option<(&'static str, &'static str, &'static [&'static str])> {
+    match runner_type {
+        "claude-code" => Some((".claude", "claude", &["CLAUDE_HOME", "CLAUDE_CONFIG_DIR"])),
+        "codex" => Some((".codex", "codex", &["CODEX_HOME"])),
+        _ => None,
+    }
+}
+
+fn provider_runtime_candidates(cli_path: &str, hidden_dir_name: &str) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    if cli_path.trim().is_empty() {
+        return candidates;
+    }
+
+    let mut sources = vec![PathBuf::from(cli_path)];
+    if let Ok(canonical) = std::fs::canonicalize(cli_path) {
+        push_unique_path(&mut sources, canonical);
+    }
+
+    for source in sources {
+        let start = if source.is_dir() {
+            source
+        } else {
+            source
+                .parent()
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from(cli_path))
+        };
+
+        let mut current: Option<&Path> = Some(start.as_path());
+        for _ in 0..6 {
+            let Some(dir) = current else {
+                break;
+            };
+            push_unique_path(&mut candidates, dir.join(hidden_dir_name));
+            current = dir.parent();
+        }
+    }
+
+    candidates
+}
+
+pub fn resolve_provider_dir(runner_type: &str, cli_path_override: &str) -> Option<PathBuf> {
+    let (hidden_dir_name, xdg_dir_name, env_vars) = provider_storage_spec(runner_type)?;
+    let mut candidates = Vec::new();
+    let mut env_candidates = Vec::new();
+
+    for env_var in env_vars {
+        let Ok(value) = std::env::var(env_var) else {
+            continue;
+        };
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let path = PathBuf::from(expand_path(trimmed));
+        push_unique_path(&mut env_candidates, path.clone());
+        push_unique_path(&mut candidates, path);
+    }
+
+    let resolved_cli = if !cli_path_override.trim().is_empty() {
+        crate::cli_detect::resolve_command_path(cli_path_override)
+    } else {
+        find_cli_path(runner_type, "")
+    };
+    for candidate in provider_runtime_candidates(&resolved_cli, hidden_dir_name) {
+        push_unique_path(&mut candidates, candidate);
+    }
+
+    if let Ok(xdg_config_home) = std::env::var("XDG_CONFIG_HOME") {
+        let trimmed = xdg_config_home.trim();
+        if !trimmed.is_empty() {
+            push_unique_path(
+                &mut candidates,
+                PathBuf::from(expand_path(trimmed)).join(xdg_dir_name),
+            );
+        }
+    }
+
+    if let Ok(xdg_data_home) = std::env::var("XDG_DATA_HOME") {
+        let trimmed = xdg_data_home.trim();
+        if !trimmed.is_empty() {
+            push_unique_path(
+                &mut candidates,
+                PathBuf::from(expand_path(trimmed)).join(xdg_dir_name),
+            );
+        }
+    }
+
+    let home_candidate = home_dir().map(|home| home.join(hidden_dir_name));
+    if let Some(home) = home_dir() {
+        push_unique_path(&mut candidates, home.join(".config").join(xdg_dir_name));
+        push_unique_path(&mut candidates, home.join(".local/share").join(xdg_dir_name));
+    }
+    if let Some(path) = &home_candidate {
+        push_unique_path(&mut candidates, path.clone());
+    }
+
+    if let Some(existing) = candidates.iter().find(|candidate| candidate.exists()) {
+        return Some(existing.clone());
+    }
+
+    env_candidates
+        .into_iter()
+        .next()
+        .or(home_candidate)
+        .or_else(|| candidates.into_iter().next())
+}
+
+pub fn resolve_provider_file_path(
+    runner_type: &str,
+    cli_path_override: &str,
+    relative_path: &str,
+) -> Option<PathBuf> {
+    resolve_provider_dir(runner_type, cli_path_override).map(|dir| dir.join(relative_path))
 }
 
 /// 根据 runner_type 查找 CLI 可执行文件路径

@@ -5,6 +5,14 @@ use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use crate::state::PopupVisible;
 use crate::util::background_command;
 
+macro_rules! popup_log {
+    ($($arg:tt)*) => {{
+        if std::env::var_os("CODE_BAR_POPUP_LOG").is_some() {
+            eprintln!($($arg)*);
+        }
+    }};
+}
+
 // ── Popup 位置 / 尺寸持久化 ──────────────────────────────────────
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -47,7 +55,7 @@ fn save_bounds_to_file(app: &tauri::AppHandle, bounds: &PopupBounds) {
 pub fn save_popup_bounds(app: tauri::AppHandle, x: f64, y: f64, width: f64, height: f64) {
     // 收起保护期内拒绝写盘
     if app.state::<crate::state::RestoringLock>().is_locked() {
-        eprintln!("[popup] save_popup_bounds ignored (restoring lock active)");
+        popup_log!("[popup] save_popup_bounds ignored (restoring lock active)");
         return;
     }
     let bounds = PopupBounds {
@@ -57,14 +65,14 @@ pub fn save_popup_bounds(app: tauri::AppHandle, x: f64, y: f64, width: f64, heig
         height,
     };
     save_bounds_to_file(&app, &bounds);
-    eprintln!("[popup] bounds saved => x={x} y={y} w={width} h={height}");
+    popup_log!("[popup] bounds saved => x={x} y={y} w={width} h={height}");
 }
 
 /// 读取已保存的浮窗位置与大小（没有则返回 null）
 #[tauri::command]
 pub fn load_popup_bounds(app: tauri::AppHandle) -> Option<PopupBounds> {
     let b = load_bounds(&app);
-    eprintln!("[popup] bounds loaded => {:?}", b);
+    popup_log!("[popup] bounds loaded => {:?}", b);
     b
 }
 
@@ -80,7 +88,7 @@ pub fn position_popup(app: &tauri::AppHandle, win: &tauri::WebviewWindow) {
             width: bounds.width,
             height: bounds.height,
         }));
-        eprintln!("[popup] restored bounds => {:?}", bounds);
+        popup_log!("[popup] restored bounds => {:?}", bounds);
         return;
     }
 
@@ -97,10 +105,10 @@ pub fn position_popup(app: &tauri::AppHandle, win: &tauri::WebviewWindow) {
         let win_w = 376.0_f64;
         let x = screen_w - win_w;
         let y = 28.0;
-        eprintln!("[popup] default position => x={x} y={y} screen_w={screen_w} scale={scale}");
+        popup_log!("[popup] default position => x={x} y={y} screen_w={screen_w} scale={scale}");
         let _ = win.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
     } else {
-        eprintln!("[popup] WARNING: no monitor found, using fallback position");
+        popup_log!("[popup] WARNING: no monitor found, using fallback position");
         let _ = win.set_position(tauri::Position::Logical(tauri::LogicalPosition {
             x: 800.0,
             y: 28.0,
@@ -236,7 +244,7 @@ unsafe fn do_animated_set_frame(
 
     let _: () = msg_send![ctx_class, endGrouping];
 
-    eprintln!(
+    popup_log!(
         "[popup] center-expand → tauri({target_x:.0},{target_y:.0}) \
          ns_origin=({ns_x:.0},{ns_y:.0}) size={target_w:.0}×{target_h:.0} \
          cur={cur_w:.0}×{cur_h:.0} dur={duration}"
@@ -265,30 +273,30 @@ pub fn show_popup(app: &tauri::AppHandle, win: &tauri::WebviewWindow) {
 
     app.state::<PopupVisible>().set(true);
     let _ = win.emit("popup-shown", ());
-    eprintln!("[popup] shown");
+    popup_log!("[popup] shown");
 }
 
 pub fn toggle_popup(app: &tauri::AppHandle) {
-    eprintln!("[popup] toggle_popup called");
+    popup_log!("[popup] toggle_popup called");
 
     if let Some(win) = app.get_webview_window("popup") {
         let really_visible = win.is_visible().unwrap_or(false);
         let state_visible = app.state::<PopupVisible>().get();
         let is_visible = really_visible || state_visible;
-        eprintln!(
+        popup_log!(
             "[popup] window exists, really_visible={really_visible} state_visible={state_visible}"
         );
 
         if is_visible {
-            eprintln!("[popup] hiding");
+            popup_log!("[popup] hiding");
             app.state::<PopupVisible>().set(false);
             let _ = win.hide();
         } else {
-            eprintln!("[popup] showing");
+            popup_log!("[popup] showing");
             show_popup(app, &win);
         }
     } else {
-        eprintln!("[popup] window not found, creating");
+        popup_log!("[popup] window not found, creating");
         create_popup(app);
     }
 }
@@ -353,7 +361,7 @@ pub fn focus_popup(app: tauri::AppHandle) {
         app.state::<PopupVisible>().set(true);
         // 发射 popup-focused（区别于 popup-shown），前端监听后展开最近 session
         let _ = win.emit("popup-focused", ());
-        eprintln!("[popup] focused via notification click");
+        popup_log!("[popup] focused via notification click");
     } else {
         create_popup(&app);
         if let Some(win) = app.get_webview_window("popup") {
@@ -428,7 +436,7 @@ fn calc_expand_pos(
         y = safe_top;
     }
 
-    eprintln!(
+    popup_log!(
         "[popup] expand center=({cx:.0},{cy:.0}) ideal=({ideal_x:.0},{ideal_y:.0}) \
          clamped=({x:.0},{y:.0}) size={exp_w:.0}×{exp_h:.0}"
     );
@@ -582,21 +590,21 @@ pub fn restore_popup_bounds(app: tauri::AppHandle, window: tauri::WebviewWindow)
     // ── 确定目标位置和尺寸（优先缓存，其次磁盘，最后默认）────────
     let (x, y, w, h) = if let Some(snap) = app.state::<crate::state::PreExpandPos>().take() {
         // ★ 最精确：展开前的精确快照
-        eprintln!(
+        popup_log!(
             "[popup] restore: cache hit ({:.0},{:.0}) {:.0}×{:.0}",
             snap.x, snap.y, snap.w, snap.h
         );
         (snap.x, snap.y, snap.w, snap.h)
     } else if let Some(disk) = load_bounds(&app) {
         // 磁盘兜底
-        eprintln!(
+        popup_log!(
             "[popup] restore: disk fallback ({:.0},{:.0}) {:.0}×{:.0}",
             disk.x, disk.y, disk.width, disk.height
         );
         (disk.x, disk.y, disk.width, disk.height)
     } else {
         // 默认值（首次运行，无任何记忆）
-        eprintln!("[popup] restore: using defaults");
+        popup_log!("[popup] restore: using defaults");
         return; // 没有位置记忆时什么都不做，窗口停在原处
     };
 
@@ -607,7 +615,7 @@ pub fn restore_popup_bounds(app: tauri::AppHandle, window: tauri::WebviewWindow)
     }));
     let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
 
-    eprintln!("[popup] restore done => ({x:.0},{y:.0}) {w:.0}×{h:.0}");
+    popup_log!("[popup] restore done => ({x:.0},{y:.0}) {w:.0}×{h:.0}");
 }
 
 /// （兼容旧调用）调整弹窗高度，保持当前宽度和位置，同时写盘持久化。
