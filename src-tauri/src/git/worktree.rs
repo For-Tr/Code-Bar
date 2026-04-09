@@ -241,8 +241,7 @@ pub async fn setup_session_worktree(
 
         // 创建 worktree
         if let Some(parent) = Path::new(&worktree_path).parent() {
-            fs::create_dir_all(parent)
-                .map_err(|e| format!("创建 worktree 父目录失败: {e}"))?;
+            fs::create_dir_all(parent).map_err(|e| format!("创建 worktree 父目录失败: {e}"))?;
         }
 
         let out = Command::new("git")
@@ -333,10 +332,7 @@ pub async fn prune_orphan_worktrees(
                 continue;
             }
 
-            let canonical = path
-                .to_string_lossy()
-                .trim_end_matches('/')
-                .to_string();
+            let canonical = path.to_string_lossy().trim_end_matches('/').to_string();
             if known.contains(&canonical) {
                 continue;
             }

@@ -1,6 +1,6 @@
 use std::process::Command;
 
-use tauri::{Emitter};
+use tauri::Emitter;
 
 use crate::util::expand_path;
 

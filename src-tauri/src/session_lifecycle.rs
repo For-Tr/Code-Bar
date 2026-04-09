@@ -16,10 +16,19 @@ impl HookSource {
         }
     }
 
+    #[cfg(unix)]
     pub fn socket_path(self) -> &'static str {
         match self {
             Self::ClaudeCode => "/tmp/code-bar-hook-claude.sock",
             Self::Codex => "/tmp/code-bar-hook-codex.sock",
+        }
+    }
+
+    #[cfg(not(unix))]
+    pub fn tcp_port(self) -> u16 {
+        match self {
+            Self::ClaudeCode => 46331,
+            Self::Codex => 46332,
         }
     }
 
@@ -42,7 +51,9 @@ pub struct SessionRoutingHint {
 pub enum SessionLifecycleSignal {
     Running,
     Waiting,
-    Error { message: String },
+    Error {
+        message: String,
+    },
     Attention {
         title: String,
         message: String,
@@ -51,10 +62,32 @@ pub enum SessionLifecycleSignal {
 }
 
 fn normalize_workdir(path: &str) -> String {
-    if path == "/" {
+    let mut normalized = path.trim().replace('\\', "/");
+    if normalized == "/" {
         return "/".to_string();
     }
-    path.trim_end_matches('/').to_string()
+
+    loop {
+        if !normalized.ends_with('/') {
+            break;
+        }
+
+        #[cfg(windows)]
+        if normalized.len() == 3 && normalized.as_bytes()[1] == b':' {
+            break;
+        }
+
+        if normalized.len() <= 1 {
+            break;
+        }
+
+        normalized.pop();
+    }
+
+    #[cfg(windows)]
+    normalized.make_ascii_lowercase();
+
+    normalized
 }
 
 fn active_session_ids(app: &AppHandle) -> Vec<String> {

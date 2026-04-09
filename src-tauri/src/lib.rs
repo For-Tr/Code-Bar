@@ -13,8 +13,8 @@ mod util;
 mod window;
 
 use state::{
-    PopupVisible, PreExpandPos, ProcessMap, PtyKillerMap, PtyMasterMap,
-    PtySessionMetaMap, PtyWriterMap, RestoringLock,
+    PopupVisible, PreExpandPos, ProcessMap, PtyKillerMap, PtyMasterMap, PtySessionMetaMap,
+    PtyWriterMap, RestoringLock,
 };
 use tauri::{
     menu::{Menu, MenuItem},
@@ -62,7 +62,7 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
-            // 启动 CLI hook 接收器（Unix Socket）
+            // 启动 CLI hook 接收器（Unix Socket / Windows Loopback TCP）
             hooks::start_hook_socket_servers(app.handle().clone());
 
             // 自动配置 Claude / Codex hooks（幂等）
@@ -102,9 +102,10 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             window::setup_popup_window(&win);
 
+            window::position_popup(app.handle(), &win);
+
             // 系统托盘
-            let quit_item =
-                MenuItem::with_id(app, "quit", "退出 Code Bar", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "quit", "退出 Code Bar", true, None::<&str>)?;
             let tray_menu = Menu::with_items(app, &[&quit_item])?;
 
             let tray = TrayIconBuilder::new()

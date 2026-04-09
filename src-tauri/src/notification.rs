@@ -146,12 +146,17 @@ pub fn send_notification_with_callback(
         use tauri_plugin_notification::NotificationExt;
         let _ = subtitle; // 避免 unused warning
         let _ = play_sound;
+        eprintln!(
+            "[notification] desktop send requested: title={title:?} body_len={}",
+            body.chars().count()
+        );
         app.notification()
             .builder()
             .title(&title)
             .body(&body)
             .show()
             .map_err(|e| format!("通知发送失败: {e}"))?;
+        eprintln!("[notification] desktop send queued");
         Ok(())
     }
 }

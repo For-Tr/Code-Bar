@@ -5,7 +5,7 @@ use tauri::{Emitter, Manager};
 use crate::{
     cli_detect::resolve_command_path,
     state::{PtyKillerMap, PtyMasterMap, PtySessionMeta, PtySessionMetaMap, PtyWriterMap},
-    util::expand_path,
+    util::{expand_path, home_dir, resolve_windows_pty_command},
 };
 
 // ── 辅助：从 AppHandle 获取 PTY 状态 ─────────────────────────────
@@ -100,7 +100,8 @@ pub async fn start_pty_session(
     let runner_type = env
         .as_ref()
         .and_then(|pairs| {
-            pairs.iter()
+            pairs
+                .iter()
                 .find(|(k, _)| k == "CODE_BAR_RUNNER_TYPE")
                 .map(|(_, v)| v.clone())
         })
@@ -137,35 +138,60 @@ pub async fn start_pty_session(
         .map_err(|e| format!("openpty 失败: {e}"))?;
 
     let resolved_command = resolve_command_path(&command);
-    eprintln!("[start_pty_session] spawn: {resolved_command} {:?}", args);
+    let (launch_command, launch_args) = resolve_windows_pty_command(&resolved_command, &args);
+    eprintln!(
+        "[start_pty_session] spawn: {launch_command} {:?}",
+        launch_args
+    );
 
-    let mut cmd = CommandBuilder::new(&resolved_command);
-    for arg in &args {
-        cmd.arg(arg);
-    }
+    let mut cmd = if cfg!(windows)
+        && std::path::Path::new(&launch_command)
+            .extension()
+            .and_then(|s| s.to_str())
+            .map(|ext| matches!(ext.to_ascii_lowercase().as_str(), "cmd" | "bat"))
+            .unwrap_or(false)
+    {
+        let mut builder = CommandBuilder::new("cmd.exe");
+        builder.arg("/d");
+        builder.arg("/c");
+        builder.arg(&launch_command);
+        for arg in &launch_args {
+            builder.arg(arg);
+        }
+        builder
+    } else {
+        let mut builder = CommandBuilder::new(&launch_command);
+        for arg in &launch_args {
+            builder.arg(arg);
+        }
+        builder
+    };
     cmd.cwd(&expanded);
 
     // 继承基础环境变量
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
-    if let Ok(home) = std::env::var("HOME") {
-        cmd.env("HOME", home);
+    if let Some(home) = home_dir() {
+        cmd.env("HOME", home.to_string_lossy().to_string());
+        #[cfg(windows)]
+        cmd.env("USERPROFILE", home.to_string_lossy().to_string());
     }
 
     // 构建子进程 PATH（补充 node 所在目录，供 claude/codex 等 Node.js 脚本使用）
     {
         let base_path = std::env::var("PATH").unwrap_or_default();
         let node_path = resolve_command_path("node");
-        let node_dir = if node_path.contains('/') {
+        let node_dir = if std::path::Path::new(&node_path).parent().is_some() {
             std::path::Path::new(&node_path)
                 .parent()
                 .map(|d| d.to_string_lossy().to_string())
         } else {
             None
         };
+        let sep = if cfg!(windows) { ';' } else { ':' };
         let enriched_path = match node_dir {
-            Some(dir) if !base_path.split(':').any(|s| s == dir) => {
-                format!("{dir}:{base_path}")
+            Some(dir) if !base_path.split(sep).any(|s| s == dir) => {
+                format!("{dir}{sep}{base_path}")
             }
             _ => base_path,
         };
@@ -238,8 +264,7 @@ pub async fn start_pty_session(
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
                     // 转发原始数据（base64 编码）
-                    let b64 =
-                        base64::engine::general_purpose::STANDARD.encode(&buf[..n]);
+                    let b64 = base64::engine::general_purpose::STANDARD.encode(&buf[..n]);
                     let _ = app_r.emit(
                         "pty-data",
                         serde_json::json!({ "session_id": sid_r, "data": b64 }),
@@ -264,10 +289,7 @@ pub async fn start_pty_session(
                         } else {
                             "pty-running"
                         };
-                        let _ = app_r.emit(
-                            event,
-                            serde_json::json!({ "session_id": sid_r }),
-                        );
+                        let _ = app_r.emit(event, serde_json::json!({ "session_id": sid_r }));
                     }
                 }
             }
@@ -293,11 +315,7 @@ pub async fn start_pty_session(
 
 /// 向 PTY 写入数据（键盘输入，base64 编码）
 #[tauri::command]
-pub fn write_pty(
-    app: tauri::AppHandle,
-    session_id: String,
-    data: String,
-) -> Result<(), String> {
+pub fn write_pty(app: tauri::AppHandle, session_id: String, data: String) -> Result<(), String> {
     use base64::Engine;
     let wm = pty_writer_map(&app);
     let mut wm = wm.lock().unwrap();
@@ -323,7 +341,7 @@ pub fn send_pty_query(
     let mut wm = wm.lock().unwrap();
     if let Some(writer) = wm.get_mut(&session_id) {
         let mut data = query.into_bytes();
-        data.push(b'\n');
+        data.push(if cfg!(windows) { b'\r' } else { b'\n' });
         writer
             .write_all(&data)
             .map_err(|e| format!("send_pty_query write 失败: {e}"))?;
@@ -364,32 +382,39 @@ pub fn resize_pty(
 
 /// 停止 PTY 会话
 #[tauri::command]
-pub fn stop_pty_session(
-    app: tauri::AppHandle,
-    session_id: String,
-) -> Result<(), String> {
+pub fn stop_pty_session(app: tauri::AppHandle, session_id: String) -> Result<(), String> {
+    let mut had_session = false;
     {
         let km = pty_killer_map(&app);
         let mut km = km.lock().unwrap();
         if let Some(mut child) = km.remove(&session_id) {
+            had_session = true;
             let _ = child.kill();
         }
     }
     {
         let wm = pty_writer_map(&app);
         let mut wm = wm.lock().unwrap();
-        wm.remove(&session_id);
+        if wm.remove(&session_id).is_some() {
+            had_session = true;
+        }
     }
     {
         let mm = pty_master_map(&app);
         let mut mm = mm.lock().unwrap();
-        mm.remove(&session_id);
+        if mm.remove(&session_id).is_some() {
+            had_session = true;
+        }
     }
     {
         let meta_map = pty_session_meta_map(&app);
         let mut meta_map = meta_map.lock().unwrap();
-        meta_map.remove(&session_id);
+        if meta_map.remove(&session_id).is_some() {
+            had_session = true;
+        }
     }
-    let _ = app.emit("pty-exit", serde_json::json!({ "session_id": session_id }));
+    if had_session {
+        let _ = app.emit("pty-exit", serde_json::json!({ "session_id": session_id }));
+    }
     Ok(())
 }

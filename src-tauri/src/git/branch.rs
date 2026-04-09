@@ -22,11 +22,9 @@ fn git_run(workdir: &str, args: &[&str]) -> Result<String, String> {
 #[tauri::command]
 pub async fn git_current_branch(workdir: String) -> Result<String, String> {
     let expanded = expand_path(&workdir);
-    tokio::task::spawn_blocking(move || {
-        git_run(&expanded, &["rev-parse", "--abbrev-ref", "HEAD"])
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    tokio::task::spawn_blocking(move || git_run(&expanded, &["rev-parse", "--abbrev-ref", "HEAD"]))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// 创建并切换到新分支（基于当前 HEAD）
@@ -44,22 +42,18 @@ pub async fn git_branch_create(workdir: String, branch: String) -> Result<(), St
 #[tauri::command]
 pub async fn git_branch_switch(workdir: String, branch: String) -> Result<(), String> {
     let expanded = expand_path(&workdir);
-    tokio::task::spawn_blocking(move || {
-        git_run(&expanded, &["checkout", &branch]).map(|_| ())
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    tokio::task::spawn_blocking(move || git_run(&expanded, &["checkout", &branch]).map(|_| ()))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// 强制删除指定分支（-D）
 #[tauri::command]
 pub async fn git_branch_delete(workdir: String, branch: String) -> Result<(), String> {
     let expanded = expand_path(&workdir);
-    tokio::task::spawn_blocking(move || {
-        git_run(&expanded, &["branch", "-D", &branch]).map(|_| ())
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    tokio::task::spawn_blocking(move || git_run(&expanded, &["branch", "-D", &branch]).map(|_| ()))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// 将 session 分支 merge 回目标分支（--no-ff 保留分支历史）

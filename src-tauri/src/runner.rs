@@ -8,7 +8,7 @@ use tauri::{Emitter, Manager};
 use crate::{
     git::diff::get_git_diff_raw,
     state::ProcessMap,
-    util::{expand_path, find_cli_path},
+    util::{expand_path, find_cli_path, home_dir, resolve_windows_pty_command},
 };
 
 // ── 辅助：从 AppHandle 取出 ProcessMap ───────────────────────────
@@ -47,6 +47,11 @@ pub async fn start_runner(
 ) -> Result<(), String> {
     let expanded_dir = expand_path(&workdir);
     let bin = find_cli_path(&runner_type, &cli_path);
+    let cli_args_vec = cli_args
+        .split_whitespace()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+    let (bin, rewritten_args) = resolve_windows_pty_command(&bin, &cli_args_vec);
 
     let _ = app.emit(
         "runner-output",
@@ -64,12 +69,14 @@ pub async fn start_runner(
 
     match runner_type.as_str() {
         "claude-code" => {
+            for arg in &rewritten_args {
+                cmd.arg(arg);
+            }
+
             // 读取 ~/.claude/settings.json 中的 env 字段并注入子进程
             let mut model_from_settings: Option<String> = None;
-            if let Ok(home) = std::env::var("HOME") {
-                let settings_path = std::path::PathBuf::from(&home)
-                    .join(".claude")
-                    .join("settings.json");
+            if let Some(home) = home_dir() {
+                let settings_path = home.join(".claude").join("settings.json");
                 if let Ok(content) = std::fs::read_to_string(&settings_path) {
                     if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
                         if let Some(env_obj) = json.get("env").and_then(|v| v.as_object()) {
@@ -87,8 +94,9 @@ pub async fn start_runner(
             }
 
             // cli_args 中的 --model 优先级最高，其次 settings.json，最后默认值
-            let model_from_args = cli_args
-                .split_whitespace()
+            let model_from_args = rewritten_args
+                .iter()
+                .map(String::as_str)
                 .collect::<Vec<_>>()
                 .windows(2)
                 .find(|w| w[0] == "--model")
@@ -104,17 +112,21 @@ pub async fn start_runner(
                 .arg(&task);
         }
         "codex" => {
-            cmd.arg("--non-interactive")
-                .arg("--no-color")
-                .arg(&task);
+            for arg in &rewritten_args {
+                cmd.arg(arg);
+            }
+            cmd.arg("--non-interactive").arg("--no-color").arg(&task);
         }
         "custom-cli" => {
-            for arg in cli_args.split_whitespace() {
+            for arg in &rewritten_args {
                 cmd.arg(arg);
             }
             cmd.arg(&task);
         }
         _ => {
+            for arg in &rewritten_args {
+                cmd.arg(arg);
+            }
             cmd.arg(&task);
         }
     }

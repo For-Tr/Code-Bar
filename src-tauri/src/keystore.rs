@@ -8,10 +8,7 @@ pub async fn save_api_key(
     provider: String,
     key: String,
 ) -> Result<(), String> {
-    let key_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?;
+    let key_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     fs::create_dir_all(&key_dir).map_err(|e| e.to_string())?;
 
     // 简单 XOR 混淆（生产环境建议接入 macOS Keychain）
@@ -32,14 +29,8 @@ pub async fn save_api_key(
 
 /// 读取已保存的 API Key
 #[tauri::command]
-pub async fn load_api_key(
-    app: tauri::AppHandle,
-    provider: String,
-) -> Result<String, String> {
-    let key_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?;
+pub async fn load_api_key(app: tauri::AppHandle, provider: String) -> Result<String, String> {
+    let key_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     let key_file = key_dir.join(format!(".key_{provider}"));
 
     if !key_file.exists() {

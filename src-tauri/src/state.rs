@@ -30,12 +30,19 @@ pub type PtySessionMetaMap = Arc<Mutex<HashMap<String, PtySessionMeta>>>;
 /// 收起时优先从这里还原，避免磁盘数据过期导致位置漂移。
 /// 取出后立即清空（一次性使用）。
 #[derive(Debug, Clone, Copy)]
-pub struct Bounds4 { pub x: f64, pub y: f64, pub w: f64, pub h: f64 }
+pub struct Bounds4 {
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+}
 
 pub struct PreExpandPos(Mutex<Option<Bounds4>>);
 
 impl PreExpandPos {
-    pub fn new() -> Self { Self(Mutex::new(None)) }
+    pub fn new() -> Self {
+        Self(Mutex::new(None))
+    }
 
     pub fn set(&self, b: Bounds4) {
         *self.0.lock().unwrap() = Some(b);
@@ -53,7 +60,9 @@ impl PreExpandPos {
 pub struct RestoringLock(Mutex<Option<Instant>>);
 
 impl RestoringLock {
-    pub fn new() -> Self { Self(Mutex::new(None)) }
+    pub fn new() -> Self {
+        Self(Mutex::new(None))
+    }
 
     /// 开始保护期（600ms，覆盖 0.10s 收起动画 + 500ms 前端防抖）
     pub fn arm(&self) {
@@ -62,7 +71,9 @@ impl RestoringLock {
 
     /// 是否在保护期内
     pub fn is_locked(&self) -> bool {
-        self.0.lock().unwrap()
+        self.0
+            .lock()
+            .unwrap()
             .map(|t| t.elapsed() < Duration::from_millis(600))
             .unwrap_or(false)
     }

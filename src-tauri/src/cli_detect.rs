@@ -1,5 +1,7 @@
 use std::{
     collections::HashMap,
+    path::{Path, PathBuf},
+    process::{Command, Stdio},
     sync::{Mutex, OnceLock},
 };
 
@@ -21,7 +23,7 @@ fn cmd_path_cache() -> &'static Mutex<HashMap<String, Option<String>>> {
 ///   4. 静态扫描常见版本管理器目录（shell 失败时的无进程兜底）
 pub fn resolve_command_path(command: &str) -> String {
     // 已是完整路径，跳过缓存直接返回
-    if command.contains('/') {
+    if is_direct_command_path(command) {
         return command.to_string();
     }
 
@@ -51,32 +53,121 @@ pub fn resolve_command_path(command: &str) -> String {
         cache.insert(command.to_string(), result.clone());
     }
 
-    result.unwrap_or_else(|| command.to_string())
+    normalize_windows_command_path(result.unwrap_or_else(|| command.to_string()))
+}
+
+fn is_direct_command_path(command: &str) -> bool {
+    #[cfg(windows)]
+    {
+        Path::new(command).is_absolute() || command.contains('\\') || command.contains('/')
+    }
+
+    #[cfg(not(windows))]
+    {
+        command.contains('/')
+    }
+}
+
+fn normalize_windows_command_path(command: String) -> String {
+    #[cfg(windows)]
+    {
+        let path = PathBuf::from(&command);
+        if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
+            if ext.eq_ignore_ascii_case("ps1") {
+                for sibling_ext in ["cmd", "bat", "exe", "com"] {
+                    let sibling = path.with_extension(sibling_ext);
+                    if sibling.exists() {
+                        return sibling.to_string_lossy().to_string();
+                    }
+                }
+            }
+            return command;
+        }
+
+        for ext in ["cmd", "bat", "exe", "com"] {
+            let candidate = PathBuf::from(format!("{command}.{ext}"));
+            if candidate.exists() {
+                return candidate.to_string_lossy().to_string();
+            }
+        }
+
+        command
+    }
+
+    #[cfg(not(windows))]
+    {
+        command
+    }
+}
+
+#[cfg(windows)]
+fn windows_candidates(command: &str) -> Vec<String> {
+    if Path::new(command).extension().is_some() {
+        return vec![command.to_string()];
+    }
+
+    let pathext = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_string());
+    let mut candidates = Vec::new();
+    for ext in pathext.split(';').filter(|s| !s.is_empty()) {
+        candidates.push(format!("{command}{ext}"));
+        candidates.push(format!("{command}{}", ext.to_ascii_lowercase()));
+    }
+    candidates.push(command.to_string());
+    candidates.dedup();
+    candidates
 }
 
 /// 扫进程 PATH，找到可执行文件返回完整路径
 fn scan_path_env(command: &str) -> Option<String> {
     let path_var = std::env::var("PATH").ok()?;
-    for dir in path_var.split(':') {
-        let full = std::path::PathBuf::from(dir).join(command);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            if let Ok(meta) = std::fs::metadata(&full) {
-                if meta.permissions().mode() & 0o111 != 0 {
-                    return Some(full.to_string_lossy().to_string());
+    let sep = if cfg!(windows) { ';' } else { ':' };
+    for dir in path_var.split(sep).filter(|s| !s.is_empty()) {
+        #[cfg(windows)]
+        let candidates = windows_candidates(command);
+        #[cfg(not(windows))]
+        let candidates = vec![command.to_string()];
+
+        for candidate in candidates {
+            let full = std::path::PathBuf::from(dir).join(&candidate);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                if let Ok(meta) = std::fs::metadata(&full) {
+                    if meta.permissions().mode() & 0o111 != 0 {
+                        return Some(full.to_string_lossy().to_string());
+                    }
                 }
             }
-        }
-        #[cfg(not(unix))]
-        if full.exists() {
-            return Some(full.to_string_lossy().to_string());
+            #[cfg(not(unix))]
+            if full.exists() {
+                return Some(full.to_string_lossy().to_string());
+            }
         }
     }
     None
 }
 
+#[cfg(windows)]
+fn shell_which(command: &str) -> Option<String> {
+    let script = format!(
+        "(Get-Command {command} -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source)"
+    );
+    let out = Command::new("powershell.exe")
+        .args(["-NoProfile", "-Command", &script])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    let resolved = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if resolved.is_empty() || !Path::new(&resolved).exists() {
+        None
+    } else {
+        Some(resolved)
+    }
+}
+
 /// 通过用户 shell source 完整配置文件后执行 which（3s 超时）
+#[cfg(not(windows))]
 fn shell_which(command: &str) -> Option<String> {
     use std::time::Duration;
 
@@ -153,70 +244,92 @@ which {command} 2>/dev/null | head -1"#
 
 /// 静态扫描常见版本管理器安装目录（nvm/fnm/volta/mise/asdf/pyenv/rbenv/cargo/go）
 fn static_venv_scan(command: &str) -> Option<String> {
-    let home = std::path::PathBuf::from(std::env::var("HOME").ok()?);
-
-    let mut dirs: Vec<std::path::PathBuf> = vec![
-        "/usr/local/bin".into(),
-        "/opt/homebrew/bin".into(),
-        "/opt/homebrew/sbin".into(),
-    ];
-
-    // nvm: ~/.nvm/versions/node/vX.Y.Z/bin/
-    let nvm_root = home.join(".nvm/versions/node");
-    if let Ok(entries) = std::fs::read_dir(&nvm_root) {
-        let mut versions: Vec<_> = entries
-            .filter_map(|e| e.ok())
-            .filter(|e| e.path().is_dir())
-            .collect();
-        versions.sort_by_key(|e| std::cmp::Reverse(e.file_name()));
-        for entry in &versions {
-            dirs.push(entry.path().join("bin"));
-        }
-    }
-
-    // fnm: ~/.local/share/fnm/node-versions/vX/installation/bin/
-    let fnm_root = home.join(".local/share/fnm/node-versions");
-    if let Ok(entries) = std::fs::read_dir(&fnm_root) {
-        let mut versions: Vec<_> = entries
-            .filter_map(|e| e.ok())
-            .filter(|e| e.path().is_dir())
-            .collect();
-        versions.sort_by_key(|e| std::cmp::Reverse(e.file_name()));
-        for entry in &versions {
-            dirs.push(entry.path().join("installation/bin"));
-        }
-    }
-
-    dirs.extend([
-        home.join(".volta/bin"),
-        home.join(".local/share/mise/shims"),
-        home.join(".asdf/shims"),
-        home.join(".pyenv/shims"),
-        home.join(".pyenv/bin"),
-        home.join(".rbenv/shims"),
-        home.join(".rbenv/bin"),
-        home.join(".cargo/bin"),
-        home.join("go/bin"),
-    ]);
-
-    for dir in &dirs {
-        let full = dir.join(command);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            if let Ok(meta) = std::fs::metadata(&full) {
-                if meta.permissions().mode() & 0o111 != 0 {
+    #[cfg(windows)]
+    {
+        let home = crate::util::home_dir()?;
+        let dirs = [
+            home.join("AppData\\Roaming\\npm"),
+            home.join("scoop\\shims"),
+            home.join(".cargo\\bin"),
+        ];
+        for dir in dirs {
+            for candidate in windows_candidates(command) {
+                let full = dir.join(&candidate);
+                if full.exists() {
                     return Some(full.to_string_lossy().to_string());
                 }
             }
         }
-        #[cfg(not(unix))]
-        if full.exists() {
-            return Some(full.to_string_lossy().to_string());
-        }
+        return None;
     }
 
-    None
+    #[cfg(not(windows))]
+    {
+        let home = std::path::PathBuf::from(std::env::var("HOME").ok()?);
+
+        let mut dirs: Vec<std::path::PathBuf> = vec![
+            "/usr/local/bin".into(),
+            "/opt/homebrew/bin".into(),
+            "/opt/homebrew/sbin".into(),
+        ];
+
+        // nvm: ~/.nvm/versions/node/vX.Y.Z/bin/
+        let nvm_root = home.join(".nvm/versions/node");
+        if let Ok(entries) = std::fs::read_dir(&nvm_root) {
+            let mut versions: Vec<_> = entries
+                .filter_map(|e| e.ok())
+                .filter(|e| e.path().is_dir())
+                .collect();
+            versions.sort_by_key(|e| std::cmp::Reverse(e.file_name()));
+            for entry in &versions {
+                dirs.push(entry.path().join("bin"));
+            }
+        }
+
+        // fnm: ~/.local/share/fnm/node-versions/vX/installation/bin/
+        let fnm_root = home.join(".local/share/fnm/node-versions");
+        if let Ok(entries) = std::fs::read_dir(&fnm_root) {
+            let mut versions: Vec<_> = entries
+                .filter_map(|e| e.ok())
+                .filter(|e| e.path().is_dir())
+                .collect();
+            versions.sort_by_key(|e| std::cmp::Reverse(e.file_name()));
+            for entry in &versions {
+                dirs.push(entry.path().join("installation/bin"));
+            }
+        }
+
+        dirs.extend([
+            home.join(".volta/bin"),
+            home.join(".local/share/mise/shims"),
+            home.join(".asdf/shims"),
+            home.join(".pyenv/shims"),
+            home.join(".pyenv/bin"),
+            home.join(".rbenv/shims"),
+            home.join(".rbenv/bin"),
+            home.join(".cargo/bin"),
+            home.join("go/bin"),
+        ]);
+
+        for dir in &dirs {
+            let full = dir.join(command);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                if let Ok(meta) = std::fs::metadata(&full) {
+                    if meta.permissions().mode() & 0o111 != 0 {
+                        return Some(full.to_string_lossy().to_string());
+                    }
+                }
+            }
+            #[cfg(not(unix))]
+            if full.exists() {
+                return Some(full.to_string_lossy().to_string());
+            }
+        }
+
+        None
+    }
 }
 
 /// 在 PATH 和常见路径中查找指定命令
@@ -224,9 +337,16 @@ pub fn find_in_path(cmd: &str) -> Option<String> {
     if let Ok(path_var) = std::env::var("PATH") {
         let sep = if cfg!(windows) { ';' } else { ':' };
         for dir in path_var.split(sep) {
-            let full = std::path::PathBuf::from(dir).join(cmd);
-            if full.exists() {
-                return Some(full.to_string_lossy().to_string());
+            #[cfg(windows)]
+            let candidates = windows_candidates(cmd);
+            #[cfg(not(windows))]
+            let candidates = vec![cmd.to_string()];
+
+            for candidate in candidates {
+                let full = std::path::PathBuf::from(dir).join(&candidate);
+                if full.exists() {
+                    return Some(full.to_string_lossy().to_string());
+                }
             }
         }
     }
@@ -245,17 +365,39 @@ pub fn find_in_path(cmd: &str) -> Option<String> {
 #[tauri::command]
 pub async fn check_cli(command: String) -> bool {
     let resolved = resolve_command_path(&command);
-    resolved.contains('/') && std::path::Path::new(&resolved).exists()
+    std::path::Path::new(&resolved).exists()
 }
 
 /// 调试用：返回进程环境信息，用于诊断打包后 PATH/SHELL 问题
 #[tauri::command]
 pub fn debug_env(command: String) -> serde_json::Value {
     let path = std::env::var("PATH").unwrap_or_else(|_| "<unset>".to_string());
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "<unset>".to_string());
-    let home = std::env::var("HOME").unwrap_or_else(|_| "<unset>".to_string());
+    let shell = if cfg!(windows) {
+        std::env::var("ComSpec").unwrap_or_else(|_| "<unset>".to_string())
+    } else {
+        std::env::var("SHELL").unwrap_or_else(|_| "<unset>".to_string())
+    };
+    let home = crate::util::home_dir()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|| "<unset>".to_string());
     let resolved = resolve_command_path(&command);
 
+    #[cfg(windows)]
+    let shell_which = match Command::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-Command",
+            &format!(
+                "(Get-Command {command} -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source)"
+            ),
+        ])
+        .output()
+    {
+        Ok(out) => String::from_utf8_lossy(&out.stdout).trim().to_string(),
+        Err(e) => format!("error: {e}"),
+    };
+
+    #[cfg(not(windows))]
     let shell_which = if shell != "<unset>" {
         match std::process::Command::new(&shell)
             .args([
@@ -334,9 +476,7 @@ pub fn detect_cli_config() -> serde_json::Value {
                     ($prefix:expr, $field:expr) => {
                         if let Some(val) = line.strip_prefix($prefix) {
                             let val = val.trim();
-                            if !val.is_empty()
-                                && result[$field].as_str().unwrap_or("").is_empty()
-                            {
+                            if !val.is_empty() && result[$field].as_str().unwrap_or("").is_empty() {
                                 result[$field] = serde_json::Value::String(val.to_string());
                             }
                         }
@@ -354,16 +494,17 @@ pub fn detect_cli_config() -> serde_json::Value {
     }
 
     // 3. ~/.claude/settings.json
-    if let Ok(home) = std::env::var("HOME") {
-        let settings_path = std::path::PathBuf::from(&home)
-            .join(".claude")
-            .join("settings.json");
+    if let Some(home) = crate::util::home_dir() {
+        let settings_path = home.join(".claude").join("settings.json");
         if let Ok(content) = std::fs::read_to_string(&settings_path) {
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
                 result["claude_settings"] = json.clone();
                 if let Some(base_url) = json.get("apiBaseUrl").and_then(|v| v.as_str()) {
                     if !base_url.is_empty()
-                        && result["anthropic_base_url"].as_str().unwrap_or("").is_empty()
+                        && result["anthropic_base_url"]
+                            .as_str()
+                            .unwrap_or("")
+                            .is_empty()
                     {
                         result["anthropic_base_url"] =
                             serde_json::Value::String(base_url.to_string());
@@ -371,7 +512,10 @@ pub fn detect_cli_config() -> serde_json::Value {
                 }
                 if let Some(key) = json.get("apiKey").and_then(|v| v.as_str()) {
                     if !key.is_empty()
-                        && result["anthropic_api_key"].as_str().unwrap_or("").is_empty()
+                        && result["anthropic_api_key"]
+                            .as_str()
+                            .unwrap_or("")
+                            .is_empty()
                     {
                         result["anthropic_api_key"] = serde_json::Value::String(key.to_string());
                     }
@@ -380,7 +524,7 @@ pub fn detect_cli_config() -> serde_json::Value {
         }
 
         // 4. Claude Code OAuth 登录状态
-        let claude_dir = std::path::PathBuf::from(&home).join(".claude");
+        let claude_dir = home.join(".claude");
         if claude_dir.exists() {
             if let Some(bin) = find_in_path("claude") {
                 if let Ok(out) = std::process::Command::new(&bin)
@@ -393,8 +537,7 @@ pub fn detect_cli_config() -> serde_json::Value {
                         || stdout.to_lowercase().contains("not logged");
                     if !not_logged && stdout.contains('@') {
                         result["claude_oauth_logged_in"] = serde_json::Value::Bool(true);
-                        result["claude_oauth_email"] =
-                            serde_json::Value::String(stdout);
+                        result["claude_oauth_email"] = serde_json::Value::String(stdout);
                     } else if !not_logged && !stdout.is_empty() && out.status.success() {
                         result["claude_oauth_logged_in"] = serde_json::Value::Bool(true);
                     }
@@ -404,6 +547,7 @@ pub fn detect_cli_config() -> serde_json::Value {
     }
 
     // 5. CLI 路径检测（通过 shell which）
+    #[cfg(not(windows))]
     if let Ok(out) = std::process::Command::new("/bin/zsh")
         .args([
             "-l",
@@ -433,15 +577,35 @@ pub fn detect_cli_config() -> serde_json::Value {
         if let Ok(path_var) = std::env::var("PATH") {
             let sep = if cfg!(windows) { ';' } else { ':' };
             for dir in path_var.split(sep) {
-                let claude = std::path::PathBuf::from(dir).join("claude");
-                let codex = std::path::PathBuf::from(dir).join("codex");
-                if claude.exists() && result["claude_cli_path"].as_str().unwrap_or("").is_empty() {
-                    result["claude_cli_path"] =
-                        serde_json::Value::String(claude.to_string_lossy().to_string());
+                #[cfg(windows)]
+                let claude_candidates = windows_candidates("claude");
+                #[cfg(not(windows))]
+                let claude_candidates = vec!["claude".to_string()];
+                #[cfg(windows)]
+                let codex_candidates = windows_candidates("codex");
+                #[cfg(not(windows))]
+                let codex_candidates = vec!["codex".to_string()];
+
+                if result["claude_cli_path"].as_str().unwrap_or("").is_empty() {
+                    for candidate in &claude_candidates {
+                        let full = std::path::PathBuf::from(dir).join(candidate);
+                        if full.exists() {
+                            result["claude_cli_path"] =
+                                serde_json::Value::String(full.to_string_lossy().to_string());
+                            break;
+                        }
+                    }
                 }
-                if codex.exists() && result["codex_cli_path"].as_str().unwrap_or("").is_empty() {
-                    result["codex_cli_path"] =
-                        serde_json::Value::String(codex.to_string_lossy().to_string());
+
+                if result["codex_cli_path"].as_str().unwrap_or("").is_empty() {
+                    for candidate in &codex_candidates {
+                        let full = std::path::PathBuf::from(dir).join(candidate);
+                        if full.exists() {
+                            result["codex_cli_path"] =
+                                serde_json::Value::String(full.to_string_lossy().to_string());
+                            break;
+                        }
+                    }
                 }
             }
         }

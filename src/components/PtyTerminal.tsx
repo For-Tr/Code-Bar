@@ -96,6 +96,22 @@ function getTerminalMetrics() {
   };
 }
 
+function wheelDeltaToLines(event: WheelEvent, rows: number): number {
+  if (event.deltaY === 0) return 0;
+
+  if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) {
+    return event.deltaY > 0 ? Math.ceil(event.deltaY) : Math.floor(event.deltaY);
+  }
+
+  if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) {
+    return event.deltaY > 0 ? rows : -rows;
+  }
+
+  const lines = event.deltaY / 32;
+  if (lines > 0) return Math.max(1, Math.round(lines));
+  return Math.min(-1, Math.round(lines));
+}
+
 export function PtyTerminal({
   sessionId,
   command,
@@ -123,6 +139,7 @@ export function PtyTerminal({
   // ── 初始化 xterm ──────────────────────────────────────────
   useEffect(() => {
     if (!containerRef.current) return;
+    const container = containerRef.current;
 
     const { termTheme, termBg } = getTerminalLook(theme);
     const { fontSize, lineHeight } = getTerminalMetrics();
@@ -141,16 +158,29 @@ export function PtyTerminal({
 
     const fit = new FitAddon();
     term.loadAddon(fit);
-    term.open(containerRef.current);
+    term.open(container);
     fit.fit();
 
     termRef.current = term;
     fitRef.current = fit;
 
     // 更新容器背景色
-    if (containerRef.current) {
-      containerRef.current.style.background = termBg;
-    }
+    container.style.background = termBg;
+
+    const wheelHandler = (event: WheelEvent) => {
+      const termInstance = termRef.current;
+      if (!termInstance || event.ctrlKey) return;
+
+      const lines = wheelDeltaToLines(event, termInstance.rows || 24);
+      if (lines === 0) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      termInstance.scrollLines(lines);
+      termInstance.focus();
+    };
+
+    container.addEventListener("wheel", wheelHandler, { passive: false });
 
     // 键盘输入 → 发给 PTY（base64 编码）
     term.onData((data: string) => {
@@ -160,6 +190,7 @@ export function PtyTerminal({
     });
 
     return () => {
+      container.removeEventListener("wheel", wheelHandler);
       term.dispose();
       termRef.current = null;
       fitRef.current = null;
@@ -170,6 +201,7 @@ export function PtyTerminal({
   // runner/workdir 切换会通过 key 触发卸载；这里顺手停掉旧 PTY，避免旧 CLI 抢到下一条输入。
   useEffect(() => {
     return () => {
+      if (!startedRef.current) return;
       invoke("stop_pty_session", { sessionId }).catch(() => {});
     };
   }, [sessionId]);
