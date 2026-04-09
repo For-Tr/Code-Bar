@@ -24,14 +24,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
-            release_url="$(gh release view "${GITHUB_REF_NAME}" --json url --jq .url)"
+          if gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            release_url="$(gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --json url --jq .url)"
           else
             gh release create "${GITHUB_REF_NAME}" \
+              --repo "${GITHUB_REPOSITORY}" \
               --title "Code Bar ${GITHUB_REF_NAME}" \
               --notes "Building release assets..." \
               --latest
-            release_url="$(gh release view "${GITHUB_REF_NAME}" --json url --jq .url)"
+            release_url="$(gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --json url --jq .url)"
           fi
 
           echo "release_url=$release_url" >> "$GITHUB_OUTPUT"
@@ -98,7 +99,7 @@ jobs:
       - name: Upload asset to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${GITHUB_REF_NAME}" "release-assets/${{ matrix.asset_name }}" --clobber
+        run: gh release upload "${GITHUB_REF_NAME}" "release-assets/${{ matrix.asset_name }}" --repo "${GITHUB_REPOSITORY}" --clobber
 
   publish-release:
     name: Publish Release Links
@@ -152,6 +153,7 @@ jobs:
           EOF
 
           gh release edit "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
             --title "Code Bar ${GITHUB_REF_NAME}" \
             --draft=false \
             --notes-file release-notes.md
