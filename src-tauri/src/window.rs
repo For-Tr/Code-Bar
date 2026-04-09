@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 use crate::state::PopupVisible;
+use crate::util::background_command;
 
 // ── Popup 位置 / 尺寸持久化 ──────────────────────────────────────
 
@@ -648,7 +649,7 @@ pub fn pick_folder() -> String {
             set folderPath to POSIX path of (choose folder with prompt "选择工作目录")
             return folderPath
         "#;
-        let output = std::process::Command::new("osascript")
+        let output = background_command("osascript")
             .arg("-e")
             .arg(script)
             .output();
@@ -674,7 +675,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
   [Console]::Write($dialog.SelectedPath)
 }
 "#;
-        let output = std::process::Command::new("powershell.exe")
+        let output = background_command("powershell.exe")
             .args(["-NoProfile", "-STA", "-Command", script])
             .output();
         return match output {

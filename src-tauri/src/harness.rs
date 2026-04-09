@@ -1,6 +1,6 @@
-use std::{fs, io::Write, path::PathBuf, process::Command};
+use std::{fs, io::Write, path::PathBuf};
 
-use crate::util::expand_path;
+use crate::util::{background_command, expand_path};
 
 /// 读取文件（相对于 workdir）
 #[tauri::command]
@@ -53,7 +53,7 @@ pub async fn harness_run_command(
     command: String,
 ) -> Result<serde_json::Value, String> {
     let expanded = expand_path(&workdir);
-    let output = Command::new("sh")
+    let output = background_command("sh")
         .arg("-c")
         .arg(&command)
         .current_dir(&expanded)
@@ -76,7 +76,7 @@ pub async fn harness_git_diff(workdir: String, staged: bool) -> Result<String, S
     } else {
         vec!["diff"]
     };
-    let output = Command::new("git")
+    let output = background_command("git")
         .args(&args)
         .current_dir(&expanded)
         .output()
@@ -90,7 +90,7 @@ pub async fn harness_confirm(title: String, message: String) -> Result<bool, Str
     let script = format!(
         r#"display dialog "{message}" with title "{title}" buttons {{"取消", "确认"}} default button "确认""#
     );
-    let output = Command::new("osascript")
+    let output = background_command("osascript")
         .arg("-e")
         .arg(&script)
         .output()

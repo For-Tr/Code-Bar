@@ -1,8 +1,6 @@
-use std::process::Command;
-
 use tauri::Emitter;
 
-use crate::util::expand_path;
+use crate::util::{background_command, expand_path};
 
 // ── diff 解析 ─────────────────────────────────────────────────────
 
@@ -97,7 +95,7 @@ pub fn parse_diff_note(diff: &str) -> Option<String> {
 
 /// 获取单个文件相对于 HEAD 的 hunks
 pub fn get_file_hunks(workdir: &str, path: &str) -> (Vec<serde_json::Value>, Option<String>) {
-    let output = Command::new("git")
+    let output = background_command("git")
         .current_dir(workdir)
         .args(["diff", "HEAD", "--", path])
         .output();
@@ -118,7 +116,7 @@ pub fn get_file_hunks_between(
     range: &str,
     path: &str,
 ) -> (Vec<serde_json::Value>, Option<String>) {
-    let output = Command::new("git")
+    let output = background_command("git")
         .current_dir(workdir)
         .args(["diff", range, "--", path])
         .output();
@@ -199,7 +197,7 @@ fn parse_numstat(
 
 /// 获取工作目录相对于 HEAD 的 diff（结构化文件列表）
 pub fn get_git_diff_raw(workdir: &str) -> Result<Vec<serde_json::Value>, String> {
-    let output = Command::new("git")
+    let output = background_command("git")
         .current_dir(workdir)
         .args(["diff", "--numstat", "HEAD"])
         .output()
@@ -217,7 +215,7 @@ pub fn get_git_diff_between(
     session: &str,
 ) -> Result<Vec<serde_json::Value>, String> {
     let range = format!("{base}...{session}");
-    let numstat = Command::new("git")
+    let numstat = background_command("git")
         .current_dir(workdir)
         .args(["diff", "--numstat", &range])
         .output()

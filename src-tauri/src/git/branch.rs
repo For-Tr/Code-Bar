@@ -1,11 +1,9 @@
-use std::process::Command;
-
-use crate::util::expand_path;
+use crate::util::{background_command, expand_path};
 
 // ── 辅助：运行 git 命令并检查退出状态 ────────────────────────────
 
 fn git_run(workdir: &str, args: &[&str]) -> Result<String, String> {
-    let out = Command::new("git")
+    let out = background_command("git")
         .current_dir(workdir)
         .args(args)
         .output()
@@ -80,7 +78,7 @@ pub async fn git_branch_merge(
 pub async fn git_repo_info(workdir: String) -> Result<Option<String>, String> {
     let expanded = expand_path(&workdir);
     tokio::task::spawn_blocking(move || {
-        let out = Command::new("git")
+        let out = background_command("git")
             .current_dir(&expanded)
             .args(["rev-parse", "--abbrev-ref", "HEAD"])
             .output()

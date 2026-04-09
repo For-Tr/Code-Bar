@@ -1,9 +1,11 @@
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::Stdio,
     sync::{Mutex, OnceLock},
 };
+
+use crate::util::background_command;
 
 // ── 路径解析缓存 ──────────────────────────────────────────────────
 /// 进程级缓存：命令名 → 完整路径（None 表示找不到，避免重复触发耗时 shell_which）
@@ -152,7 +154,7 @@ fn shell_which(command: &str) -> Option<String> {
     let script = format!(
         "(Get-Command {command} -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source)"
     );
-    let out = Command::new("powershell.exe")
+    let out = background_command("powershell.exe")
         .args(["-NoProfile", "-Command", &script])
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -195,7 +197,7 @@ which {command} 2>/dev/null | head -1"#
         if !std::path::Path::new(shell.as_str()).exists() {
             continue;
         }
-        let mut child = match std::process::Command::new(shell)
+        let mut child = match background_command(shell)
             .args(["-c", &script])
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::null())
@@ -383,7 +385,7 @@ pub fn debug_env(command: String) -> serde_json::Value {
     let resolved = resolve_command_path(&command);
 
     #[cfg(windows)]
-    let shell_which = match Command::new("powershell.exe")
+    let shell_which = match background_command("powershell.exe")
         .args([
             "-NoProfile",
             "-Command",
@@ -399,7 +401,7 @@ pub fn debug_env(command: String) -> serde_json::Value {
 
     #[cfg(not(windows))]
     let shell_which = if shell != "<unset>" {
-        match std::process::Command::new(&shell)
+        match background_command(&shell)
             .args([
                 "-l",
                 "-c",
@@ -466,7 +468,7 @@ pub fn detect_cli_config() -> serde_json::Value {
         if !std::path::Path::new(shell).exists() {
             continue;
         }
-        if let Ok(out) = std::process::Command::new(shell)
+        if let Ok(out) = background_command(shell)
             .args(["-l", "-c", shell_script])
             .output()
         {
@@ -527,7 +529,7 @@ pub fn detect_cli_config() -> serde_json::Value {
         let claude_dir = home.join(".claude");
         if claude_dir.exists() {
             if let Some(bin) = find_in_path("claude") {
-                if let Ok(out) = std::process::Command::new(&bin)
+                if let Ok(out) = background_command(&bin)
                     .args(["config", "get", "userEmail"])
                     .output()
                 {
@@ -548,7 +550,7 @@ pub fn detect_cli_config() -> serde_json::Value {
 
     // 5. CLI 路径检测（通过 shell which）
     #[cfg(not(windows))]
-    if let Ok(out) = std::process::Command::new("/bin/zsh")
+    if let Ok(out) = background_command("/bin/zsh")
         .args([
             "-l",
             "-c",

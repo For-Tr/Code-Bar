@@ -1,4 +1,25 @@
-use std::path::PathBuf;
+use std::{ffi::OsStr, path::PathBuf, process::Command};
+
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+pub fn configure_background_command(command: &mut Command) -> &mut Command {
+    #[cfg(windows)]
+    {
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    command
+}
+
+pub fn background_command(program: impl AsRef<OsStr>) -> Command {
+    let mut command = Command::new(program);
+    configure_background_command(&mut command);
+    command
+}
 
 pub fn home_dir() -> Option<PathBuf> {
     if let Ok(home) = std::env::var("HOME") {

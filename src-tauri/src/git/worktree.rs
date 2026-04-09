@@ -1,6 +1,6 @@
-use std::{fs, path::Path, process::Command};
+use std::{fs, path::Path};
 
-use crate::util::expand_path;
+use crate::util::{background_command, expand_path};
 
 // ── 辅助函数 ──────────────────────────────────────────────────────
 
@@ -14,7 +14,7 @@ pub fn read_worktree_branch(worktree_path: &Path) -> Option<String> {
 
 /// 强制移除 worktree（先尝试 git worktree remove，失败则手动删目录 + prune）
 fn force_remove_worktree(workdir: &str, wt_path: &str) {
-    let _ = Command::new("git")
+    let _ = background_command("git")
         .current_dir(workdir)
         .args(["worktree", "remove", "--force", wt_path])
         .output();
@@ -22,7 +22,7 @@ fn force_remove_worktree(workdir: &str, wt_path: &str) {
     let p = Path::new(wt_path);
     if p.exists() {
         let _ = fs::remove_dir_all(p);
-        let _ = Command::new("git")
+        let _ = background_command("git")
             .current_dir(workdir)
             .args(["worktree", "prune"])
             .output();
@@ -46,7 +46,7 @@ pub async fn git_worktree_create(
             fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {e}"))?;
         }
 
-        let out = Command::new("git")
+        let out = background_command("git")
             .current_dir(&expanded_workdir)
             .args(["worktree", "add", "-b", &branch, &expanded_wt_path, "HEAD"])
             .output()
@@ -76,7 +76,7 @@ pub async fn git_worktree_remove(
         force_remove_worktree(&expanded_workdir, &expanded_wt_path);
 
         if delete_branch && !branch.is_empty() {
-            let _ = Command::new("git")
+            let _ = background_command("git")
                 .current_dir(&expanded_workdir)
                 .args(["branch", "-D", &branch])
                 .output();
@@ -93,7 +93,7 @@ pub async fn git_worktree_list(workdir: String) -> Result<Vec<serde_json::Value>
     let expanded = expand_path(&workdir);
 
     tokio::task::spawn_blocking(move || {
-        let out = Command::new("git")
+        let out = background_command("git")
             .current_dir(&expanded)
             .args(["worktree", "list", "--porcelain"])
             .output()
@@ -148,7 +148,7 @@ pub async fn git_worktree_merge(
 
     tokio::task::spawn_blocking(move || {
         // 切换到目标分支
-        let switch = Command::new("git")
+        let switch = background_command("git")
             .current_dir(&expanded_workdir)
             .args(["checkout", &target_branch])
             .output()
@@ -162,7 +162,7 @@ pub async fn git_worktree_merge(
         }
 
         // merge --no-ff
-        let merge = Command::new("git")
+        let merge = background_command("git")
             .current_dir(&expanded_workdir)
             .args(["merge", "--no-ff", &branch])
             .output()
@@ -177,7 +177,7 @@ pub async fn git_worktree_merge(
         // 删除 worktree 和分支
         force_remove_worktree(&expanded_workdir, &expanded_wt_path);
         if !branch.is_empty() {
-            let _ = Command::new("git")
+            let _ = background_command("git")
                 .current_dir(&expanded_workdir)
                 .args(["branch", "-D", &branch])
                 .output();
@@ -201,7 +201,7 @@ pub async fn setup_session_worktree(
 
     tokio::task::spawn_blocking(move || {
         // 检测是否是 git 仓库
-        let branch_out = Command::new("git")
+        let branch_out = background_command("git")
             .current_dir(&expanded_workdir)
             .args(["rev-parse", "--abbrev-ref", "HEAD"])
             .output()
@@ -230,11 +230,11 @@ pub async fn setup_session_worktree(
         let branch = format!("ci/session-{}", session_id_clone);
 
         // 幂等：先清理同名的旧 worktree/分支
-        let _ = Command::new("git")
+        let _ = background_command("git")
             .current_dir(&expanded_workdir)
             .args(["worktree", "remove", "--force", &worktree_path])
             .output();
-        let _ = Command::new("git")
+        let _ = background_command("git")
             .current_dir(&expanded_workdir)
             .args(["branch", "-D", &branch])
             .output();
@@ -244,7 +244,7 @@ pub async fn setup_session_worktree(
             fs::create_dir_all(parent).map_err(|e| format!("创建 worktree 父目录失败: {e}"))?;
         }
 
-        let out = Command::new("git")
+        let out = background_command("git")
             .current_dir(&expanded_workdir)
             .args(["worktree", "add", "-b", &branch, &worktree_path, "HEAD"])
             .output()
@@ -281,13 +281,13 @@ pub async fn teardown_session_worktree(
         force_remove_worktree(&expanded_workdir, &expanded_wt);
 
         // 修剪悬空 worktree 引用
-        let _ = Command::new("git")
+        let _ = background_command("git")
             .current_dir(&expanded_workdir)
             .args(["worktree", "prune"])
             .output();
 
         if !branch.is_empty() {
-            let _ = Command::new("git")
+            let _ = background_command("git")
                 .current_dir(&expanded_workdir)
                 .args(["branch", "-D", &branch])
                 .output();
@@ -340,7 +340,7 @@ pub async fn prune_orphan_worktrees(
             // 孤儿 worktree：读取分支名后清理
             let branch = read_worktree_branch(&path);
 
-            let _ = Command::new("git")
+            let _ = background_command("git")
                 .current_dir(&expanded_workdir)
                 .args(["worktree", "remove", "--force", &canonical])
                 .output();
@@ -351,7 +351,7 @@ pub async fn prune_orphan_worktrees(
 
             if let Some(b) = &branch {
                 if !b.is_empty() {
-                    let _ = Command::new("git")
+                    let _ = background_command("git")
                         .current_dir(&expanded_workdir)
                         .args(["branch", "-D", b])
                         .output();
@@ -362,7 +362,7 @@ pub async fn prune_orphan_worktrees(
         }
 
         if !pruned.is_empty() {
-            let _ = Command::new("git")
+            let _ = background_command("git")
                 .current_dir(&expanded_workdir)
                 .args(["worktree", "prune"])
                 .output();

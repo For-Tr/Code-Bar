@@ -1,6 +1,6 @@
 use std::{
     io::{BufRead, BufReader},
-    process::{Command, Stdio},
+    process::Stdio,
 };
 
 use tauri::{Emitter, Manager};
@@ -8,7 +8,9 @@ use tauri::{Emitter, Manager};
 use crate::{
     git::diff::get_git_diff_raw,
     state::ProcessMap,
-    util::{expand_path, find_cli_path, home_dir, resolve_windows_pty_command},
+    util::{
+        background_command, expand_path, find_cli_path, home_dir, resolve_windows_pty_command,
+    },
 };
 
 // ── 辅助：从 AppHandle 取出 ProcessMap ───────────────────────────
@@ -61,7 +63,7 @@ pub async fn start_runner(
         }),
     );
 
-    let mut cmd = Command::new(&bin);
+    let mut cmd = background_command(&bin);
     cmd.current_dir(&expanded_dir)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
