@@ -17,7 +17,6 @@ jobs:
     name: Prepare Release
     runs-on: ubuntu-latest
     outputs:
-      release_id: ${{ steps.release.outputs.release_id }}
       release_url: ${{ steps.release.outputs.release_url }}
     steps:
       - name: Ensure release exists
@@ -25,18 +24,17 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          release_json="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" 2>/dev/null || true)"
-
-          if [ -z "$release_json" ]; then
-            release_json="$(gh api --method POST "repos/${GITHUB_REPOSITORY}/releases" \
-              -f tag_name="${GITHUB_REF_NAME}" \
-              -f name="Code Bar ${GITHUB_REF_NAME}" \
-              -F draft=false \
-              -F prerelease=false)"
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            release_url="$(gh release view "${GITHUB_REF_NAME}" --json url --jq .url)"
+          else
+            gh release create "${GITHUB_REF_NAME}" \
+              --title "Code Bar ${GITHUB_REF_NAME}" \
+              --notes "Building release assets..." \
+              --latest
+            release_url="$(gh release view "${GITHUB_REF_NAME}" --json url --jq .url)"
           fi
 
-          echo "release_id=$(jq -r '.id' <<<"$release_json")" >> "$GITHUB_OUTPUT"
-          echo "release_url=$(jq -r '.html_url' <<<"$release_json")" >> "$GITHUB_OUTPUT"
+          echo "release_url=$release_url" >> "$GITHUB_OUTPUT"
 
   build-and-upload:
     name: Build ${{ matrix.label }}
@@ -48,16 +46,22 @@ jobs:
         include:
           - label: Windows x64
             runner: windows-latest
-            args: --bundles nsis --target x86_64-pc-windows-msvc
-            asset_name_pattern: code-bar-windows-x64[setup][ext]
+            bundle: nsis
+            target: x86_64-pc-windows-msvc
+            artifact_glob: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+            asset_name: code-bar-windows-x64-setup.exe
           - label: macOS Apple Silicon
             runner: macos-15
-            args: --bundles dmg --target aarch64-apple-darwin
-            asset_name_pattern: code-bar-macos-apple-silicon[ext]
+            bundle: dmg
+            target: aarch64-apple-darwin
+            artifact_glob: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+            asset_name: code-bar-macos-apple-silicon.dmg
           - label: macOS Intel
             runner: macos-15-intel
-            args: --bundles dmg --target x86_64-apple-darwin
-            asset_name_pattern: code-bar-macos-intel[ext]
+            bundle: dmg
+            target: x86_64-apple-darwin
+            artifact_glob: src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
+            asset_name: code-bar-macos-intel.dmg
     steps:
       - uses: actions/checkout@v4
 
@@ -76,15 +80,25 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build and upload release assets
-        uses: tauri-apps/tauri-action@v0
+      - name: Build bundle
+        shell: bash
+        run: pnpm exec tauri build --bundles "${{ matrix.bundle }}" --target "${{ matrix.target }}"
+
+      - name: Rename asset
+        shell: bash
+        run: |
+          mkdir -p release-assets
+          artifact="$(ls ${{ matrix.artifact_glob }} | head -n1)"
+          if [ -z "$artifact" ]; then
+            echo "No artifact found for ${{ matrix.label }}" >&2
+            exit 1
+          fi
+          cp "$artifact" "release-assets/${{ matrix.asset_name }}"
+
+      - name: Upload asset to release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          releaseId: ${{ needs.prepare-release.outputs.release_id }}
-          tagName: ${{ github.ref_name }}
-          args: ${{ matrix.args }}
-          assetNamePattern: ${{ matrix.asset_name_pattern }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${GITHUB_REF_NAME}" "release-assets/${{ matrix.asset_name }}" --clobber
 
   publish-release:
     name: Publish Release Links
