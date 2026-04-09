@@ -58,7 +58,7 @@ jobs:
             artifact_glob: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
             asset_name: code-bar-macos-apple-silicon.dmg
           - label: macOS Intel
-            runner: macos-13
+            runner: macos-15-intel
             bundle: dmg
             target: x86_64-apple-darwin
             artifact_glob: src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
