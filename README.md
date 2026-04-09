@@ -2,7 +2,7 @@
 
 <div align="center">
 
-A macOS menu bar app built with Tauri + React. Unified management of multiple AI coding tools (Claude Code, Codex, custom CLI, built-in Harness) with Git worktree isolation, PTY terminal integration, and persistent session state.
+A macOS / Windows menu bar and tray app built with Tauri + React. Unified management of multiple AI coding tools (Claude Code, Codex, custom CLI, built-in Harness) with Git worktree isolation, PTY terminal integration, and persistent session state.
 
 English | [简体中文](./README.zh.md)
 
@@ -14,14 +14,20 @@ English | [简体中文](./README.zh.md)
 - **🤖 Multi-Provider** - Anthropic Claude, OpenAI GPT, DeepSeek, and any OpenAI-compatible API (default: Zhipu GLM-4-Flash)
 - **🌿 Git Worktree Isolation** - Each session automatically gets its own `ci/session-N` worktree branch, eliminating multi-session code conflicts
 - **🖥️ PTY Terminal** - Full xterm.js PTY terminal per session; interact with AI CLIs directly in the app
+- **🪟 Windows Compatibility** - Windows CLI path detection, `.cmd` / `.bat` shim handling, PowerShell hook bridge, and native folder picker
 - **📊 Git Diff Viewer** - Live diff display with diff2html rendering, auto-refresh at configurable intervals
 - **🔧 Native Harness** - Direct LLM API calls without any external CLI dependency
-- **🎨 Adaptive Theme** - Light / Dark / System themes with Framer Motion animations, macOS menu bar resident
+- **🎨 Adaptive Theme** - Light / Dark / System themes with Framer Motion animations, menu bar / tray resident
 - **📍 Position Memory** - Window position and size are remembered across restarts
-- **🔔 Notification Callback** - Native macOS notifications with click-to-focus support
+- **🔔 Notification Callback** - Native click-to-focus notifications on macOS, desktop notification fallback on Windows
 - **⚙️ Rich Settings** - Runner, model, API keys, tool permissions, and appearance — all configurable
 
 ## 🚀 Quick Start
+
+### Supported Platforms
+
+- **macOS** - menu bar mode, native notification click callback
+- **Windows** - tray mode, PowerShell / loopback TCP bridge for hooks and notifications
 
 ### Prerequisites
 
@@ -30,6 +36,7 @@ English | [简体中文](./README.zh.md)
 - Rust (for Tauri backend)
 - System dependencies:
   - **macOS**: Xcode Command Line Tools
+  - **Windows**: Microsoft C++ Build Tools and WebView2 for local development/builds (see [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/))
 
 ### Installation
 
@@ -89,7 +96,7 @@ Each CLI runner supports:
 | **DeepSeek** | deepseek-chat, deepseek-reasoner |
 | **OpenAI-Compatible** | Any model (default: glm-4-flash via Zhipu AI) |
 
-API keys are stored securely in the system Keychain via Tauri's Rust backend.
+API keys are stored locally via the Tauri Rust backend (currently app-data files with lightweight obfuscation).
 
 ### Session Management
 - Create and delete sessions, grouped by workspace
@@ -109,7 +116,7 @@ API keys are stored securely in the system Keychain via Tauri's Rust backend.
 - Pre-warm launch — terminal is ready before you type
 - Injects `CODE_BAR_*` context environment variables for AI awareness
 - Resizable panel with size memory
-- Interactive login shell to support nvm/mise/pyenv-managed CLIs
+- OS-aware shell startup, including `.cmd` / `.bat` shim handling on Windows
 
 ### Git Integration
 - Visual Git diff with diff2html rendering
@@ -132,10 +139,10 @@ API keys are stored securely in the system Keychain via Tauri's Rust backend.
 ### Backend
 - **Framework**: Tauri 2 (Rust)
 - **PTY**: portable-pty
-- **Keychain**: Secure API key storage via Tauri keystore
-- **Notifications**: mac-notification-sys (native macOS click callbacks)
+- **Key Storage**: Local app-data persistence handled by Tauri Rust commands
+- **Notifications**: `mac-notification-sys` on macOS, `tauri-plugin-notification` fallback on Windows
 - **Git**: libgit2-style Rust commands (branch, worktree, diff)
-- **Hook Server**: Unix Domain Socket bridge for Claude Code and Codex hooks
+- **Hook Server**: Unix Domain Socket / loopback TCP bridge for Claude Code and Codex events
 
 ### Development Tools
 - **Package Manager**: pnpm
@@ -156,8 +163,8 @@ code-bar/
 │   ├── src/
 │   │   ├── cli_detect.rs   # CLI path resolution (nvm/mise/pyenv aware)
 │   │   ├── git/            # Git branch, worktree, diff commands
-│   │   ├── hooks.rs        # Claude / Codex hook installers and socket bridge
-│   │   ├── notification.rs # Native macOS notifications with click callback
+│   │   ├── hooks.rs        # Claude / Codex hook installers and Unix Socket / TCP bridge
+│   │   ├── notification.rs # Cross-platform notifications; macOS click callback
 │   │   ├── pty.rs          # PTY session management
 │   │   ├── session_lifecycle.rs # CLI lifecycle domain events and routing
 │   │   ├── window.rs       # Popup window control & bounds persistence
@@ -179,8 +186,14 @@ Application configuration is located at `src-tauri/tauri.conf.json`:
 - **Window**: Initial 360×220 px, transparent background, always-on-top, no taskbar entry
 - **Expansion**: Auto-expands to ~700×600 when PTY terminal is open
 - **Position Memory**: Last window position/size restored on next launch
-- **Behavior**: macOS menu bar resident (`Accessory` activation policy)
+- **Behavior**: macOS menu bar resident (`Accessory` activation policy), Windows tray resident
 - **Bundle ID**: `com.xiangbingzhou.code-bar`
+
+## 🪟 Platform Notes
+
+- **macOS**: uses native menu bar behavior, Unix Domain Socket hook bridge, and click-to-focus notification callbacks
+- **Windows**: uses tray mode, PowerShell hook bridge assets under `~/.codebar/hooks`, loopback TCP event routing, and `.cmd` / `.bat` PTY compatibility
+- **Codex on Windows**: upstream Codex hooks are currently disabled on Windows, so Code Bar configures `~/.codex/config.toml` `notify` instead of `~/.codex/hooks.json`
 
 ## 🤝 Contributing
 
