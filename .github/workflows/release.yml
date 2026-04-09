@@ -58,7 +58,7 @@ jobs:
             artifact_glob: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
             asset_name: code-bar-macos-apple-silicon.dmg
           - label: macOS Intel
-            runner: macos-15-intel
+            runner: macos-13
             bundle: dmg
             target: x86_64-apple-darwin
             artifact_glob: src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
@@ -97,6 +97,7 @@ jobs:
           cp "$artifact" "release-assets/${{ matrix.asset_name }}"
 
       - name: Upload asset to release
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "${GITHUB_REF_NAME}" "release-assets/${{ matrix.asset_name }}" --repo "${GITHUB_REPOSITORY}" --clobber
