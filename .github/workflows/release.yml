@@ -31,7 +31,7 @@ jobs:
             release_json="$(gh api --method POST "repos/${GITHUB_REPOSITORY}/releases" \
               -f tag_name="${GITHUB_REF_NAME}" \
               -f name="Code Bar ${GITHUB_REF_NAME}" \
-              -F draft=true \
+              -F draft=false \
               -F prerelease=false)"
           fi
 
@@ -84,7 +84,7 @@ jobs:
           releaseId: ${{ needs.prepare-release.outputs.release_id }}
           tagName: ${{ github.ref_name }}
           args: ${{ matrix.args }}
-          releaseAssetNamePattern: ${{ matrix.asset_name_pattern }}
+          assetNamePattern: ${{ matrix.asset_name_pattern }}
 
   publish-release:
     name: Publish Release Links
