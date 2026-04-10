@@ -121,7 +121,7 @@ API keys are stored locally via the Tauri Rust backend (currently app-data files
 
 ### Session Management
 - Create and delete sessions, grouped by workspace
-- Session status tracking: idle / running / waiting / done / error
+- Session status tracking: idle / running / waiting / suspended / done / error
 - Persistent session state across restarts
 - Real-time PTY output streaming
 - System notification on task completion (click to focus)
