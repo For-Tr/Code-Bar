@@ -28,6 +28,10 @@
   <img src="https://i.meee.com.tw/Bee0jnq.png" alt="CLI 页面" width="31%" />
 </p>
 <p align="center"><em>主页 · 会话创建页 · CLI 页面</em></p>
+<p align="center">
+  <img src="https://i.meee.com.tw/pXlTrIe.png" alt="严格区分的worktree工作区与清晰的代码diff" width="94%" />
+</p>
+<p align="center"><em>严格区分的worktree工作区与清晰的代码diff</em></p>
 
 ## ✨ 特性
 

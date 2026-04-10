@@ -28,6 +28,10 @@ English | [简体中文](./README.zh.md)
   <img src="https://i.meee.com.tw/Bee0jnq.png" alt="CLI Settings" width="31%" />
 </p>
 <p align="center"><em>Home · Session Creation · CLI Settings</em></p>
+<p align="center">
+  <img src="https://i.meee.com.tw/pXlTrIe.png" alt="Strictly isolated worktree workspace and clear code diff" width="94%" />
+</p>
+<p align="center"><em>Strictly isolated worktree workspace and clear code diff</em></p>
 
 ## ✨ Features
 
