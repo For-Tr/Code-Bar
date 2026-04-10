@@ -4,7 +4,10 @@ use tauri::{Emitter, Manager};
 
 use crate::{
     cli_detect::resolve_command_path,
-    state::{PtyKillerMap, PtyMasterMap, PtySessionMeta, PtySessionMetaMap, PtyWriterMap},
+    state::{
+        PtyKillerMap, PtyMasterMap, PtyReplayMap, PtyReplaySession, PtySessionMeta,
+        PtySessionMetaMap, PtyWriterMap,
+    },
     util::{expand_path, home_dir, resolve_windows_pty_command},
 };
 
@@ -24,6 +27,22 @@ fn pty_master_map(app: &tauri::AppHandle) -> PtyMasterMap {
 
 fn pty_session_meta_map(app: &tauri::AppHandle) -> PtySessionMetaMap {
     app.state::<PtySessionMetaMap>().inner().clone()
+}
+
+fn pty_replay_map(app: &tauri::AppHandle) -> PtyReplayMap {
+    app.state::<PtyReplayMap>().inner().clone()
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PtyReplayChunkPayload {
+    pub seq: u64,
+    pub data: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, Default)]
+pub struct PtyReplaySnapshot {
+    pub latest_seq: u64,
+    pub chunks: Vec<PtyReplayChunkPayload>,
 }
 
 // ── PTY 输出状态机 ────────────────────────────────────────────────
@@ -243,12 +262,28 @@ pub async fn start_pty_session(
             },
         );
     }
+    {
+        let replay_map = pty_replay_map(&app);
+        let mut replay_map = replay_map.lock().unwrap();
+        let latest_seq = replay_map
+            .get(&session_id)
+            .map(|session| session.latest_seq)
+            .unwrap_or(0);
+        replay_map.insert(
+            session_id.clone(),
+            PtyReplaySession {
+                latest_seq,
+                ..PtyReplaySession::default()
+            },
+        );
+    }
 
     // 读取线程：转发 PTY 输出并检测状态特征
     let app_r = app.clone();
     let sid_r = session_id.clone();
     let killer_map_r = pty_killer_map(&app);
     let session_meta_map_r = pty_session_meta_map(&app);
+    let replay_map_r = pty_replay_map(&app);
     std::thread::spawn(move || {
         let mut buf = [0u8; 4096];
         let mut stripper = AnsiStripper::new();
@@ -259,11 +294,19 @@ pub async fn start_pty_session(
             match master_reader.read(&mut buf) {
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
+                    let seq = {
+                        let mut replay_map = replay_map_r.lock().unwrap();
+                        replay_map
+                            .entry(sid_r.clone())
+                            .or_default()
+                            .append(&buf[..n])
+                    };
+
                     // 转发原始数据（base64 编码）
                     let b64 = base64::engine::general_purpose::STANDARD.encode(&buf[..n]);
                     let _ = app_r.emit(
                         "pty-data",
-                        serde_json::json!({ "session_id": sid_r, "data": b64 }),
+                        serde_json::json!({ "session_id": sid_r, "seq": seq, "data": b64 }),
                     );
 
                     // 检测 CLI 状态特征
@@ -307,6 +350,41 @@ pub async fn start_pty_session(
     });
 
     Ok(())
+}
+
+#[tauri::command]
+pub fn has_active_pty_session(app: tauri::AppHandle, session_id: String) -> bool {
+    let km = pty_killer_map(&app);
+    let has_session = km.lock().unwrap().contains_key(&session_id);
+    has_session
+}
+
+#[tauri::command]
+pub fn get_pty_replay_since(
+    app: tauri::AppHandle,
+    session_id: String,
+    after_seq: u64,
+) -> PtyReplaySnapshot {
+    use base64::Engine;
+
+    let replay_map = pty_replay_map(&app);
+    let replay_map = replay_map.lock().unwrap();
+    let Some(session) = replay_map.get(&session_id) else {
+        return PtyReplaySnapshot::default();
+    };
+
+    PtyReplaySnapshot {
+        latest_seq: session.latest_seq,
+        chunks: session
+            .chunks
+            .iter()
+            .filter(|chunk| chunk.seq > after_seq)
+            .map(|chunk| PtyReplayChunkPayload {
+                seq: chunk.seq,
+                data: base64::engine::general_purpose::STANDARD.encode(&chunk.data),
+            })
+            .collect(),
+    }
 }
 
 /// 向 PTY 写入数据（键盘输入，base64 编码）

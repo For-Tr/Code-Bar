@@ -24,6 +24,24 @@ const CLI_INSTALL_CMD: Partial<Record<RunnerType, string>> = {
   "codex":       "npm install -g @openai/codex",
 };
 
+function shouldMountHiddenPtyPanel(
+  session:
+    | {
+        status?: string;
+        runner?: { type?: string };
+        providerSessionId?: string;
+      }
+    | undefined
+): boolean {
+  if (!session || session.runner?.type === "native") return false;
+  return (
+    session.status === "running"
+    || session.status === "waiting"
+    || session.status === "suspended"
+    || hasNativeResumeBinding(session)
+  );
+}
+
 // ── 内嵌安装终端（独立 PTY，仅用于安装） ────────────────────────
 interface InstallTerminalProps {
   installId: string;
@@ -263,6 +281,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     invoke("send_notification", {
       title: "Code Bar",
       body: `✅ ${taskName} — 已完成，等待下一步指令`,
+      sessionId: sid,
     }).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flushPendingQuery, isWindows, updateSession]);
@@ -409,28 +428,12 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     if (isNativeMode) return;
     const u = listen<{ session_id: string }>("pty-exit", ({ payload }) => {
       if (payload.session_id !== sessionIdRef.current) return;
-      setTimeout(() => {
-        updateSession(sessionIdRef.current, { status: "done" });
-        setQuerySent(false);
-      }, 1200);
+      updateSession(sessionIdRef.current, { status: "done" });
+      setQuerySent(false);
     });
     return () => { u.then((f: () => void) => f()); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isNativeMode]);
-
-  // 监听通知点击回调：用户点击系统通知后，激活并显示 popup 窗口
-  // notification-clicked 由 Rust 层 mac-notification-sys 在用户点击通知后发射
-  useEffect(() => {
-    const u = listen<{ title: string; body: string; action: string }>(
-      "notification-clicked",
-      () => {
-        // 先显示/激活窗口，再展开 terminal panel
-        invoke("focus_popup").catch(() => {});
-      }
-    );
-    return () => { u.then((f: () => void) => f()); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // ── 构建注入给 PTY 进程的环境变量 ──
   // 包含：CODE_BAR_* 上下文信息 + CLI 所需的 API Key / Base URL
@@ -690,7 +693,6 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     >
       {/* ── 标题栏（data-tauri-drag-region 让整条都可拖动窗口）── */}
       <div
-        data-tauri-drag-region
         style={{
           display: "flex", alignItems: "center", gap: 10,
           padding: "12px 16px 10px",
@@ -704,19 +706,29 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
       >
         <TrafficLights onClose={onClose} size={12} gap={6} />
 
-        <span data-tauri-drag-region style={{
-          flex: 1, fontSize: 12, fontWeight: 600,
-          color: titlebarText,
-          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-          cursor: "grab",
-          letterSpacing: -0.2,
-        }}>
-          {installing ? `正在安装 ${runnerBadge}…` : session.name}
-        </span>
+        <div
+          data-tauri-drag-region
+          style={{
+            flex: 1,
+            minWidth: 0,
+            display: "flex",
+            alignItems: "center",
+            cursor: "grab",
+          }}
+        >
+          <span data-tauri-drag-region style={{
+            flex: 1, fontSize: 12, fontWeight: 600,
+            color: titlebarText,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            cursor: "grab",
+            letterSpacing: -0.2,
+          }}>
+            {installing ? `正在安装 ${runnerBadge}…` : session.name}
+          </span>
+        </div>
 
         {/* Runner 快速切换 badge */}
         <button
-          data-tauri-drag-region
           onClick={() => openSettings("runner")}
           onMouseDown={(e) => e.stopPropagation()}
           title="切换 Runner"
@@ -753,7 +765,6 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
 
         {installing && (
           <button
-            data-tauri-drag-region
             onClick={() => { setInstalling(false); recheckCli(); }}
             onMouseDown={(e) => e.stopPropagation()}
             style={{
@@ -769,7 +780,6 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
 
         {!installing && (
           <button
-            data-tauri-drag-region
             onClick={onClose}
             onMouseDown={(e) => e.stopPropagation()}
             style={{
@@ -876,6 +886,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
               args={cliBaseArgs}
               workdir={session.workdir}
               active={ptyEverActive}
+              visible={isOpen && querySent && ptyEverActive}
               initialPrompt={launchPrompt}
               supportsPromptArg={supportsPromptLaunch}
               onReady={handlePtyReady}
@@ -1081,16 +1092,32 @@ export function SessionDetail() {
   const [mountedIds, setMountedIds] = useState<string[]>([]);
 
   useEffect(() => {
-    if (!expandedSessionId) return;
-    setMountedIds((prev) =>
-      prev.includes(expandedSessionId) ? prev : [...prev, expandedSessionId]
+    const nextIds = new Set(
+      sessions
+        .filter((session) => shouldMountHiddenPtyPanel(session))
+        .map((session) => session.id)
     );
-  }, [expandedSessionId]);
+    if (expandedSessionId) nextIds.add(expandedSessionId);
+
+    setMountedIds((prev) => {
+      const merged = new Set(prev);
+      nextIds.forEach((id) => merged.add(id));
+      return Array.from(merged);
+    });
+  }, [expandedSessionId, sessions]);
 
   // 当 session 被删除时，从 mountedIds 中移除，实现卸载销毁
   useEffect(() => {
     const sessionIds = new Set(sessions.map((s) => s.id));
-    setMountedIds((prev) => prev.filter((id) => sessionIds.has(id)));
+    setMountedIds((prev) => {
+      const removed = prev.filter((id) => !sessionIds.has(id));
+      if ("__TAURI_INTERNALS__" in window) {
+        removed.forEach((id) => {
+          invoke("stop_pty_session", { sessionId: id }).catch(() => {});
+        });
+      }
+      return prev.filter((id) => sessionIds.has(id));
+    });
   }, [sessions]);
 
   useEffect(() => {

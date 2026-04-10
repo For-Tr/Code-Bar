@@ -241,7 +241,10 @@ pub fn resolve_provider_dir(runner_type: &str, cli_path_override: &str) -> Optio
     let home_candidate = home_dir().map(|home| home.join(hidden_dir_name));
     if let Some(home) = home_dir() {
         push_unique_path(&mut candidates, home.join(".config").join(xdg_dir_name));
-        push_unique_path(&mut candidates, home.join(".local/share").join(xdg_dir_name));
+        push_unique_path(
+            &mut candidates,
+            home.join(".local/share").join(xdg_dir_name),
+        );
     }
     if let Some(path) = &home_candidate {
         push_unique_path(&mut candidates, path.clone());

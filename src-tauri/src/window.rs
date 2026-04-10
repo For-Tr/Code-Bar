@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
-use crate::state::PopupVisible;
+use crate::state::{PendingPopupFocus, PopupExpandFromHidden, PopupFocusRequest, PopupVisible};
 use crate::util::background_command;
 
 macro_rules! popup_log {
@@ -253,6 +253,49 @@ unsafe fn do_animated_set_frame(
 
 // ── 显示 / 隐藏 / 切换弹窗 ────────────────────────────────────────
 
+#[cfg(target_os = "macos")]
+fn activate_popup_window(win: &tauri::WebviewWindow) {
+    use cocoa::base::{nil, YES};
+    use objc::{class, msg_send, sel, sel_impl};
+
+    let ns_window_ptr = match win.ns_window() {
+        Ok(ptr) => ptr as usize,
+        Err(_) => return,
+    };
+
+    let _ = win.run_on_main_thread(move || unsafe {
+        let ns_window = ns_window_ptr as cocoa::base::id;
+        let ns_app: cocoa::base::id = msg_send![class!(NSApplication), sharedApplication];
+        let _: () = msg_send![ns_app, activateIgnoringOtherApps: YES];
+        let _: () = msg_send![ns_window, makeKeyAndOrderFront: nil];
+        let _: () = msg_send![ns_window, orderFrontRegardless];
+    });
+}
+
+#[cfg(target_os = "macos")]
+fn restore_popup_interaction(win: &tauri::WebviewWindow) {
+    use cocoa::base::NO;
+    use objc::{msg_send, sel, sel_impl};
+
+    let ns_window_ptr = match win.ns_window() {
+        Ok(ptr) => ptr as usize,
+        Err(_) => {
+            let _ = win.set_focus();
+            return;
+        }
+    };
+
+    let _ = win.run_on_main_thread(move || unsafe {
+        let ns_window = ns_window_ptr as cocoa::base::id;
+        let _: () = msg_send![ns_window, setIgnoresMouseEvents: NO];
+        let _: () = msg_send![ns_window, makeMainWindow];
+        let content_view: cocoa::base::id = msg_send![ns_window, contentView];
+        let _: () = msg_send![ns_window, makeFirstResponder: content_view];
+    });
+
+    let _ = win.set_focus();
+}
+
 pub fn show_popup(app: &tauri::AppHandle, win: &tauri::WebviewWindow) {
     // 注意：不在这里调用 position_popup。
     // 窗口隐藏时位置不会改变，下次 show 时原地显示即可，无需重新定位。
@@ -260,12 +303,7 @@ pub fn show_popup(app: &tauri::AppHandle, win: &tauri::WebviewWindow) {
     let _ = win.show();
 
     #[cfg(target_os = "macos")]
-    unsafe {
-        use cocoa::base::nil;
-        use objc::{msg_send, sel, sel_impl};
-        let ns_window = win.ns_window().expect("ns_window") as cocoa::base::id;
-        let _: () = msg_send![ns_window, makeKeyAndOrderFront: nil];
-    }
+    activate_popup_window(win);
     #[cfg(not(target_os = "macos"))]
     {
         let _ = win.set_focus();
@@ -326,6 +364,46 @@ fn create_popup(app: &tauri::AppHandle) {
     show_popup(app, &win);
 }
 
+#[tauri::command]
+pub fn take_pending_popup_focus(app: tauri::AppHandle) -> Option<PopupFocusRequest> {
+    app.state::<PendingPopupFocus>().take()
+}
+
+fn focus_popup_on_main_thread(app: &tauri::AppHandle, session_id: Option<String>) {
+    if let Some(win) = app.get_webview_window("popup") {
+        let was_visible = win.is_visible().unwrap_or(false);
+        let _ = win.show();
+
+        #[cfg(target_os = "macos")]
+        {
+            activate_popup_window(&win);
+            restore_popup_interaction(&win);
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = win.set_focus();
+        }
+
+        app.state::<PopupExpandFromHidden>().set(!was_visible);
+        app.state::<PopupVisible>().set(true);
+        let _ = win.emit(
+            "popup-focused",
+            serde_json::json!({ "session_id": session_id }),
+        );
+        popup_log!("[popup] focused via notification click");
+    } else {
+        create_popup(app);
+        if let Some(win) = app.get_webview_window("popup") {
+            #[cfg(target_os = "macos")]
+            restore_popup_interaction(&win);
+            let _ = win.emit(
+                "popup-focused",
+                serde_json::json!({ "session_id": session_id }),
+            );
+        }
+    }
+}
+
 // ── Tauri Commands ────────────────────────────────────────────────
 
 /// 隐藏弹窗
@@ -339,35 +417,16 @@ pub fn close_popup(app: tauri::AppHandle, window: tauri::WebviewWindow) {
 ///
 /// 与 toggle_popup / show_popup 不同：
 /// - 不发射 "popup-shown"（那个事件会让前端 setExpandedSession(null) 收起 terminal）
-/// - 发射 "popup-focused"，让前端展开最近活跃的 session
+/// - 发射 "popup-focused"，携带可选 session_id，让前端可精确展开目标 session
 /// - 无论当前窗口是否可见，都强制置于前台
 #[tauri::command]
-pub fn focus_popup(app: tauri::AppHandle) {
-    if let Some(win) = app.get_webview_window("popup") {
-        let _ = win.show();
-
-        #[cfg(target_os = "macos")]
-        unsafe {
-            use cocoa::base::nil;
-            use objc::{msg_send, sel, sel_impl};
-            let ns_window = win.ns_window().expect("ns_window") as cocoa::base::id;
-            let _: () = msg_send![ns_window, makeKeyAndOrderFront: nil];
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            let _ = win.set_focus();
-        }
-
-        app.state::<PopupVisible>().set(true);
-        // 发射 popup-focused（区别于 popup-shown），前端监听后展开最近 session
-        let _ = win.emit("popup-focused", ());
-        popup_log!("[popup] focused via notification click");
-    } else {
-        create_popup(&app);
-        if let Some(win) = app.get_webview_window("popup") {
-            let _ = win.emit("popup-focused", ());
-        }
-    }
+pub fn focus_popup(app: tauri::AppHandle, session_id: Option<String>) {
+    app.state::<PendingPopupFocus>().set(session_id.clone());
+    let app_handle = app.clone();
+    let session_id_for_ui = session_id.clone();
+    let _ = app.run_on_main_thread(move || {
+        focus_popup_on_main_thread(&app_handle, session_id_for_ui);
+    });
 }
 
 // ── 展开位置计算 ──────────────────────────────────────────────────
@@ -530,13 +589,29 @@ pub fn resize_popup_full(
         .map(|s| (s.width as f64 / scale, s.height as f64 / scale))
         .unwrap_or((376.0, 600.0));
 
+    let use_disk_bounds = app.state::<PopupExpandFromHidden>().take();
+    let (base_w, base_h) = if use_disk_bounds {
+        if let Some(disk) = load_bounds(&app) {
+            popup_log!(
+                "[popup] expand snapshot uses disk bounds after hidden-focus => {:.0}×{:.0}",
+                disk.width,
+                disk.height
+            );
+            (disk.width, disk.height)
+        } else {
+            (orig_w, orig_h)
+        }
+    } else {
+        (orig_w, orig_h)
+    };
+
     // ★ 展开前把小窗口位置快照存入内存缓存，收起时精确还原
     app.state::<crate::state::PreExpandPos>()
         .set(crate::state::Bounds4 {
             x: orig_x,
             y: orig_y,
-            w: orig_w,
-            h: orig_h,
+            w: base_w,
+            h: base_h,
         });
 
     // 获取显示器信息
@@ -566,7 +641,7 @@ pub fn resize_popup_full(
     let screen_h = monitor.size().height as f64 / ms;
 
     let (new_x, new_y) = calc_expand_pos(
-        orig_x, orig_y, orig_w, orig_h, width, height, screen_x, screen_y, screen_w, screen_h,
+        orig_x, orig_y, base_w, base_h, width, height, screen_x, screen_y, screen_w, screen_h,
     );
 
     apply_window_frame(&window, new_x, new_y, width, height, screen_h, 0.18);
@@ -592,14 +667,20 @@ pub fn restore_popup_bounds(app: tauri::AppHandle, window: tauri::WebviewWindow)
         // ★ 最精确：展开前的精确快照
         popup_log!(
             "[popup] restore: cache hit ({:.0},{:.0}) {:.0}×{:.0}",
-            snap.x, snap.y, snap.w, snap.h
+            snap.x,
+            snap.y,
+            snap.w,
+            snap.h
         );
         (snap.x, snap.y, snap.w, snap.h)
     } else if let Some(disk) = load_bounds(&app) {
         // 磁盘兜底
         popup_log!(
             "[popup] restore: disk fallback ({:.0},{:.0}) {:.0}×{:.0}",
-            disk.x, disk.y, disk.width, disk.height
+            disk.x,
+            disk.y,
+            disk.width,
+            disk.height
         );
         (disk.x, disk.y, disk.width, disk.height)
     } else {
