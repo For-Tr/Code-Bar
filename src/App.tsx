@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -335,6 +335,32 @@ export default function App() {
     (s) => s.id === activeSessionId && s.workspaceId === activeWorkspaceId
   );
 
+  const refreshSessionDiff = useCallback((sessionId?: string | null) => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+
+    const targetId = sessionId ?? useSessionStore.getState().activeSessionId;
+    if (!targetId) return;
+
+    const session = useSessionStore.getState().sessions.find((s) => s.id === targetId);
+    if (!session) return;
+
+    if (session.branchName && session.baseBranch) {
+      // 有 session 分支：对比 base...session 分支的变更（天然准确）
+      invoke("get_git_diff_branch", {
+        sessionId: session.id,
+        workdir: session.workdir,
+        baseBranch: session.baseBranch,
+        sessionBranch: session.branchName,
+      }).catch(() => {});
+    } else {
+      // 无分支（非 git 目录或 git 操作失败）：降级为对比 HEAD
+      invoke("get_git_diff", {
+        sessionId: session.id,
+        workdir: session.workdir,
+      }).catch(() => {});
+    }
+  }, []);
+
 
   // ── Esc 关闭 ──────────────────────────────────────────────
   useEffect(() => {
@@ -413,23 +439,26 @@ export default function App() {
   // ── 弹窗重新显示时（托盘点击），保持当前界面状态（PTY 或菜单）──
   // 不再强制收起 PTY，让用户留在上次的位置
 
-  // ── 通知点击唤起弹窗时，展开最近活跃的 session ──
+  // ── 弹窗聚焦时（托盘点击 / 通知点击），展开目标或最近活跃的 session ──
   useEffect(() => {
     if (!("__TAURI_INTERNALS__" in window)) return;
     const unlisten = listen<{ session_id?: string | null }>("popup-focused", ({ payload }) => {
       const targetId = payload?.session_id ?? null;
       const { activeSessionId: aid, sessions: ss } = useSessionStore.getState();
-      const target =
-        (targetId && ss.find((s) => s.id === targetId)?.id)
-        ?? aid
-        ?? ss[ss.length - 1]?.id
-        ?? null;
-      if (!target) return;
-      setActiveSession(target);
-      setExpandedSession(target);
+      const targetSession =
+        (targetId ? ss.find((s) => s.id === targetId) : undefined)
+        ?? ss.find((s) => s.id === aid)
+        ?? ss[ss.length - 1];
+
+      if (!targetSession) return;
+
+      setActiveWorkspace(targetSession.workspaceId);
+      setActiveSession(targetSession.id);
+      setExpandedSession(targetSession.id);
+      refreshSessionDiff(targetSession.id);
     });
     return () => { unlisten.then((f) => f()); };
-  }, [setActiveSession, setExpandedSession]);
+  }, [setActiveSession, setExpandedSession, setActiveWorkspace, refreshSessionDiff]);
 
   // ── 系统通知点击：聚焦窗口并跳转到对应 session 详情页（若 payload 携带 session_id）──
   useEffect(() => {
@@ -562,6 +591,7 @@ export default function App() {
         } else {
           updateSession(payload.session_id, { status: "done", currentTask: "已完成" });
         }
+        refreshSessionDiff(payload.session_id);
       }
     );
 
@@ -582,7 +612,7 @@ export default function App() {
       ({ payload }) => setDiffFiles(payload.session_id, payload.files)
     );
 
-    // PTY 退出：将 running/waiting 状态的 session 标记为 done
+    // PTY 退出：将 running/waiting/suspended 状态的 session 标记为 done
     // SessionPanel 关闭后不再常驻，此处补全全局兜底监听
     const u6 = listen<{ session_id: string }>(
       "pty-exit",
@@ -590,7 +620,7 @@ export default function App() {
         // 延迟 1.2s 与 SessionPanel 内的逻辑保持一致
         setTimeout(() => {
           const s = useSessionStore.getState().sessions.find((x) => x.id === payload.session_id);
-          if (s && (s.status === "running" || s.status === "waiting")) {
+          if (s && (s.status === "running" || s.status === "waiting" || s.status === "suspended")) {
             updateSession(payload.session_id, { status: "done" });
           }
         }, 1200);
@@ -618,7 +648,13 @@ export default function App() {
     return () => {
       [u1, u2, u3, u4, u5, u6, u7].forEach((p) => p.then((f) => f()));
     };
-  }, [appendOutput, updateSession, setDiffFiles]);
+  }, [appendOutput, updateSession, setDiffFiles, refreshSessionDiff]);
+
+  // ── 会话切换时主动拉一次 Diff（覆盖非 running / 外部改动场景）──
+  useEffect(() => {
+    if (!activeSession?.id) return;
+    refreshSessionDiff(activeSession.id);
+  }, [activeSession?.id, refreshSessionDiff]);
 
   // ── 自动刷新 Diff ─────────────────────────────────────────
   useEffect(() => {
@@ -626,25 +662,11 @@ export default function App() {
     if (!settings.autoRefreshDiff || !activeSession || activeSession.status !== "running") return;
 
     const interval = setInterval(() => {
-      if (activeSession.branchName && activeSession.baseBranch) {
-        // 有 session 分支：对比 base...session 分支的变更（天然准确）
-        invoke("get_git_diff_branch", {
-          sessionId: activeSession.id,
-          workdir: activeSession.workdir,
-          baseBranch: activeSession.baseBranch,
-          sessionBranch: activeSession.branchName,
-        }).catch(() => {});
-      } else {
-        // 无分支（非 git 目录或 git 操作失败）：降级为对比 HEAD
-        invoke("get_git_diff", {
-          sessionId: activeSession.id,
-          workdir: activeSession.workdir,
-        }).catch(() => {});
-      }
+      refreshSessionDiff(activeSession.id);
     }, settings.diffRefreshIntervalSec * 1000);
 
     return () => clearInterval(interval);
-  }, [activeSession?.id, activeSession?.status, activeSession?.branchName, activeSession?.baseBranch, settings.autoRefreshDiff, settings.diffRefreshIntervalSec]);
+  }, [activeSession?.id, activeSession?.status, settings.autoRefreshDiff, settings.diffRefreshIntervalSec, refreshSessionDiff]);
 
   const hasDiff = (activeSession?.diffFiles.length ?? 0) > 0;
 

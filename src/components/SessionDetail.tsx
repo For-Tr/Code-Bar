@@ -160,7 +160,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
   // querySent: query 已发送，隐藏输入遮罩，显示终端
   const [querySent, setQuerySent] = useState(() => {
     const s = useSessionStore.getState().sessions.find((x) => x.id === sessionId);
-    return !!s && ((s.status === "running" || s.status === "waiting") || hasNativeResumeBinding(s));
+    return !!s && ((s.status === "running" || s.status === "waiting" || s.status === "suspended") || hasNativeResumeBinding(s));
   });
   const queryInputRef = useRef<HTMLTextAreaElement>(null);
   const pendingQueryForInputRef = useRef("");
@@ -293,7 +293,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
   // sessionId 变化时重置（切换 session）
   useEffect(() => {
     const s = useSessionStore.getState().sessions.find((x) => x.id === sessionId);
-    setQuerySent(!!s && ((s.status === "running" || s.status === "waiting") || hasNativeResumeBinding(s)));
+    setQuerySent(!!s && ((s.status === "running" || s.status === "waiting" || s.status === "suspended") || hasNativeResumeBinding(s)));
     setPendingQuery("");
     setLaunchPrompt(null);
     setLaunchResumeSessionId(
