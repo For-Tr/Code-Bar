@@ -943,6 +943,18 @@ pub fn start_hook_socket_servers(app: tauri::AppHandle) {
 /// macOS 下使用 mac-notification-sys 实现常驻通知 + 点击回调；
 /// 前端监听 "notification-clicked" 事件即可响应用户点击。
 #[tauri::command]
-pub fn send_notification(app: tauri::AppHandle, title: String, body: String) -> Result<(), String> {
-    crate::notification::send_notification_with_callback(app, title, body, None, Some(true))
+pub fn send_notification(
+    app: tauri::AppHandle,
+    title: String,
+    body: String,
+    session_id: Option<String>,
+) -> Result<(), String> {
+    crate::notification::send_notification_with_callback(
+        app,
+        title,
+        body,
+        None,
+        Some(true),
+        session_id,
+    )
 }

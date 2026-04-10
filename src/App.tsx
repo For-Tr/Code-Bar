@@ -20,6 +20,7 @@ import {
 import { useWorkspaceStore } from "./store/workspaceStore";
 
 const spring = { type: "spring" as const, stiffness: 320, damping: 28, mass: 1 };
+type PopupFocusRequest = { session_id?: string | null };
 
 export default function App() {
   const {
@@ -35,7 +36,7 @@ export default function App() {
 
   const { settings } = useSettingsStore();
   const settingsOpen = useSettingsStore((s) => s.settingsOpen);
-  const { activeWorkspaceId } = useWorkspaceStore();
+  const { activeWorkspaceId, setActiveWorkspace } = useWorkspaceStore();
   const isGlass = isGlassTheme(settings.theme);
   const isSubPageOpen = settingsOpen || expandedSessionId !== null;
 
@@ -361,14 +362,43 @@ export default function App() {
     }
   }, []);
 
+  const applyPopupFocus = useCallback((sessionId?: string | null) => {
+    const targetId = sessionId ?? null;
+    const { activeSessionId: aid, sessions: ss } = useSessionStore.getState();
+    const targetSession =
+      (targetId ? ss.find((s) => s.id === targetId) : undefined)
+      ?? ss.find((s) => s.id === aid)
+      ?? ss[ss.length - 1];
+
+    if (!targetSession) return;
+
+    setActiveWorkspace(targetSession.workspaceId);
+    setActiveSession(targetSession.id);
+    setExpandedSession(targetSession.id);
+    refreshSessionDiff(targetSession.id);
+  }, [setActiveSession, setExpandedSession, setActiveWorkspace, refreshSessionDiff]);
+
+  const consumePendingPopupFocus = useCallback(async () => {
+    if (!("__TAURI_INTERNALS__" in window)) return false;
+
+    try {
+      const pending = await invoke<PopupFocusRequest | null>("take_pending_popup_focus");
+      if (!pending) return false;
+      applyPopupFocus(pending.session_id ?? null);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [applyPopupFocus]);
+
 
   // ── Esc 关闭 ──────────────────────────────────────────────
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") invoke("close_popup").catch(() => {});
     };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+    window.addEventListener("keydown", handler, true);
+    return () => window.removeEventListener("keydown", handler, true);
   }, []);
 
   // ── 浮窗位置 / 大小记忆：用户拖动/调整后防抖 500ms 写盘 ──
@@ -439,20 +469,24 @@ export default function App() {
   // ── 弹窗重新显示时（托盘点击），保持当前界面状态（PTY 或菜单）──
   // 不再强制收起 PTY，让用户留在上次的位置
 
-  // ── 通知点击唤起弹窗时，展开最近活跃的 session ──
+  // ── 首次挂载时消费 Rust 侧缓存的 popup focus 请求（解决窗口预创建/通知点击竞态）──
   useEffect(() => {
     if (!("__TAURI_INTERNALS__" in window)) return;
-    const unlisten = listen("popup-focused", () => {
-      // 取当前活跃 session，如没有则取最近的一个
-      const { activeSessionId: aid, sessions: ss } = useSessionStore.getState();
-      const target = aid ?? ss[ss.length - 1]?.id ?? null;
-      if (target) {
-        setExpandedSession(target);
-        refreshSessionDiff(target);
-      }
+    void consumePendingPopupFocus();
+  }, [consumePendingPopupFocus]);
+
+  // ── 弹窗聚焦时（托盘点击 / 通知点击），展开目标或最近活跃的 session ──
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+    const unlisten = listen<{ session_id?: string | null }>("popup-focused", ({ payload }) => {
+      void consumePendingPopupFocus().then((consumed) => {
+        if (!consumed) {
+          applyPopupFocus(payload?.session_id ?? null);
+        }
+      });
     });
     return () => { unlisten.then((f) => f()); };
-  }, [setExpandedSession, refreshSessionDiff]);
+  }, [applyPopupFocus, consumePendingPopupFocus]);
 
   // ── 启动时批量信任所有已有 workspace 目录（写入 claude settings）──
   useEffect(() => {
@@ -589,13 +623,10 @@ export default function App() {
     const u6 = listen<{ session_id: string }>(
       "pty-exit",
       ({ payload }) => {
-        // 延迟 1.2s 与 SessionPanel 内的逻辑保持一致
-        setTimeout(() => {
-          const s = useSessionStore.getState().sessions.find((x) => x.id === payload.session_id);
-          if (s && (s.status === "running" || s.status === "waiting" || s.status === "suspended")) {
-            updateSession(payload.session_id, { status: "done" });
-          }
-        }, 1200);
+        const s = useSessionStore.getState().sessions.find((x) => x.id === payload.session_id);
+        if (s && (s.status === "running" || s.status === "waiting" || s.status === "suspended")) {
+          updateSession(payload.session_id, { status: "done" });
+        }
       }
     );
 

@@ -11,7 +11,8 @@ interface Props {
   command: string;     // e.g. "claude"
   args?: string[];     // e.g. ["--dangerously-skip-permissions"]
   workdir: string;
-  active: boolean;     // 是否可见/激活
+  active: boolean;     // 是否已激活 PTY 生命周期
+  visible: boolean;    // 当前终端面板是否可见
   initialPrompt?: string | null;
   supportsPromptArg?: boolean;
   onReady?: () => void; // PTY 进程启动成功后回调（用于透传初始 query）
@@ -21,6 +22,17 @@ interface Props {
   onNotification?: (title: string, message: string, notification_type: string) => void; // CLI hook 通知回调
   // 额外注入的环境变量，透传给 start_pty_session（如 CODE_BAR_* context 信息）
   env?: [string, string][];
+}
+
+interface PtyDataPayload {
+  session_id: string;
+  seq: number;
+  data: string;
+}
+
+interface PtyReplaySnapshot {
+  latest_seq: number;
+  chunks: Array<{ seq: number; data: string }>;
 }
 
 // ── xterm 主题定义 ─────────────────────────────────────────────
@@ -118,6 +130,7 @@ export function PtyTerminal({
   args = [],
   workdir,
   active,
+  visible,
   initialPrompt,
   supportsPromptArg = false,
   onReady,
@@ -132,9 +145,57 @@ export function PtyTerminal({
   const fitRef = useRef<FitAddon | null>(null);
   const startedRef = useRef(false);
   const [exited, setExited] = useState(false);
+  const latestSeqRef = useRef(0);
+  const replaySyncingRef = useRef(false);
+  const queuedReplayChunksRef = useRef<PtyDataPayload[]>([]);
 
   // 读取当前主题
   const theme = useSettingsStore((s) => s.settings.theme);
+
+  const writeBase64Chunk = (payload: PtyDataPayload) => {
+    const term = termRef.current;
+    if (!term || payload.seq <= latestSeqRef.current) return;
+    try {
+      const bin = atob(payload.data);
+      const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+      term.write(bytes);
+      latestSeqRef.current = payload.seq;
+    } catch {}
+  };
+
+  const flushQueuedReplayChunks = () => {
+    if (queuedReplayChunksRef.current.length === 0) return;
+    const queued = queuedReplayChunksRef.current
+      .sort((a, b) => a.seq - b.seq);
+    queuedReplayChunksRef.current = [];
+    queued.forEach(writeBase64Chunk);
+  };
+
+  const syncReplayFromRust = async () => {
+    replaySyncingRef.current = true;
+    try {
+      const snapshot = await invoke<PtyReplaySnapshot>("get_pty_replay_since", {
+        sessionId,
+        afterSeq: latestSeqRef.current,
+      });
+      if (!termRef.current) return;
+      snapshot.chunks
+        .filter((chunk) => chunk.seq > latestSeqRef.current)
+        .sort((a, b) => a.seq - b.seq)
+        .forEach((chunk) => {
+          writeBase64Chunk({
+            session_id: sessionId,
+            seq: chunk.seq,
+            data: chunk.data,
+          });
+        });
+    } catch {
+      // 静默失败，继续依赖实时事件
+    } finally {
+      replaySyncingRef.current = false;
+      flushQueuedReplayChunks();
+    }
+  };
 
   // ── 初始化 xterm ──────────────────────────────────────────
   useEffect(() => {
@@ -198,13 +259,15 @@ export function PtyTerminal({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
-  // runner/workdir 切换会通过 key 触发卸载；这里顺手停掉旧 PTY，避免旧 CLI 抢到下一条输入。
   useEffect(() => {
-    return () => {
-      if (!startedRef.current) return;
-      invoke("stop_pty_session", { sessionId }).catch(() => {});
-    };
+    latestSeqRef.current = 0;
+    replaySyncingRef.current = false;
+    queuedReplayChunksRef.current = [];
   }, [sessionId]);
+
+  // PTY 生命周期不再绑定到 React 组件卸载。
+  // popup 被隐藏、重建或 SessionPanel 重挂载时，后台 PTY 应继续运行。
+  // 显式停止由“删除 session / 删除 workspace / 切换 runner / 手动重启”负责。
 
   // ── 主题切换时动态更新 xterm 颜色 ────────────────────────
   useEffect(() => {
@@ -259,17 +322,15 @@ export function PtyTerminal({
 
   // ── 监听 PTY 数据事件 ─────────────────────────────────────
   useEffect(() => {
-    const u1 = listen<{ session_id: string; data: string }>(
+    const u1 = listen<PtyDataPayload>(
       "pty-data",
       ({ payload }) => {
         if (payload.session_id !== sessionId) return;
-        const term = termRef.current;
-        if (!term) return;
-        try {
-          const bin = atob(payload.data);
-          const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
-          term.write(bytes);
-        } catch {}
+        if (replaySyncingRef.current) {
+          queuedReplayChunksRef.current.push(payload);
+          return;
+        }
+        writeBase64Chunk(payload);
       }
     );
 
@@ -354,50 +415,73 @@ export function PtyTerminal({
 
   useEffect(() => {
     if (!active || startedRef.current) return;
-    startedRef.current = true;
-    setExited(false);
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
 
-    // 延迟 250ms：等 resize_popup_full 动画完成，容器达到目标尺寸
-    const timer = setTimeout(() => {
-      const fit = fitRef.current;
-      const term = termRef.current;
-      if (fit) fit.fit();
-      const cols = Math.max(term?.cols ?? 80, 40);
-      const rows = Math.max(term?.rows ?? 24, 12);
-      const launchArgs = buildLaunchArgs();
-      const prompt = initialPromptRef.current?.trim();
+    const ensureStarted = async () => {
+      const existing = await invoke<boolean>("has_active_pty_session", { sessionId }).catch(() => false);
+      if (cancelled || startedRef.current) return;
 
-      // 打印启动提示，方便调试确认实际启动的命令
-      const displayCmd = prompt && supportsPromptArgRef.current
-        ? [command, ...argsRef.current, "<prompt>"].join(" ")
-        : [command, ...launchArgs].join(" ");
-      term?.writeln(`\x1b[90m$ ${displayCmd}\x1b[0m`);
+      startedRef.current = true;
+      setExited(false);
 
-      invoke("start_pty_session", {
-        sessionId,
-        workdir,
-        command,
-        args: launchArgs,
-        cols,
-        rows,
-        env: envRef.current ?? null,
-      })
-        .then(() => {
-          // spawn 返回 = CLI 进程已启动（resolve_command_path 保证是完整路径直接 spawn）
-          onReadyRef.current?.();
+      if (existing) {
+        onReadyRef.current?.();
+        return;
+      }
+
+      // 延迟 250ms：等 resize_popup_full 动画完成，容器达到目标尺寸
+      timer = setTimeout(() => {
+        latestSeqRef.current = 0;
+        queuedReplayChunksRef.current = [];
+        const fit = fitRef.current;
+        const term = termRef.current;
+        if (fit) fit.fit();
+        const cols = Math.max(term?.cols ?? 80, 40);
+        const rows = Math.max(term?.rows ?? 24, 12);
+        const launchArgs = buildLaunchArgs();
+        const prompt = initialPromptRef.current?.trim();
+
+        // 打印启动提示，方便调试确认实际启动的命令
+        const displayCmd = prompt && supportsPromptArgRef.current
+          ? [command, ...argsRef.current, "<prompt>"].join(" ")
+          : [command, ...launchArgs].join(" ");
+        term?.writeln(`\x1b[90m$ ${displayCmd}\x1b[0m`);
+
+        invoke("start_pty_session", {
+          sessionId,
+          workdir,
+          command,
+          args: launchArgs,
+          cols,
+          rows,
+          env: envRef.current ?? null,
         })
-        .catch((e) => {
-          termRef.current?.writeln(`\x1b[31m启动失败: ${e}\x1b[0m`);
-        });
-    }, 250);
+          .then(() => {
+            // spawn 返回 = CLI 进程已启动（resolve_command_path 保证是完整路径直接 spawn）
+            onReadyRef.current?.();
+          })
+          .catch((e) => {
+            termRef.current?.writeln(`\x1b[31m启动失败: ${e}\x1b[0m`);
+            startedRef.current = false;
+          });
+      }, 250);
+    };
 
-    return () => clearTimeout(timer);
+    void ensureStarted();
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
   }, [active, sessionId, workdir, command]);
 
   // ── 重新启动（退出后用户点击重启）───────────────────────
   const handleRestart = () => {
     setExited(false);
     startedRef.current = false;
+    latestSeqRef.current = 0;
+    queuedReplayChunksRef.current = [];
     termRef.current?.clear();
 
     const fit = fitRef.current;
@@ -429,20 +513,29 @@ export function PtyTerminal({
 
   // ── 可见时 fit + focus（重新展开时恢复焦点，不重启 PTY）──
   useEffect(() => {
-    if (!active) return;
+    if (!visible) return;
     const t = setTimeout(() => {
-      fitRef.current?.fit();
-      termRef.current?.focus();
+      const fit = fitRef.current;
+      const term = termRef.current;
+      if (!term) return;
+      fit?.fit();
+      void syncReplayFromRust().finally(() => {
+        const current = termRef.current;
+        if (!current) return;
+        current.refresh(0, Math.max(current.rows - 1, 0));
+        current.scrollToBottom();
+        current.focus();
+      });
     }, 80);
     return () => clearTimeout(t);
-  }, [active]);
+  }, [sessionId, visible]);
 
-  // active ref：供 ResizeObserver 回调访问（避免闭包过时）
-  const activeRef = useRef(active);
-  activeRef.current = active;
+  // visible ref：供 ResizeObserver 回调访问（避免闭包过时）
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
 
   // ── ResizeObserver：自动 fit + 同步 PTY 大小给 Rust ─────
-  // 只有 active=true（面板可见）时才向 Rust 同步尺寸，
+  // 只有 visible=true（面板可见）时才向 Rust 同步尺寸，
   // 避免面板收起时窗口缩小导致 resize_pty 传入极小值使进程崩溃
   useEffect(() => {
     const el = containerRef.current;
@@ -453,7 +546,7 @@ export function PtyTerminal({
       if (!fit || !term) return;
       fit.fit();
       // 仅在面板可见时同步给 Rust，防止收起时 cols/rows 为 0 导致进程崩溃
-      if (!activeRef.current) return;
+      if (!visibleRef.current) return;
       const cols = Math.max(term.cols, 20);
       const rows = Math.max(term.rows, 5);
       invoke("resize_pty", { sessionId, cols, rows }).catch(() => {});

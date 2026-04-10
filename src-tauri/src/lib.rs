@@ -16,8 +16,8 @@ mod window;
 use std::path::PathBuf;
 
 use state::{
-    PopupVisible, PreExpandPos, ProcessMap, PtyKillerMap, PtyMasterMap, PtySessionMetaMap,
-    PtyWriterMap, RestoringLock,
+    PendingPopupFocus, PopupExpandFromHidden, PopupVisible, PreExpandPos, ProcessMap,
+    PtyKillerMap, PtyMasterMap, PtyReplayMap, PtySessionMetaMap, PtyWriterMap, RestoringLock,
 };
 use tauri::{
     menu::{Menu, MenuItem},
@@ -77,7 +77,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             // 多次点击 exe 时复用已运行实例并唤起窗口。
-            window::focus_popup(app.clone());
+            window::focus_popup(app.clone(), None);
         }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_liquid_glass::init())
@@ -86,7 +86,10 @@ pub fn run() {
         .manage(PtyWriterMap::default())
         .manage(PtyKillerMap::default())
         .manage(PtyMasterMap::default())
+        .manage(PtyReplayMap::default())
         .manage(PtySessionMetaMap::default())
+        .manage(PendingPopupFocus::new())
+        .manage(PopupExpandFromHidden::new())
         .manage(PopupVisible::new(false))
         .manage(PreExpandPos::new())
         .manage(RestoringLock::new())
@@ -182,6 +185,7 @@ pub fn run() {
             // 窗口控制
             window::close_popup,
             window::focus_popup,
+            window::take_pending_popup_focus,
             window::resize_popup,
             window::resize_popup_full,
             window::pick_folder,
@@ -227,6 +231,8 @@ pub fn run() {
             git::worktree::prune_orphan_worktrees,
             // PTY 终端
             pty::start_pty_session,
+            pty::has_active_pty_session,
+            pty::get_pty_replay_since,
             pty::write_pty,
             pty::resize_pty,
             pty::stop_pty_session,

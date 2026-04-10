@@ -10,12 +10,16 @@
 //   3. 在独立线程中执行，不阻塞主线程
 //
 // 事件格式：
-//   "notification-clicked" -> { "title": "...", "body": "..." }
+//   "notification-clicked" -> { "title": "...", "body": "...", "session_id": "..." | null }
 
 #[cfg(target_os = "macos")]
 pub mod macos {
+    use std::sync::OnceLock;
+
     use tauri::Emitter;
     use tauri_plugin_notification::NotificationExt;
+
+    static APPLICATION_INIT: OnceLock<Result<(), String>> = OnceLock::new();
 
     /// 发送一条支持点击回调的原生 macOS 通知。
     ///
@@ -30,25 +34,18 @@ pub mod macos {
         body: String,
         subtitle: Option<String>,
         sound: bool,
+        session_id: Option<String>,
     ) {
-        if tauri::is_dev() {
-            let mut builder = app.notification().builder().title(&title).body(&body);
-            if sound {
-                builder = builder.sound("default");
-            }
-            if let Err(e) = builder.show() {
-                eprintln!("[notification] dev fallback send 失败: {e}");
-            }
-            return;
-        }
-
         std::thread::spawn(move || {
             use mac_notification_sys::{set_application, Notification, Sound};
 
             // 必须在第一次调用时设置正确的 bundle id；错误值会导致 mac-notification-sys
             // 后续无法纠正，开发态则改走上面的 tauri plugin fallback。
             let bundle_id = app.config().identifier.clone();
-            if let Err(e) = set_application(&bundle_id) {
+            let init_result = APPLICATION_INIT.get_or_init(|| {
+                set_application(&bundle_id).map_err(|e| e.to_string())
+            });
+            if let Err(e) = init_result {
                 eprintln!(
                     "[notification] set_application({bundle_id}) 失败，降级到 tauri plugin: {e}"
                 );
@@ -82,24 +79,32 @@ pub mod macos {
 
             match response {
                 Ok(mac_notification_sys::NotificationResponse::Click) => {
-                    eprintln!("[notification] user clicked notification: {title}");
+                    eprintln!(
+                        "[notification] user clicked notification: title={title:?} session_id={session_id:?}"
+                    );
+                    crate::window::focus_popup(app.clone(), session_id.clone());
                     let _ = app.emit(
                         "notification-clicked",
                         serde_json::json!({
                             "title": title,
                             "body": body,
                             "action": "click",
+                            "session_id": session_id,
                         }),
                     );
                 }
                 Ok(mac_notification_sys::NotificationResponse::ActionButton(ref action)) => {
-                    eprintln!("[notification] action button clicked: {action}");
+                    eprintln!(
+                        "[notification] action button clicked: action={action:?} session_id={session_id:?}"
+                    );
+                    crate::window::focus_popup(app.clone(), session_id.clone());
                     let _ = app.emit(
                         "notification-clicked",
                         serde_json::json!({
                             "title": title,
                             "body": body,
                             "action": action,
+                            "session_id": session_id,
                         }),
                     );
                 }
@@ -131,12 +136,13 @@ pub fn send_notification_with_callback(
     body: String,
     subtitle: Option<String>,
     sound: Option<bool>,
+    session_id: Option<String>,
 ) -> Result<(), String> {
     let play_sound = sound.unwrap_or(true);
 
     #[cfg(target_os = "macos")]
     {
-        macos::send_with_click_callback(app, title, body, subtitle, play_sound);
+        macos::send_with_click_callback(app, title, body, subtitle, play_sound, session_id);
         return Ok(());
     }
 
@@ -146,6 +152,7 @@ pub fn send_notification_with_callback(
         use tauri_plugin_notification::NotificationExt;
         let _ = subtitle; // 避免 unused warning
         let _ = play_sound;
+        let _ = session_id;
         eprintln!(
             "[notification] desktop send requested: title={title:?} body_len={}",
             body.chars().count()
