@@ -24,6 +24,24 @@ const CLI_INSTALL_CMD: Partial<Record<RunnerType, string>> = {
   "codex":       "npm install -g @openai/codex",
 };
 
+function shouldMountHiddenPtyPanel(
+  session:
+    | {
+        status?: string;
+        runner?: { type?: string };
+        providerSessionId?: string;
+      }
+    | undefined
+): boolean {
+  if (!session || session.runner?.type === "native") return false;
+  return (
+    session.status === "running"
+    || session.status === "waiting"
+    || session.status === "suspended"
+    || hasNativeResumeBinding(session)
+  );
+}
+
 // ── 内嵌安装终端（独立 PTY，仅用于安装） ────────────────────────
 interface InstallTerminalProps {
   installId: string;
@@ -1074,11 +1092,19 @@ export function SessionDetail() {
   const [mountedIds, setMountedIds] = useState<string[]>([]);
 
   useEffect(() => {
-    if (!expandedSessionId) return;
-    setMountedIds((prev) =>
-      prev.includes(expandedSessionId) ? prev : [...prev, expandedSessionId]
+    const nextIds = new Set(
+      sessions
+        .filter((session) => shouldMountHiddenPtyPanel(session))
+        .map((session) => session.id)
     );
-  }, [expandedSessionId]);
+    if (expandedSessionId) nextIds.add(expandedSessionId);
+
+    setMountedIds((prev) => {
+      const merged = new Set(prev);
+      nextIds.forEach((id) => merged.add(id));
+      return Array.from(merged);
+    });
+  }, [expandedSessionId, sessions]);
 
   // 当 session 被删除时，从 mountedIds 中移除，实现卸载销毁
   useEffect(() => {

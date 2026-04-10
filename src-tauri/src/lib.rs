@@ -77,7 +77,11 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             // 多次点击 exe 时复用已运行实例并唤起窗口。
-            window::focus_popup(app.clone(), None);
+            if let Some(win) = app.get_webview_window("popup") {
+                window::show_popup(app, &win);
+            } else {
+                window::focus_popup(app.clone(), None);
+            }
         }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_liquid_glass::init())

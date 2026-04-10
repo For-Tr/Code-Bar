@@ -148,6 +148,7 @@ export function PtyTerminal({
   const latestSeqRef = useRef(0);
   const replaySyncingRef = useRef(false);
   const queuedReplayChunksRef = useRef<PtyDataPayload[]>([]);
+  const hasLiveOutputRef = useRef(false);
 
   // 读取当前主题
   const theme = useSettingsStore((s) => s.settings.theme);
@@ -160,6 +161,7 @@ export function PtyTerminal({
       const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
       term.write(bytes);
       latestSeqRef.current = payload.seq;
+      hasLiveOutputRef.current = true;
     } catch {}
   };
 
@@ -263,6 +265,7 @@ export function PtyTerminal({
     latestSeqRef.current = 0;
     replaySyncingRef.current = false;
     queuedReplayChunksRef.current = [];
+    hasLiveOutputRef.current = false;
   }, [sessionId]);
 
   // PTY 生命周期不再绑定到 React 组件卸载。
@@ -519,7 +522,10 @@ export function PtyTerminal({
       const term = termRef.current;
       if (!term) return;
       fit?.fit();
-      void syncReplayFromRust().finally(() => {
+      const restore = hasLiveOutputRef.current
+        ? Promise.resolve()
+        : syncReplayFromRust();
+      void restore.finally(() => {
         const current = termRef.current;
         if (!current) return;
         current.refresh(0, Math.max(current.rows - 1, 0));
