@@ -584,7 +584,7 @@ export default function App() {
       ({ payload }) => setDiffFiles(payload.session_id, payload.files)
     );
 
-    // PTY 退出：将 running/waiting 状态的 session 标记为 done
+    // PTY 退出：将 running/waiting/suspended 状态的 session 标记为 done
     // SessionPanel 关闭后不再常驻，此处补全全局兜底监听
     const u6 = listen<{ session_id: string }>(
       "pty-exit",
@@ -592,7 +592,7 @@ export default function App() {
         // 延迟 1.2s 与 SessionPanel 内的逻辑保持一致
         setTimeout(() => {
           const s = useSessionStore.getState().sessions.find((x) => x.id === payload.session_id);
-          if (s && (s.status === "running" || s.status === "waiting")) {
+          if (s && (s.status === "running" || s.status === "waiting" || s.status === "suspended")) {
             updateSession(payload.session_id, { status: "done" });
           }
         }, 1200);
