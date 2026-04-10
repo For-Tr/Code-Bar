@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
-use crate::state::{PendingPopupFocus, PopupFocusRequest, PopupVisible};
+use crate::state::{PendingPopupFocus, PopupExpandFromHidden, PopupFocusRequest, PopupVisible};
 use crate::util::background_command;
 
 macro_rules! popup_log {
@@ -371,6 +371,7 @@ pub fn take_pending_popup_focus(app: tauri::AppHandle) -> Option<PopupFocusReque
 
 fn focus_popup_on_main_thread(app: &tauri::AppHandle, session_id: Option<String>) {
     if let Some(win) = app.get_webview_window("popup") {
+        let was_visible = win.is_visible().unwrap_or(false);
         let _ = win.show();
 
         #[cfg(target_os = "macos")]
@@ -383,6 +384,7 @@ fn focus_popup_on_main_thread(app: &tauri::AppHandle, session_id: Option<String>
             let _ = win.set_focus();
         }
 
+        app.state::<PopupExpandFromHidden>().set(!was_visible);
         app.state::<PopupVisible>().set(true);
         let _ = win.emit(
             "popup-focused",
@@ -587,13 +589,29 @@ pub fn resize_popup_full(
         .map(|s| (s.width as f64 / scale, s.height as f64 / scale))
         .unwrap_or((376.0, 600.0));
 
+    let use_disk_bounds = app.state::<PopupExpandFromHidden>().take();
+    let (base_w, base_h) = if use_disk_bounds {
+        if let Some(disk) = load_bounds(&app) {
+            popup_log!(
+                "[popup] expand snapshot uses disk bounds after hidden-focus => {:.0}×{:.0}",
+                disk.width,
+                disk.height
+            );
+            (disk.width, disk.height)
+        } else {
+            (orig_w, orig_h)
+        }
+    } else {
+        (orig_w, orig_h)
+    };
+
     // ★ 展开前把小窗口位置快照存入内存缓存，收起时精确还原
     app.state::<crate::state::PreExpandPos>()
         .set(crate::state::Bounds4 {
             x: orig_x,
             y: orig_y,
-            w: orig_w,
-            h: orig_h,
+            w: base_w,
+            h: base_h,
         });
 
     // 获取显示器信息
@@ -623,7 +641,7 @@ pub fn resize_popup_full(
     let screen_h = monitor.size().height as f64 / ms;
 
     let (new_x, new_y) = calc_expand_pos(
-        orig_x, orig_y, orig_w, orig_h, width, height, screen_x, screen_y, screen_w, screen_h,
+        orig_x, orig_y, base_w, base_h, width, height, screen_x, screen_y, screen_w, screen_h,
     );
 
     apply_window_frame(&window, new_x, new_y, width, height, screen_h, 0.18);

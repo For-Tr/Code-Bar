@@ -117,3 +117,23 @@ impl PendingPopupFocus {
         self.0.lock().unwrap().take()
     }
 }
+
+// ── Popup 从隐藏态被通知唤起后的下一次展开标记 ─────────────────────
+pub struct PopupExpandFromHidden(Mutex<bool>);
+
+impl PopupExpandFromHidden {
+    pub fn new() -> Self {
+        Self(Mutex::new(false))
+    }
+
+    pub fn set(&self, value: bool) {
+        *self.0.lock().unwrap() = value;
+    }
+
+    pub fn take(&self) -> bool {
+        let mut guard = self.0.lock().unwrap();
+        let value = *guard;
+        *guard = false;
+        value
+    }
+}
