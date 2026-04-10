@@ -1,5 +1,9 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { invoke } from "@tauri-apps/api/core";
+import { useMemo, type CSSProperties, type ReactNode } from "react";
+import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { ClaudeSession, SessionStatus, useSessionStore } from "../store/sessionStore";
 import { useWorkspaceStore, getWorkspaceColor } from "../store/workspaceStore";
 import { useSettingsStore, RUNNER_LABELS, sanitizeRunnerConfig, isGlassTheme } from "../store/settingsStore";
@@ -405,9 +409,36 @@ function SessionCard({
   );
 }
 
+function SortableSessionCard({ id, children }: { id: string; children: ReactNode }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const style: CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 3 : 1,
+    position: "relative",
+    touchAction: "none",
+  };
+  return (
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      {children}
+    </div>
+  );
+}
+
 // ── 主组件：SessionList ───────────────────────────────────────
 export function SessionList() {
-  const { sessions, activeSessionId, removeSession, setActiveSession, setExpandedSession, addSession, markWorktreeReady, updateSession } = useSessionStore();
+  const {
+    sessions,
+    activeSessionId,
+    sessionOrderByWorkspace,
+    removeSession,
+    setActiveSession,
+    setExpandedSession,
+    addSession,
+    markWorktreeReady,
+    reorderWorkspaceSessions,
+    updateSession,
+  } = useSessionStore();
   const { activeWorkspaceId } = useWorkspaceStore();
   const activeWorkspace = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === activeWorkspaceId)
@@ -421,7 +452,40 @@ export function SessionList() {
   if (!activeWorkspace) return null;
 
   const accentColor = getWorkspaceColor(activeWorkspace.color);
-  const wsSessions = sessions.filter((s) => s.workspaceId === activeWorkspaceId);
+  const wsSessions = useMemo(() => {
+    const filtered = sessions.filter((s) => s.workspaceId === activeWorkspaceId);
+    const byId = new Map(filtered.map((s) => [s.id, s]));
+    const persistedOrder = sessionOrderByWorkspace[activeWorkspace.id] ?? [];
+    const ordered: ClaudeSession[] = [];
+
+    for (const id of persistedOrder) {
+      const session = byId.get(id);
+      if (!session) continue;
+      ordered.push(session);
+      byId.delete(id);
+    }
+    for (const session of filtered) {
+      if (byId.has(session.id)) ordered.push(session);
+    }
+    return ordered;
+  }, [sessions, activeWorkspaceId, sessionOrderByWorkspace]);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const oldIndex = wsSessions.findIndex((s) => s.id === String(active.id));
+    const newIndex = wsSessions.findIndex((s) => s.id === String(over.id));
+    if (oldIndex < 0 || newIndex < 0) return;
+
+    const nextOrder = arrayMove(wsSessions, oldIndex, newIndex).map((s) => s.id);
+    reorderWorkspaceSessions(activeWorkspace.id, nextOrder);
+  };
 
   const handleNewSession = async () => {
     const id = addSession(activeWorkspace.id, activeWorkspace.path, undefined, { ...runner });
@@ -519,28 +583,33 @@ export function SessionList() {
       </div>
 
       {/* Session 列表 */}
-      <AnimatePresence>
-        {wsSessions.map((session) => (
-          <SessionCard
-            key={session.id}
-            session={session}
-            isActive={session.id === activeSessionId}
-            accentColor={accentColor}
-            isGlass={isGlass}
-            onClick={() => setActiveSession(session.id)}
-            onExpand={() => {
-              setActiveSession(session.id);
-              setExpandedSession(session.id);
-            }}
-            onRemove={() => handleRemoveSession(session)}
-            onRotateSuspend={() => {
-              updateSession(session.id, {
-                status: session.status === "waiting" ? "suspended" : "waiting",
-              });
-            }}
-          />
-        ))}
-      </AnimatePresence>
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <SortableContext items={wsSessions.map((s) => s.id)} strategy={verticalListSortingStrategy}>
+          <AnimatePresence>
+            {wsSessions.map((session) => (
+              <SortableSessionCard key={session.id} id={session.id}>
+                <SessionCard
+                  session={session}
+                  isActive={session.id === activeSessionId}
+                  accentColor={accentColor}
+                  isGlass={isGlass}
+                  onClick={() => setActiveSession(session.id)}
+                  onExpand={() => {
+                    setActiveSession(session.id);
+                    setExpandedSession(session.id);
+                  }}
+                  onRemove={() => handleRemoveSession(session)}
+                  onRotateSuspend={() => {
+                    updateSession(session.id, {
+                      status: session.status === "waiting" ? "suspended" : "waiting",
+                    });
+                  }}
+                />
+              </SortableSessionCard>
+            ))}
+          </AnimatePresence>
+        </SortableContext>
+      </DndContext>
 
       {wsSessions.length === 0 && (
         <div

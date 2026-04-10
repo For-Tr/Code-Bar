@@ -50,6 +50,7 @@ interface SessionStore {
   sessions: ClaudeSession[];
   activeSessionId: string | null;
   expandedSessionId: string | null;
+  sessionOrderByWorkspace: Record<string, string[]>;
 
   // worktreeReady：记录 worktree 是否已就绪（创建完成或确认不是 git 仓库）
   // 不持久化，每次应用启动重置；持久化的 session 重新打开时从 worktreePath 推断
@@ -65,6 +66,7 @@ interface SessionStore {
   setExpandedSession: (id: string | null) => void;
   removeSessionsByWorkspace: (workspaceId: string) => void;
   markWorktreeReady: (id: string) => void;
+  reorderWorkspaceSessions: (workspaceId: string, orderedSessionIds: string[]) => void;
 }
 
 // ── 工厂函数 ─────────────────────────────────────────────────
@@ -93,6 +95,7 @@ export const useSessionStore = create<SessionStore>()(
       sessions: [],
       activeSessionId: null,
       expandedSessionId: null,
+      sessionOrderByWorkspace: {},
       worktreeReadyIds: new Set<string>(),
 
       addSession: (workspaceId, workdir, name, runner) => {
@@ -105,6 +108,10 @@ export const useSessionStore = create<SessionStore>()(
         set((state) => ({
           sessions: [...state.sessions, s],
           activeSessionId: s.id,
+          sessionOrderByWorkspace: {
+            ...state.sessionOrderByWorkspace,
+            [workspaceId]: [...(state.sessionOrderByWorkspace[workspaceId] ?? []), s.id],
+          },
         }));
         return s.id;
       },
@@ -118,7 +125,13 @@ export const useSessionStore = create<SessionStore>()(
               : state.activeSessionId;
           const worktreeReadyIds = new Set(state.worktreeReadyIds);
           worktreeReadyIds.delete(id);
-          return { sessions, activeSessionId, worktreeReadyIds };
+          const sessionOrderByWorkspace = Object.fromEntries(
+            Object.entries(state.sessionOrderByWorkspace).map(([workspaceId, ids]) => [
+              workspaceId,
+              ids.filter((sid) => sid !== id),
+            ])
+          );
+          return { sessions, activeSessionId, worktreeReadyIds, sessionOrderByWorkspace };
         }),
 
       setActiveSession: (id) =>
@@ -169,7 +182,8 @@ export const useSessionStore = create<SessionStore>()(
             .map((s) => s.id);
           const worktreeReadyIds = new Set(state.worktreeReadyIds);
           removedIds.forEach((id) => worktreeReadyIds.delete(id));
-          return { sessions, activeSessionId, worktreeReadyIds };
+          const { [workspaceId]: _, ...restOrder } = state.sessionOrderByWorkspace;
+          return { sessions, activeSessionId, worktreeReadyIds, sessionOrderByWorkspace: restOrder };
         }),
 
       markWorktreeReady: (id) =>
@@ -177,6 +191,24 @@ export const useSessionStore = create<SessionStore>()(
           const worktreeReadyIds = new Set(state.worktreeReadyIds);
           worktreeReadyIds.add(id);
           return { worktreeReadyIds };
+        }),
+
+      reorderWorkspaceSessions: (workspaceId, orderedSessionIds) =>
+        set((state) => {
+          const workspaceIds = state.sessions
+            .filter((s) => s.workspaceId === workspaceId)
+            .map((s) => s.id);
+          const workspaceIdSet = new Set(workspaceIds);
+          const dedupedRequested = Array.from(
+            new Set(orderedSessionIds.filter((id) => workspaceIdSet.has(id)))
+          );
+          const missingIds = workspaceIds.filter((id) => !dedupedRequested.includes(id));
+          return {
+            sessionOrderByWorkspace: {
+              ...state.sessionOrderByWorkspace,
+              [workspaceId]: [...dedupedRequested, ...missingIds],
+            },
+          };
         }),
     }),
     {
@@ -192,6 +224,7 @@ export const useSessionStore = create<SessionStore>()(
           pid: undefined,
         })),
         activeSessionId: state.activeSessionId,
+        sessionOrderByWorkspace: state.sessionOrderByWorkspace,
       }),
       // 恢复时：修复 _counter，并将已有 worktreePath 的 session 标记为 worktreeReady
       // 这些 session 的 worktree 可能已存在（或被孤儿清理），但不再新建——直接用持久化路径
@@ -207,6 +240,20 @@ export const useSessionStore = create<SessionStore>()(
           state.sessions.filter((s) => s.worktreePath).map((s) => s.id)
         );
         state.worktreeReadyIds = readyIds;
+
+        // 修复每个 workspace 的 session 顺序：补齐遗漏、去掉无效项
+        const byWorkspace = state.sessions.reduce<Record<string, string[]>>((acc, s) => {
+          acc[s.workspaceId] = [...(acc[s.workspaceId] ?? []), s.id];
+          return acc;
+        }, {});
+        const normalizedOrder: Record<string, string[]> = {};
+        for (const [workspaceId, ids] of Object.entries(byWorkspace)) {
+          const validSet = new Set(ids);
+          const persisted = (state.sessionOrderByWorkspace?.[workspaceId] ?? []).filter((id) => validSet.has(id));
+          const missing = ids.filter((id) => !persisted.includes(id));
+          normalizedOrder[workspaceId] = [...persisted, ...missing];
+        }
+        state.sessionOrderByWorkspace = normalizedOrder;
       },
     }
   )
