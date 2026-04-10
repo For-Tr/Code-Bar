@@ -95,3 +95,25 @@ impl PopupVisible {
         *self.0.lock().unwrap() = v;
     }
 }
+
+// ── Popup 待处理聚焦请求 ────────────────────────────────────────
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PopupFocusRequest {
+    pub session_id: Option<String>,
+}
+
+pub struct PendingPopupFocus(Mutex<Option<PopupFocusRequest>>);
+
+impl PendingPopupFocus {
+    pub fn new() -> Self {
+        Self(Mutex::new(None))
+    }
+
+    pub fn set(&self, session_id: Option<String>) {
+        *self.0.lock().unwrap() = Some(PopupFocusRequest { session_id });
+    }
+
+    pub fn take(&self) -> Option<PopupFocusRequest> {
+        self.0.lock().unwrap().take()
+    }
+}

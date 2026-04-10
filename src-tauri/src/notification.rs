@@ -14,8 +14,12 @@
 
 #[cfg(target_os = "macos")]
 pub mod macos {
+    use std::sync::OnceLock;
+
     use tauri::Emitter;
     use tauri_plugin_notification::NotificationExt;
+
+    static APPLICATION_INIT: OnceLock<Result<(), String>> = OnceLock::new();
 
     /// 发送一条支持点击回调的原生 macOS 通知。
     ///
@@ -32,24 +36,16 @@ pub mod macos {
         sound: bool,
         session_id: Option<String>,
     ) {
-        if tauri::is_dev() {
-            let mut builder = app.notification().builder().title(&title).body(&body);
-            if sound {
-                builder = builder.sound("default");
-            }
-            if let Err(e) = builder.show() {
-                eprintln!("[notification] dev fallback send 失败: {e}");
-            }
-            return;
-        }
-
         std::thread::spawn(move || {
             use mac_notification_sys::{set_application, Notification, Sound};
 
             // 必须在第一次调用时设置正确的 bundle id；错误值会导致 mac-notification-sys
             // 后续无法纠正，开发态则改走上面的 tauri plugin fallback。
             let bundle_id = app.config().identifier.clone();
-            if let Err(e) = set_application(&bundle_id) {
+            let init_result = APPLICATION_INIT.get_or_init(|| {
+                set_application(&bundle_id).map_err(|e| e.to_string())
+            });
+            if let Err(e) = init_result {
                 eprintln!(
                     "[notification] set_application({bundle_id}) 失败，降级到 tauri plugin: {e}"
                 );
@@ -83,7 +79,10 @@ pub mod macos {
 
             match response {
                 Ok(mac_notification_sys::NotificationResponse::Click) => {
-                    eprintln!("[notification] user clicked notification: {title}");
+                    eprintln!(
+                        "[notification] user clicked notification: title={title:?} session_id={session_id:?}"
+                    );
+                    crate::window::focus_popup(app.clone(), session_id.clone());
                     let _ = app.emit(
                         "notification-clicked",
                         serde_json::json!({
@@ -95,7 +94,10 @@ pub mod macos {
                     );
                 }
                 Ok(mac_notification_sys::NotificationResponse::ActionButton(ref action)) => {
-                    eprintln!("[notification] action button clicked: {action}");
+                    eprintln!(
+                        "[notification] action button clicked: action={action:?} session_id={session_id:?}"
+                    );
+                    crate::window::focus_popup(app.clone(), session_id.clone());
                     let _ = app.emit(
                         "notification-clicked",
                         serde_json::json!({

@@ -16,8 +16,8 @@ mod window;
 use std::path::PathBuf;
 
 use state::{
-    PopupVisible, PreExpandPos, ProcessMap, PtyKillerMap, PtyMasterMap, PtySessionMetaMap,
-    PtyWriterMap, RestoringLock,
+    PendingPopupFocus, PopupVisible, PreExpandPos, ProcessMap, PtyKillerMap, PtyMasterMap,
+    PtySessionMetaMap, PtyWriterMap, RestoringLock,
 };
 use tauri::{
     menu::{Menu, MenuItem},
@@ -87,6 +87,7 @@ pub fn run() {
         .manage(PtyKillerMap::default())
         .manage(PtyMasterMap::default())
         .manage(PtySessionMetaMap::default())
+        .manage(PendingPopupFocus::new())
         .manage(PopupVisible::new(false))
         .manage(PreExpandPos::new())
         .manage(RestoringLock::new())
@@ -182,6 +183,7 @@ pub fn run() {
             // 窗口控制
             window::close_popup,
             window::focus_popup,
+            window::take_pending_popup_focus,
             window::resize_popup,
             window::resize_popup_full,
             window::pick_folder,
@@ -227,6 +229,7 @@ pub fn run() {
             git::worktree::prune_orphan_worktrees,
             // PTY 终端
             pty::start_pty_session,
+            pty::has_active_pty_session,
             pty::write_pty,
             pty::resize_pty,
             pty::stop_pty_session,

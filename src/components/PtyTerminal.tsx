@@ -354,44 +354,63 @@ export function PtyTerminal({
 
   useEffect(() => {
     if (!active || startedRef.current) return;
-    startedRef.current = true;
-    setExited(false);
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
 
-    // 延迟 250ms：等 resize_popup_full 动画完成，容器达到目标尺寸
-    const timer = setTimeout(() => {
-      const fit = fitRef.current;
-      const term = termRef.current;
-      if (fit) fit.fit();
-      const cols = Math.max(term?.cols ?? 80, 40);
-      const rows = Math.max(term?.rows ?? 24, 12);
-      const launchArgs = buildLaunchArgs();
-      const prompt = initialPromptRef.current?.trim();
+    const ensureStarted = async () => {
+      const existing = await invoke<boolean>("has_active_pty_session", { sessionId }).catch(() => false);
+      if (cancelled || startedRef.current) return;
 
-      // 打印启动提示，方便调试确认实际启动的命令
-      const displayCmd = prompt && supportsPromptArgRef.current
-        ? [command, ...argsRef.current, "<prompt>"].join(" ")
-        : [command, ...launchArgs].join(" ");
-      term?.writeln(`\x1b[90m$ ${displayCmd}\x1b[0m`);
+      startedRef.current = true;
+      setExited(false);
 
-      invoke("start_pty_session", {
-        sessionId,
-        workdir,
-        command,
-        args: launchArgs,
-        cols,
-        rows,
-        env: envRef.current ?? null,
-      })
-        .then(() => {
-          // spawn 返回 = CLI 进程已启动（resolve_command_path 保证是完整路径直接 spawn）
-          onReadyRef.current?.();
+      if (existing) {
+        onReadyRef.current?.();
+        return;
+      }
+
+      // 延迟 250ms：等 resize_popup_full 动画完成，容器达到目标尺寸
+      timer = setTimeout(() => {
+        const fit = fitRef.current;
+        const term = termRef.current;
+        if (fit) fit.fit();
+        const cols = Math.max(term?.cols ?? 80, 40);
+        const rows = Math.max(term?.rows ?? 24, 12);
+        const launchArgs = buildLaunchArgs();
+        const prompt = initialPromptRef.current?.trim();
+
+        // 打印启动提示，方便调试确认实际启动的命令
+        const displayCmd = prompt && supportsPromptArgRef.current
+          ? [command, ...argsRef.current, "<prompt>"].join(" ")
+          : [command, ...launchArgs].join(" ");
+        term?.writeln(`\x1b[90m$ ${displayCmd}\x1b[0m`);
+
+        invoke("start_pty_session", {
+          sessionId,
+          workdir,
+          command,
+          args: launchArgs,
+          cols,
+          rows,
+          env: envRef.current ?? null,
         })
-        .catch((e) => {
-          termRef.current?.writeln(`\x1b[31m启动失败: ${e}\x1b[0m`);
-        });
-    }, 250);
+          .then(() => {
+            // spawn 返回 = CLI 进程已启动（resolve_command_path 保证是完整路径直接 spawn）
+            onReadyRef.current?.();
+          })
+          .catch((e) => {
+            termRef.current?.writeln(`\x1b[31m启动失败: ${e}\x1b[0m`);
+            startedRef.current = false;
+          });
+      }, 250);
+    };
 
-    return () => clearTimeout(timer);
+    void ensureStarted();
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
   }, [active, sessionId, workdir, command]);
 
   // ── 重新启动（退出后用户点击重启）───────────────────────

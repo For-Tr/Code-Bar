@@ -309,6 +309,13 @@ pub async fn start_pty_session(
     Ok(())
 }
 
+#[tauri::command]
+pub fn has_active_pty_session(app: tauri::AppHandle, session_id: String) -> bool {
+    let km = pty_killer_map(&app);
+    let has_session = km.lock().unwrap().contains_key(&session_id);
+    has_session
+}
+
 /// 向 PTY 写入数据（键盘输入，base64 编码）
 #[tauri::command]
 pub fn write_pty(app: tauri::AppHandle, session_id: String, data: String) -> Result<(), String> {

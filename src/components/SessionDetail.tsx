@@ -410,10 +410,8 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     if (isNativeMode) return;
     const u = listen<{ session_id: string }>("pty-exit", ({ payload }) => {
       if (payload.session_id !== sessionIdRef.current) return;
-      setTimeout(() => {
-        updateSession(sessionIdRef.current, { status: "done" });
-        setQuerySent(false);
-      }, 1200);
+      updateSession(sessionIdRef.current, { status: "done" });
+      setQuerySent(false);
     });
     return () => { u.then((f: () => void) => f()); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -677,7 +675,6 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     >
       {/* ── 标题栏（data-tauri-drag-region 让整条都可拖动窗口）── */}
       <div
-        data-tauri-drag-region
         style={{
           display: "flex", alignItems: "center", gap: 10,
           padding: "12px 16px 10px",
@@ -691,19 +688,29 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
       >
         <TrafficLights onClose={onClose} size={12} gap={6} />
 
-        <span data-tauri-drag-region style={{
-          flex: 1, fontSize: 12, fontWeight: 600,
-          color: titlebarText,
-          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-          cursor: "grab",
-          letterSpacing: -0.2,
-        }}>
-          {installing ? `正在安装 ${runnerBadge}…` : session.name}
-        </span>
+        <div
+          data-tauri-drag-region
+          style={{
+            flex: 1,
+            minWidth: 0,
+            display: "flex",
+            alignItems: "center",
+            cursor: "grab",
+          }}
+        >
+          <span data-tauri-drag-region style={{
+            flex: 1, fontSize: 12, fontWeight: 600,
+            color: titlebarText,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            cursor: "grab",
+            letterSpacing: -0.2,
+          }}>
+            {installing ? `正在安装 ${runnerBadge}…` : session.name}
+          </span>
+        </div>
 
         {/* Runner 快速切换 badge */}
         <button
-          data-tauri-drag-region
           onClick={() => openSettings("runner")}
           onMouseDown={(e) => e.stopPropagation()}
           title="切换 Runner"
@@ -740,7 +747,6 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
 
         {installing && (
           <button
-            data-tauri-drag-region
             onClick={() => { setInstalling(false); recheckCli(); }}
             onMouseDown={(e) => e.stopPropagation()}
             style={{
@@ -756,7 +762,6 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
 
         {!installing && (
           <button
-            data-tauri-drag-region
             onClick={onClose}
             onMouseDown={(e) => e.stopPropagation()}
             style={{
