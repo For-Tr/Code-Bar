@@ -73,11 +73,17 @@ fn extract_codex_session_id(json: &Value) -> Option<String> {
         json,
         &[
             &["session_id"],
+            &["session-id"],
             &["sessionId"],
             &["session", "id"],
+            &["payload", "session-id"],
             &["payload", "session_id"],
             &["payload", "sessionId"],
             &["payload", "session", "id"],
+            &["data", "session-id"],
+            &["data", "session_id"],
+            &["data", "sessionId"],
+            &["data", "session", "id"],
         ],
     )
 }

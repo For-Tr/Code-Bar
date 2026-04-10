@@ -16,8 +16,8 @@ mod window;
 use std::path::PathBuf;
 
 use state::{
-    PendingPopupFocus, PopupExpandFromHidden, PopupVisible, PreExpandPos, ProcessMap,
-    PtyKillerMap, PtyMasterMap, PtyReplayMap, PtySessionMetaMap, PtyWriterMap, RestoringLock,
+    PendingPopupFocus, PopupExpandFromHidden, PopupVisible, PreExpandPos, ProcessMap, PtyKillerMap,
+    PtyMasterMap, PtyReplayMap, PtySessionMetaMap, PtyWriterMap, RestoringLock,
 };
 use tauri::{
     menu::{Menu, MenuItem},
