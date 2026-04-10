@@ -35,7 +35,7 @@ export default function App() {
 
   const { settings } = useSettingsStore();
   const settingsOpen = useSettingsStore((s) => s.settingsOpen);
-  const { activeWorkspaceId } = useWorkspaceStore();
+  const { activeWorkspaceId, setActiveWorkspace } = useWorkspaceStore();
   const isGlass = isGlassTheme(settings.theme);
   const isSubPageOpen = settingsOpen || expandedSessionId !== null;
 
@@ -416,14 +416,42 @@ export default function App() {
   // ── 通知点击唤起弹窗时，展开最近活跃的 session ──
   useEffect(() => {
     if (!("__TAURI_INTERNALS__" in window)) return;
-    const unlisten = listen("popup-focused", () => {
-      // 取当前活跃 session，如没有则取最近的一个
+    const unlisten = listen<{ session_id?: string | null }>("popup-focused", ({ payload }) => {
+      const targetId = payload?.session_id ?? null;
       const { activeSessionId: aid, sessions: ss } = useSessionStore.getState();
-      const target = aid ?? ss[ss.length - 1]?.id ?? null;
-      if (target) setExpandedSession(target);
+      const target =
+        (targetId && ss.find((s) => s.id === targetId)?.id)
+        ?? aid
+        ?? ss[ss.length - 1]?.id
+        ?? null;
+      if (!target) return;
+      setActiveSession(target);
+      setExpandedSession(target);
     });
     return () => { unlisten.then((f) => f()); };
-  }, [setExpandedSession]);
+  }, [setActiveSession, setExpandedSession]);
+
+  // ── 系统通知点击：聚焦窗口并跳转到对应 session 详情页（若 payload 携带 session_id）──
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+    const unlisten = listen<{ session_id?: string | null }>("notification-clicked", ({ payload }) => {
+      const targetId = payload?.session_id ?? null;
+      const { sessions: ss, activeSessionId: aid } = useSessionStore.getState();
+      const targetSession =
+        (targetId ? ss.find((s) => s.id === targetId) : undefined)
+        ?? ss.find((s) => s.id === aid)
+        ?? ss[ss.length - 1];
+
+      if (targetSession) {
+        setActiveWorkspace(targetSession.workspaceId);
+        setActiveSession(targetSession.id);
+        setExpandedSession(targetSession.id);
+      }
+
+      invoke("focus_popup", { sessionId: targetSession?.id ?? null }).catch(() => {});
+    });
+    return () => { unlisten.then((f) => f()); };
+  }, [setActiveSession, setExpandedSession, setActiveWorkspace]);
 
   // ── 启动时批量信任所有已有 workspace 目录（写入 claude settings）──
   useEffect(() => {

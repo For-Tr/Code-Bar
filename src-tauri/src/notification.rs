@@ -10,7 +10,7 @@
 //   3. 在独立线程中执行，不阻塞主线程
 //
 // 事件格式：
-//   "notification-clicked" -> { "title": "...", "body": "..." }
+//   "notification-clicked" -> { "title": "...", "body": "...", "session_id": "..." | null }
 
 #[cfg(target_os = "macos")]
 pub mod macos {
@@ -30,6 +30,7 @@ pub mod macos {
         body: String,
         subtitle: Option<String>,
         sound: bool,
+        session_id: Option<String>,
     ) {
         if tauri::is_dev() {
             let mut builder = app.notification().builder().title(&title).body(&body);
@@ -89,6 +90,7 @@ pub mod macos {
                             "title": title,
                             "body": body,
                             "action": "click",
+                            "session_id": session_id,
                         }),
                     );
                 }
@@ -100,6 +102,7 @@ pub mod macos {
                             "title": title,
                             "body": body,
                             "action": action,
+                            "session_id": session_id,
                         }),
                     );
                 }
@@ -131,12 +134,13 @@ pub fn send_notification_with_callback(
     body: String,
     subtitle: Option<String>,
     sound: Option<bool>,
+    session_id: Option<String>,
 ) -> Result<(), String> {
     let play_sound = sound.unwrap_or(true);
 
     #[cfg(target_os = "macos")]
     {
-        macos::send_with_click_callback(app, title, body, subtitle, play_sound);
+        macos::send_with_click_callback(app, title, body, subtitle, play_sound, session_id);
         return Ok(());
     }
 
@@ -146,6 +150,7 @@ pub fn send_notification_with_callback(
         use tauri_plugin_notification::NotificationExt;
         let _ = subtitle; // 避免 unused warning
         let _ = play_sound;
+        let _ = session_id;
         eprintln!(
             "[notification] desktop send requested: title={title:?} body_len={}",
             body.chars().count()

@@ -263,6 +263,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     invoke("send_notification", {
       title: "Code Bar",
       body: `✅ ${taskName} — 已完成，等待下一步指令`,
+      sessionId: sid,
     }).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flushPendingQuery, isWindows, updateSession]);
@@ -417,20 +418,6 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     return () => { u.then((f: () => void) => f()); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isNativeMode]);
-
-  // 监听通知点击回调：用户点击系统通知后，激活并显示 popup 窗口
-  // notification-clicked 由 Rust 层 mac-notification-sys 在用户点击通知后发射
-  useEffect(() => {
-    const u = listen<{ title: string; body: string; action: string }>(
-      "notification-clicked",
-      () => {
-        // 先显示/激活窗口，再展开 terminal panel
-        invoke("focus_popup").catch(() => {});
-      }
-    );
-    return () => { u.then((f: () => void) => f()); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // ── 构建注入给 PTY 进程的环境变量 ──
   // 包含：CODE_BAR_* 上下文信息 + CLI 所需的 API Key / Base URL

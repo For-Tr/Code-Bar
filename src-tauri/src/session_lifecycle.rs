@@ -191,15 +191,16 @@ pub fn emit_session_lifecycle(
             message,
             notification_type,
         } => {
-            let _ = crate::notification::send_notification_with_callback(
-                app.clone(),
-                title.clone(),
-                message.clone(),
-                None,
-                Some(true),
-            );
-
             for sid in session_ids {
+                let _ = crate::notification::send_notification_with_callback(
+                    app.clone(),
+                    title.clone(),
+                    message.clone(),
+                    None,
+                    Some(true),
+                    Some(sid.clone()),
+                );
+
                 let _ = app.emit(
                     "pty-notification",
                     serde_json::json!({
