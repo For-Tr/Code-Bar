@@ -1,5 +1,9 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { invoke } from "@tauri-apps/api/core";
+import { useMemo, type CSSProperties, type ReactNode } from "react";
+import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { ClaudeSession, SessionStatus, useSessionStore } from "../store/sessionStore";
 import { useWorkspaceStore, getWorkspaceColor } from "../store/workspaceStore";
 import { useSettingsStore, RUNNER_LABELS, sanitizeRunnerConfig, isGlassTheme } from "../store/settingsStore";
@@ -27,6 +31,13 @@ const STATUS_CONFIG: Record<SessionStatus, {
     badgeBorder: "var(--ci-yellow-bdr)",
     badgeText: "var(--ci-yellow-dark)",
     leftAccent: "#FF9F0A",
+  },
+  suspended: {
+    dotColor: "#6B7280", pulse: false, label: "已挂起",
+    badgeBg: "var(--ci-btn-ghost-bg)",
+    badgeBorder: "var(--ci-border-med)",
+    badgeText: "var(--ci-text-dim)",
+    leftAccent: "#6B7280",
   },
   idle: {
     dotColor: "rgba(120,120,128,0.3)", pulse: false, label: "空闲",
@@ -81,7 +92,7 @@ function StatusDot({ status, isGlass }: { status: SessionStatus; isGlass: boolea
 
 // ── Session 卡片 ─────────────────────────────────────────────
 function SessionCard({
-  session, isActive, accentColor, isGlass, onClick, onExpand, onRemove,
+  session, isActive, accentColor, isGlass, onClick, onExpand, onRemove, onRotateSuspend,
 }: {
   session: ClaudeSession;
   isActive: boolean;
@@ -90,9 +101,11 @@ function SessionCard({
   onClick: () => void;
   onExpand: () => void;
   onRemove: () => void;
+  onRotateSuspend: () => void;
 }) {
   const cfg = STATUS_CONFIG[session.status];
   const isWaiting = session.status === "waiting";
+  const isSuspended = session.status === "suspended";
   const isRunning = session.status === "running";
   const isError   = session.status === "error";
   const textShadow = isGlass ? "var(--ci-glass-text-shadow)" : "none";
@@ -114,6 +127,8 @@ function SessionCard({
           ? "var(--ci-card-grad)"
           : isWaiting
           ? "var(--ci-yellow-bg)"
+          : isSuspended
+          ? "var(--ci-btn-ghost-bg)"
           : isError
           ? "var(--ci-deleted-bg)"
           : "var(--ci-panel-grad)",
@@ -121,6 +136,8 @@ function SessionCard({
           ? `1px solid ${accentColor}45`
           : isWaiting
           ? "1px solid var(--ci-yellow-bdr)"
+          : isSuspended
+          ? "1px solid var(--ci-border-med)"
           : isError
           ? "1px solid var(--ci-border-med)"
           : "1px solid var(--ci-pill-border)",
@@ -294,6 +311,40 @@ function SessionCard({
         )}
       </div>
 
+      {(isWaiting || isSuspended) && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onRotateSuspend(); }}
+          onMouseDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+          title={isWaiting ? "挂起" : "恢复为需要操作"}
+          style={{
+            background: isWaiting ? "var(--ci-btn-ghost-bg)" : "rgba(107,114,128,0.14)",
+            border: isWaiting ? "1px solid var(--ci-border)" : "1px solid rgba(107,114,128,0.36)",
+            color: isWaiting ? "var(--ci-text-dim)" : "#6B7280",
+            cursor: "pointer",
+            padding: "4px 8px",
+            borderRadius: 6,
+            flexShrink: 0,
+            fontSize: 11,
+            transition: "all 0.12s",
+          }}
+          onMouseEnter={e => {
+            e.currentTarget.style.background = isWaiting ? "rgba(107,114,128,0.14)" : "rgba(107,114,128,0.2)";
+            e.currentTarget.style.borderColor = "rgba(107,114,128,0.44)";
+            e.currentTarget.style.color = "#4B5563";
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.background = isWaiting ? "var(--ci-btn-ghost-bg)" : "rgba(107,114,128,0.14)";
+            e.currentTarget.style.borderColor = isWaiting ? "var(--ci-border)" : "rgba(107,114,128,0.36)";
+            e.currentTarget.style.color = isWaiting ? "var(--ci-text-dim)" : "#6B7280";
+          }}
+        >
+          {isWaiting ? "挂起" : "恢复"}
+        </button>
+      )}
+
       {/* 展开终端 */}
       <button
         onClick={(e) => { e.stopPropagation(); onExpand(); }}
@@ -358,9 +409,36 @@ function SessionCard({
   );
 }
 
+function SortableSessionCard({ id, children }: { id: string; children: ReactNode }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const style: CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 3 : 1,
+    position: "relative",
+    touchAction: "none",
+  };
+  return (
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      {children}
+    </div>
+  );
+}
+
 // ── 主组件：SessionList ───────────────────────────────────────
 export function SessionList() {
-  const { sessions, activeSessionId, removeSession, setActiveSession, setExpandedSession, addSession, markWorktreeReady } = useSessionStore();
+  const {
+    sessions,
+    activeSessionId,
+    sessionOrderByWorkspace,
+    removeSession,
+    setActiveSession,
+    setExpandedSession,
+    addSession,
+    markWorktreeReady,
+    reorderWorkspaceSessions,
+    updateSession,
+  } = useSessionStore();
   const { activeWorkspaceId } = useWorkspaceStore();
   const activeWorkspace = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === activeWorkspaceId)
@@ -374,7 +452,40 @@ export function SessionList() {
   if (!activeWorkspace) return null;
 
   const accentColor = getWorkspaceColor(activeWorkspace.color);
-  const wsSessions = sessions.filter((s) => s.workspaceId === activeWorkspaceId);
+  const wsSessions = useMemo(() => {
+    const filtered = sessions.filter((s) => s.workspaceId === activeWorkspaceId);
+    const byId = new Map(filtered.map((s) => [s.id, s]));
+    const persistedOrder = sessionOrderByWorkspace[activeWorkspace.id] ?? [];
+    const ordered: ClaudeSession[] = [];
+
+    for (const id of persistedOrder) {
+      const session = byId.get(id);
+      if (!session) continue;
+      ordered.push(session);
+      byId.delete(id);
+    }
+    for (const session of filtered) {
+      if (byId.has(session.id)) ordered.push(session);
+    }
+    return ordered;
+  }, [sessions, activeWorkspaceId, sessionOrderByWorkspace]);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const oldIndex = wsSessions.findIndex((s) => s.id === String(active.id));
+    const newIndex = wsSessions.findIndex((s) => s.id === String(over.id));
+    if (oldIndex < 0 || newIndex < 0) return;
+
+    const nextOrder = arrayMove(wsSessions, oldIndex, newIndex).map((s) => s.id);
+    reorderWorkspaceSessions(activeWorkspace.id, nextOrder);
+  };
 
   const handleNewSession = async () => {
     const id = addSession(activeWorkspace.id, activeWorkspace.path, undefined, { ...runner });
@@ -472,23 +583,33 @@ export function SessionList() {
       </div>
 
       {/* Session 列表 */}
-      <AnimatePresence>
-        {wsSessions.map((session) => (
-          <SessionCard
-            key={session.id}
-            session={session}
-            isActive={session.id === activeSessionId}
-            accentColor={accentColor}
-            isGlass={isGlass}
-            onClick={() => setActiveSession(session.id)}
-            onExpand={() => {
-              setActiveSession(session.id);
-              setExpandedSession(session.id);
-            }}
-            onRemove={() => handleRemoveSession(session)}
-          />
-        ))}
-      </AnimatePresence>
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <SortableContext items={wsSessions.map((s) => s.id)} strategy={verticalListSortingStrategy}>
+          <AnimatePresence>
+            {wsSessions.map((session) => (
+              <SortableSessionCard key={session.id} id={session.id}>
+                <SessionCard
+                  session={session}
+                  isActive={session.id === activeSessionId}
+                  accentColor={accentColor}
+                  isGlass={isGlass}
+                  onClick={() => setActiveSession(session.id)}
+                  onExpand={() => {
+                    setActiveSession(session.id);
+                    setExpandedSession(session.id);
+                  }}
+                  onRemove={() => handleRemoveSession(session)}
+                  onRotateSuspend={() => {
+                    updateSession(session.id, {
+                      status: session.status === "waiting" ? "suspended" : "waiting",
+                    });
+                  }}
+                />
+              </SortableSessionCard>
+            ))}
+          </AnimatePresence>
+        </SortableContext>
+      </DndContext>
 
       {wsSessions.length === 0 && (
         <div

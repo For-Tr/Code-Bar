@@ -28,6 +28,10 @@
   <img src="https://i.meee.com.tw/Bee0jnq.png" alt="CLI 页面" width="31%" />
 </p>
 <p align="center"><em>主页 · 会话创建页 · CLI 页面</em></p>
+<p align="center">
+  <img src="https://i.meee.com.tw/pXlTrIe.png" alt="严格区分的worktree工作区与清晰的代码diff" width="94%" />
+</p>
+<p align="center"><em>严格区分的worktree工作区与清晰的代码diff</em></p>
 
 ## ✨ 特性
 
@@ -121,7 +125,7 @@ API Key 通过 Tauri Rust 后端持久化到本地应用数据目录（当前为
 
 ### 会话管理
 - 创建、删除会话，按工作区分组
-- 状态跟踪：空闲 / 运行中 / 等待确认 / 完成 / 出错
+- 状态跟踪：空闲 / 运行中 / 等待确认 / 已挂起 / 完成 / 出错
 - 会话状态跨重启持久化
 - PTY 实时输出流
 - 任务完成时发送系统通知（点击通知聚焦 session）

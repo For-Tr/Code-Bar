@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -335,6 +335,32 @@ export default function App() {
     (s) => s.id === activeSessionId && s.workspaceId === activeWorkspaceId
   );
 
+  const refreshSessionDiff = useCallback((sessionId?: string | null) => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+
+    const targetId = sessionId ?? useSessionStore.getState().activeSessionId;
+    if (!targetId) return;
+
+    const session = useSessionStore.getState().sessions.find((s) => s.id === targetId);
+    if (!session) return;
+
+    if (session.branchName && session.baseBranch) {
+      // 有 session 分支：对比 base...session 分支的变更（天然准确）
+      invoke("get_git_diff_branch", {
+        sessionId: session.id,
+        workdir: session.workdir,
+        baseBranch: session.baseBranch,
+        sessionBranch: session.branchName,
+      }).catch(() => {});
+    } else {
+      // 无分支（非 git 目录或 git 操作失败）：降级为对比 HEAD
+      invoke("get_git_diff", {
+        sessionId: session.id,
+        workdir: session.workdir,
+      }).catch(() => {});
+    }
+  }, []);
+
 
   // ── Esc 关闭 ──────────────────────────────────────────────
   useEffect(() => {
@@ -420,10 +446,13 @@ export default function App() {
       // 取当前活跃 session，如没有则取最近的一个
       const { activeSessionId: aid, sessions: ss } = useSessionStore.getState();
       const target = aid ?? ss[ss.length - 1]?.id ?? null;
-      if (target) setExpandedSession(target);
+      if (target) {
+        setExpandedSession(target);
+        refreshSessionDiff(target);
+      }
     });
     return () => { unlisten.then((f) => f()); };
-  }, [setExpandedSession]);
+  }, [setExpandedSession, refreshSessionDiff]);
 
   // ── 启动时批量信任所有已有 workspace 目录（写入 claude settings）──
   useEffect(() => {
@@ -534,6 +563,7 @@ export default function App() {
         } else {
           updateSession(payload.session_id, { status: "done", currentTask: "已完成" });
         }
+        refreshSessionDiff(payload.session_id);
       }
     );
 
@@ -554,7 +584,7 @@ export default function App() {
       ({ payload }) => setDiffFiles(payload.session_id, payload.files)
     );
 
-    // PTY 退出：将 running/waiting 状态的 session 标记为 done
+    // PTY 退出：将 running/waiting/suspended 状态的 session 标记为 done
     // SessionPanel 关闭后不再常驻，此处补全全局兜底监听
     const u6 = listen<{ session_id: string }>(
       "pty-exit",
@@ -562,7 +592,7 @@ export default function App() {
         // 延迟 1.2s 与 SessionPanel 内的逻辑保持一致
         setTimeout(() => {
           const s = useSessionStore.getState().sessions.find((x) => x.id === payload.session_id);
-          if (s && (s.status === "running" || s.status === "waiting")) {
+          if (s && (s.status === "running" || s.status === "waiting" || s.status === "suspended")) {
             updateSession(payload.session_id, { status: "done" });
           }
         }, 1200);
@@ -590,7 +620,13 @@ export default function App() {
     return () => {
       [u1, u2, u3, u4, u5, u6, u7].forEach((p) => p.then((f) => f()));
     };
-  }, [appendOutput, updateSession, setDiffFiles]);
+  }, [appendOutput, updateSession, setDiffFiles, refreshSessionDiff]);
+
+  // ── 会话切换时主动拉一次 Diff（覆盖非 running / 外部改动场景）──
+  useEffect(() => {
+    if (!activeSession?.id) return;
+    refreshSessionDiff(activeSession.id);
+  }, [activeSession?.id, refreshSessionDiff]);
 
   // ── 自动刷新 Diff ─────────────────────────────────────────
   useEffect(() => {
@@ -598,25 +634,11 @@ export default function App() {
     if (!settings.autoRefreshDiff || !activeSession || activeSession.status !== "running") return;
 
     const interval = setInterval(() => {
-      if (activeSession.branchName && activeSession.baseBranch) {
-        // 有 session 分支：对比 base...session 分支的变更（天然准确）
-        invoke("get_git_diff_branch", {
-          sessionId: activeSession.id,
-          workdir: activeSession.workdir,
-          baseBranch: activeSession.baseBranch,
-          sessionBranch: activeSession.branchName,
-        }).catch(() => {});
-      } else {
-        // 无分支（非 git 目录或 git 操作失败）：降级为对比 HEAD
-        invoke("get_git_diff", {
-          sessionId: activeSession.id,
-          workdir: activeSession.workdir,
-        }).catch(() => {});
-      }
+      refreshSessionDiff(activeSession.id);
     }, settings.diffRefreshIntervalSec * 1000);
 
     return () => clearInterval(interval);
-  }, [activeSession?.id, activeSession?.status, activeSession?.branchName, activeSession?.baseBranch, settings.autoRefreshDiff, settings.diffRefreshIntervalSec]);
+  }, [activeSession?.id, activeSession?.status, settings.autoRefreshDiff, settings.diffRefreshIntervalSec, refreshSessionDiff]);
 
   const hasDiff = (activeSession?.diffFiles.length ?? 0) > 0;
 

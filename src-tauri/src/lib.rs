@@ -13,6 +13,8 @@ mod state;
 mod util;
 mod window;
 
+use std::path::PathBuf;
+
 use state::{
     PopupVisible, PreExpandPos, ProcessMap, PtyKillerMap, PtyMasterMap, PtySessionMetaMap,
     PtyWriterMap, RestoringLock,
@@ -40,6 +42,31 @@ fn fix_path_env() {
     env::set_var("PATH", parts.join(":"));
 }
 
+fn first_launch_marker(app: &tauri::AppHandle) -> Option<PathBuf> {
+    app.path()
+        .app_data_dir()
+        .ok()
+        .map(|dir| dir.join("first_launch_seen"))
+}
+
+/// 首次启动时自动展开一次 popup，避免仅驻留托盘导致“无感运行”。
+fn should_auto_show_popup_on_start(app: &tauri::AppHandle) -> bool {
+    let Some(marker) = first_launch_marker(app) else {
+        // 路径解析失败时保守处理：仍然展示，确保用户有感知。
+        return true;
+    };
+
+    if marker.exists() {
+        return false;
+    }
+
+    if let Some(parent) = marker.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::write(marker, b"1");
+    true
+}
+
 // ── 应用入口 ──────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -48,6 +75,10 @@ pub fn run() {
     fix_path_env();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            // 多次点击 exe 时复用已运行实例并唤起窗口。
+            window::focus_popup(app.clone());
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_liquid_glass::init())
         .plugin(tauri_plugin_notification::init())
@@ -103,6 +134,9 @@ pub fn run() {
             window::setup_popup_window(&win);
 
             window::position_popup(app.handle(), &win);
+            if should_auto_show_popup_on_start(app.handle()) {
+                window::show_popup(app.handle(), &win);
+            }
 
             // 系统托盘
             let quit_item = MenuItem::with_id(app, "quit", "退出 Code Bar", true, None::<&str>)?;
