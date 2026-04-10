@@ -102,16 +102,6 @@ pub(crate) fn resolve_session_ids(app: &AppHandle, routing: &SessionRoutingHint)
         return Vec::new();
     }
 
-    if let Some(session_id) = routing
-        .code_bar_session_id
-        .as_ref()
-        .filter(|sid| !sid.trim().is_empty())
-    {
-        if active_ids.iter().any(|sid| sid == session_id) {
-            return vec![session_id.clone()];
-        }
-    }
-
     let cwd = routing
         .cwd
         .as_deref()
@@ -121,41 +111,50 @@ pub(crate) fn resolve_session_ids(app: &AppHandle, routing: &SessionRoutingHint)
     let meta_arc = app.state::<PtySessionMetaMap>().inner().clone();
     let meta = meta_arc.lock().unwrap();
 
-    let mut matches = Vec::new();
-    for sid in &active_ids {
-        let Some(info) = meta.get(sid) else {
-            continue;
+    if let Some(session_id) = routing
+        .code_bar_session_id
+        .as_ref()
+        .filter(|sid| !sid.trim().is_empty())
+    {
+        if !active_ids.iter().any(|sid| sid == session_id) {
+            return Vec::new();
+        }
+        let Some(info) = meta.get(session_id) else {
+            return Vec::new();
         };
         if info.runner_type != routing.source.runner_type() {
-            continue;
+            return Vec::new();
         }
         if let Some(cwd) = &cwd {
             if normalize_workdir(&info.workdir) != *cwd {
-                continue;
+                return Vec::new();
             }
         }
-        matches.push(sid.clone());
+        return vec![session_id.clone()];
     }
 
-    // 仅在精确匹配或唯一候选时路由，避免 hooks 事件串到其他会话。
-    // 旧逻辑在未匹配到 cwd/session_id 时会退化为同 runner 全量广播，容易误标记状态。
-    if !matches.is_empty() {
-        return matches;
-    }
-
-    let same_runner_ids: Vec<String> = active_ids
+    let mut cwd_matches: Vec<String> = active_ids
         .into_iter()
         .filter(|sid| {
-            meta.get(sid)
-                .map(|info| info.runner_type == routing.source.runner_type())
-                .unwrap_or(false)
+            let Some(info) = meta.get(sid) else {
+                return false;
+            };
+            if info.runner_type != routing.source.runner_type() {
+                return false;
+            }
+            if let Some(cwd) = &cwd {
+                return normalize_workdir(&info.workdir) == *cwd;
+            }
+            false
         })
         .collect();
 
-    if same_runner_ids.len() == 1 {
-        return same_runner_ids;
+    // 仅允许 cwd 唯一命中；多命中或未命中均丢弃，避免误路由污染状态。
+    if cwd_matches.len() == 1 {
+        return cwd_matches;
     }
 
+    cwd_matches.clear();
     Vec::new()
 }
 
