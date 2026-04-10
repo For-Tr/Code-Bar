@@ -868,6 +868,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
               args={cliBaseArgs}
               workdir={session.workdir}
               active={ptyEverActive}
+              visible={isOpen && querySent && ptyEverActive}
               initialPrompt={launchPrompt}
               supportsPromptArg={supportsPromptLaunch}
               onReady={handlePtyReady}
@@ -1082,7 +1083,15 @@ export function SessionDetail() {
   // 当 session 被删除时，从 mountedIds 中移除，实现卸载销毁
   useEffect(() => {
     const sessionIds = new Set(sessions.map((s) => s.id));
-    setMountedIds((prev) => prev.filter((id) => sessionIds.has(id)));
+    setMountedIds((prev) => {
+      const removed = prev.filter((id) => !sessionIds.has(id));
+      if ("__TAURI_INTERNALS__" in window) {
+        removed.forEach((id) => {
+          invoke("stop_pty_session", { sessionId: id }).catch(() => {});
+        });
+      }
+      return prev.filter((id) => sessionIds.has(id));
+    });
   }, [sessions]);
 
   useEffect(() => {

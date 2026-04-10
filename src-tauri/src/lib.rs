@@ -17,7 +17,7 @@ use std::path::PathBuf;
 
 use state::{
     PendingPopupFocus, PopupExpandFromHidden, PopupVisible, PreExpandPos, ProcessMap,
-    PtyKillerMap, PtyMasterMap, PtySessionMetaMap, PtyWriterMap, RestoringLock,
+    PtyKillerMap, PtyMasterMap, PtyReplayMap, PtySessionMetaMap, PtyWriterMap, RestoringLock,
 };
 use tauri::{
     menu::{Menu, MenuItem},
@@ -86,6 +86,7 @@ pub fn run() {
         .manage(PtyWriterMap::default())
         .manage(PtyKillerMap::default())
         .manage(PtyMasterMap::default())
+        .manage(PtyReplayMap::default())
         .manage(PtySessionMetaMap::default())
         .manage(PendingPopupFocus::new())
         .manage(PopupExpandFromHidden::new())
@@ -231,6 +232,7 @@ pub fn run() {
             // PTY 终端
             pty::start_pty_session,
             pty::has_active_pty_session,
+            pty::get_pty_replay_since,
             pty::write_pty,
             pty::resize_pty,
             pty::stop_pty_session,

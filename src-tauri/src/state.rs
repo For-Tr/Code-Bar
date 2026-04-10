@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     io::Write,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
@@ -15,6 +15,7 @@ pub type PtyWriterMap = Arc<Mutex<HashMap<String, Box<dyn Write + Send>>>>;
 pub type PtyKillerMap = Arc<Mutex<HashMap<String, Box<dyn portable_pty::Child + Send>>>>;
 /// session_id → MasterPty（用于 resize）
 pub type PtyMasterMap = Arc<Mutex<HashMap<String, Box<dyn portable_pty::MasterPty + Send>>>>;
+pub type PtyReplayMap = Arc<Mutex<HashMap<String, PtyReplaySession>>>;
 
 #[derive(Debug, Clone, Default)]
 pub struct PtySessionMeta {
@@ -24,6 +25,41 @@ pub struct PtySessionMeta {
 
 /// session_id → PTY 会话元信息（用于 hooks 事件精确路由）
 pub type PtySessionMetaMap = Arc<Mutex<HashMap<String, PtySessionMeta>>>;
+
+const PTY_REPLAY_MAX_BYTES: usize = 1024 * 1024;
+
+#[derive(Debug, Clone)]
+pub struct PtyReplayChunk {
+    pub seq: u64,
+    pub data: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct PtyReplaySession {
+    pub latest_seq: u64,
+    pub total_bytes: usize,
+    pub chunks: VecDeque<PtyReplayChunk>,
+}
+
+impl PtyReplaySession {
+    pub fn append(&mut self, data: &[u8]) -> u64 {
+        self.latest_seq += 1;
+        self.total_bytes += data.len();
+        self.chunks.push_back(PtyReplayChunk {
+            seq: self.latest_seq,
+            data: data.to_vec(),
+        });
+
+        while self.total_bytes > PTY_REPLAY_MAX_BYTES {
+            let Some(front) = self.chunks.pop_front() else {
+                break;
+            };
+            self.total_bytes = self.total_bytes.saturating_sub(front.data.len());
+        }
+
+        self.latest_seq
+    }
+}
 
 // ── 展开前小窗口位置快照（内存缓存，比磁盘快）─────────────────────
 /// 展开终端面板时，把小窗口的精确位置存在这里。
