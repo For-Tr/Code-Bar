@@ -809,6 +809,9 @@ fn dispatch_hook_event(app: &tauri::AppHandle, source: HookSource, json: &Value)
         },
         HookSource::Codex => match event_name {
             "" => {
+                // Windows 上 Codex 走 notify（无 hook_event_name），
+                // 这里也要尝试绑定 provider session id，才能支持 resume。
+                emit_provider_session_bound(app, &routing, json);
                 if let Some((title, message, notification_type)) = codex_notify_message(json) {
                     emit_session_lifecycle(
                         app,
