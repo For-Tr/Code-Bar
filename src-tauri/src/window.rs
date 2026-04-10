@@ -667,14 +667,20 @@ pub fn restore_popup_bounds(app: tauri::AppHandle, window: tauri::WebviewWindow)
         // ★ 最精确：展开前的精确快照
         popup_log!(
             "[popup] restore: cache hit ({:.0},{:.0}) {:.0}×{:.0}",
-            snap.x, snap.y, snap.w, snap.h
+            snap.x,
+            snap.y,
+            snap.w,
+            snap.h
         );
         (snap.x, snap.y, snap.w, snap.h)
     } else if let Some(disk) = load_bounds(&app) {
         // 磁盘兜底
         popup_log!(
             "[popup] restore: disk fallback ({:.0},{:.0}) {:.0}×{:.0}",
-            disk.x, disk.y, disk.width, disk.height
+            disk.x,
+            disk.y,
+            disk.width,
+            disk.height
         );
         (disk.x, disk.y, disk.width, disk.height)
     } else {

@@ -521,8 +521,8 @@ fn save_toml_file(path: &PathBuf, table: &toml::Table) -> Result<(), String> {
 
 #[cfg(unix)]
 fn ensure_codex_feature_flag() -> Result<String, String> {
-    let config_path = resolve_provider_file_path("codex", "", "config.toml")
-        .ok_or("无法解析 Codex 配置目录")?;
+    let config_path =
+        resolve_provider_file_path("codex", "", "config.toml").ok_or("无法解析 Codex 配置目录")?;
     let mut config = load_toml_file(&config_path)?;
 
     let features = config
@@ -559,8 +559,8 @@ fn ensure_codex_feature_flag() -> Result<String, String> {
 fn ensure_codex_notify_settings() -> Result<String, String> {
     ensure_windows_hook_bridge_assets()?;
 
-    let config_path = resolve_provider_file_path("codex", "", "config.toml")
-        .ok_or("无法解析 Codex 配置目录")?;
+    let config_path =
+        resolve_provider_file_path("codex", "", "config.toml").ok_or("无法解析 Codex 配置目录")?;
     let mut config = load_toml_file(&config_path)?;
     let desired = codex_notify_command()?;
     let desired_values: Vec<toml::Value> =
@@ -589,8 +589,8 @@ fn ensure_codex_notify_settings() -> Result<String, String> {
 
 #[cfg(unix)]
 fn ensure_codex_hook_settings() -> Result<String, String> {
-    let hooks_path = resolve_provider_file_path("codex", "", "hooks.json")
-        .ok_or("无法解析 Codex 配置目录")?;
+    let hooks_path =
+        resolve_provider_file_path("codex", "", "hooks.json").ok_or("无法解析 Codex 配置目录")?;
     let mut hooks = load_json_file(&hooks_path)?;
     let specs = hook_specs(HookSource::Codex)?;
     let changed = merge_hook_specs(

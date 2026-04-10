@@ -1,33 +1,26 @@
-// ── 自定义通知模块（macOS 点击回调支持）──────────────────────────
-//
-// 标准的 tauri-plugin-notification 基于 notify-rust，而 notify-rust
-// 在 macOS 上虽然依赖 mac-notification-sys（支持点击回调），
-// 但自身未处理回调事件。
-//
-// 本模块直接调用 mac-notification-sys，实现：
-//   1. 通知常驻等待用户交互（send_notification 会阻塞直到用户响应）
-//   2. 用户点击通知后，向前端发射 "notification-clicked" 事件
-//   3. 在独立线程中执行，不阻塞主线程
-//
-// 事件格式：
-//   "notification-clicked" -> { "title": "...", "body": "...", "session_id": "..." | null }
+fn fallback_desktop_notification(
+    app: &tauri::AppHandle,
+    title: &str,
+    body: &str,
+    sound: bool,
+) -> Result<(), String> {
+    use tauri_plugin_notification::NotificationExt;
+
+    let mut builder = app.notification().builder().title(title).body(body);
+    if sound {
+        builder = builder.sound("default");
+    }
+    builder.show().map_err(|e| format!("通知发送失败: {e}"))
+}
 
 #[cfg(target_os = "macos")]
 pub mod macos {
     use std::sync::OnceLock;
 
     use tauri::Emitter;
-    use tauri_plugin_notification::NotificationExt;
 
     static APPLICATION_INIT: OnceLock<Result<(), String>> = OnceLock::new();
 
-    /// 发送一条支持点击回调的原生 macOS 通知。
-    ///
-    /// - 在独立线程中调用 `mac_notification_sys::send_notification`，
-    ///   该调用会**阻塞**直到用户对通知做出响应（点击 / 关闭 / 忽略）。
-    /// - 用户点击通知正文后，向前端发射 `"notification-clicked"` 事件。
-    ///
-    /// `subtitle` 可传 `None`；`sound` 传 `true` 时播放默认提示音。
     pub fn send_with_click_callback(
         app: tauri::AppHandle,
         title: String,
@@ -39,29 +32,21 @@ pub mod macos {
         std::thread::spawn(move || {
             use mac_notification_sys::{set_application, Notification, Sound};
 
-            // 必须在第一次调用时设置正确的 bundle id；错误值会导致 mac-notification-sys
-            // 后续无法纠正，开发态则改走上面的 tauri plugin fallback。
             let bundle_id = app.config().identifier.clone();
-            let init_result = APPLICATION_INIT.get_or_init(|| {
-                set_application(&bundle_id).map_err(|e| e.to_string())
-            });
-            if let Err(e) = init_result {
+            let init_result = APPLICATION_INIT
+                .get_or_init(|| set_application(&bundle_id).map_err(|e| e.to_string()));
+            if let Err(err) = init_result {
                 eprintln!(
-                    "[notification] set_application({bundle_id}) 失败，降级到 tauri plugin: {e}"
+                    "[notification] set_application({bundle_id}) failed, fallback to tauri plugin: {err}"
                 );
-                let mut builder = app.notification().builder().title(&title).body(&body);
-                if sound {
-                    builder = builder.sound("default");
-                }
-                if let Err(show_err) = builder.show() {
-                    eprintln!("[notification] fallback send 失败: {show_err}");
+                if let Err(show_err) =
+                    super::fallback_desktop_notification(&app, &title, &body, sound)
+                {
+                    eprintln!("[notification] fallback send failed: {show_err}");
                 }
                 return;
             }
 
-            // 使用 Notification builder API：
-            //   .wait_for_click(true) —— 阻塞等待用户点击，返回 Click 而非 None
-            //   .asynchronous(false)  —— 同步模式，配合 wait_for_click 使用
             let mut notif = Notification::new();
             notif.title(&title);
             notif.message(&body);
@@ -74,10 +59,8 @@ pub mod macos {
                 notif.subtitle(sub.as_str());
             }
 
-            eprintln!("[notification] sending notification, waiting for click...");
-            let response = notif.send();
-
-            match response {
+            eprintln!("[notification] sending macOS notification, waiting for click...");
+            match notif.send() {
                 Ok(mac_notification_sys::NotificationResponse::Click) => {
                     eprintln!(
                         "[notification] user clicked notification: title={title:?} session_id={session_id:?}"
@@ -111,24 +94,97 @@ pub mod macos {
                 Ok(other) => {
                     eprintln!("[notification] notification dismissed/ignored: {other:?}");
                 }
-                Err(e) => {
-                    eprintln!("[notification] send 失败: {e:?}");
+                Err(err) => {
+                    eprintln!("[notification] send failed: {err:?}");
                 }
             }
         });
     }
 }
 
-// ── Tauri 命令：统一入口 ─────────────────────────────────────────
+#[cfg(target_os = "windows")]
+pub mod windows {
+    use std::path::MAIN_SEPARATOR as SEP;
 
-/// 发送系统通知（macOS：使用原生回调；其他平台：降级到 tauri-plugin-notification）
-///
-/// 用户点击通知后，前端可监听 `"notification-clicked"` 事件：
-/// ```ts
-/// listen("notification-clicked", ({ payload }) => {
-///   console.log("用户点击了通知:", payload.title, payload.body);
-/// });
-/// ```
+    use tauri::Emitter;
+    use tauri_winrt_notification::{Duration, Sound, Toast};
+
+    fn toast_app_id(app: &tauri::AppHandle) -> String {
+        let bundle_id = app.config().identifier.clone();
+        let use_bundle_id = tauri::utils::platform::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(|dir| dir.display().to_string()))
+            .map(|dir| {
+                !(dir.ends_with(format!("{SEP}target{SEP}debug").as_str())
+                    || dir.ends_with(format!("{SEP}target{SEP}release").as_str()))
+            })
+            .unwrap_or(true);
+
+        if use_bundle_id {
+            bundle_id
+        } else {
+            Toast::POWERSHELL_APP_ID.to_string()
+        }
+    }
+
+    pub fn send_with_click_callback(
+        app: tauri::AppHandle,
+        title: String,
+        body: String,
+        subtitle: Option<String>,
+        sound: bool,
+        session_id: Option<String>,
+    ) -> Result<(), String> {
+        let click_app = app.clone();
+        let click_title = title.clone();
+        let click_body = body.clone();
+        let click_session_id = session_id.clone();
+
+        let mut toast = Toast::new(&toast_app_id(&app))
+            .title(&title)
+            .text1(&body)
+            .duration(Duration::Short)
+            .sound(if sound { Some(Sound::Default) } else { None })
+            .on_activated(move |action| {
+                let action_label = action
+                    .filter(|value| !value.trim().is_empty())
+                    .unwrap_or_else(|| "click".to_string());
+
+                eprintln!(
+                    "[notification] windows toast activated: action={action_label:?} session_id={click_session_id:?}"
+                );
+                crate::window::focus_popup(click_app.clone(), click_session_id.clone());
+                let _ = click_app.emit(
+                    "notification-clicked",
+                    serde_json::json!({
+                        "title": click_title.clone(),
+                        "body": click_body.clone(),
+                        "action": action_label,
+                        "session_id": click_session_id.clone(),
+                    }),
+                );
+                Ok(())
+            });
+
+        if let Some(subtitle) = subtitle.as_deref().filter(|value| !value.trim().is_empty()) {
+            toast = toast.text2(subtitle);
+        }
+
+        match toast.show() {
+            Ok(()) => {
+                eprintln!(
+                    "[notification] windows toast queued: title={title:?} session_id={session_id:?}"
+                );
+                Ok(())
+            }
+            Err(err) => {
+                eprintln!("[notification] windows toast failed, fallback to tauri plugin: {err}");
+                super::fallback_desktop_notification(&app, &title, &body, sound)
+            }
+        }
+    }
+}
+
 #[tauri::command]
 pub fn send_notification_with_callback(
     app: tauri::AppHandle,
@@ -146,23 +202,22 @@ pub fn send_notification_with_callback(
         return Ok(());
     }
 
-    // 非 macOS 平台降级到 tauri-plugin-notification
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
     {
-        use tauri_plugin_notification::NotificationExt;
-        let _ = subtitle; // 避免 unused warning
-        let _ = play_sound;
+        return windows::send_with_click_callback(
+            app, title, body, subtitle, play_sound, session_id,
+        );
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = subtitle;
         let _ = session_id;
         eprintln!(
             "[notification] desktop send requested: title={title:?} body_len={}",
             body.chars().count()
         );
-        app.notification()
-            .builder()
-            .title(&title)
-            .body(&body)
-            .show()
-            .map_err(|e| format!("通知发送失败: {e}"))?;
+        fallback_desktop_notification(&app, &title, &body, play_sound)?;
         eprintln!("[notification] desktop send queued");
         Ok(())
     }
