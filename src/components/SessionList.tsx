@@ -88,7 +88,7 @@ function StatusDot({ status, isGlass }: { status: SessionStatus; isGlass: boolea
 
 // ── Session 卡片 ─────────────────────────────────────────────
 function SessionCard({
-  session, isActive, accentColor, isGlass, onClick, onExpand, onRemove,
+  session, isActive, accentColor, isGlass, onClick, onExpand, onRemove, onRotateSuspend,
 }: {
   session: ClaudeSession;
   isActive: boolean;
@@ -307,6 +307,40 @@ function SessionCard({
         )}
       </div>
 
+      {(isWaiting || isSuspended) && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onRotateSuspend(); }}
+          onMouseDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+          title={isWaiting ? "挂起" : "恢复为需要操作"}
+          style={{
+            background: isWaiting ? "var(--ci-btn-ghost-bg)" : "rgba(107,114,128,0.14)",
+            border: isWaiting ? "1px solid var(--ci-border)" : "1px solid rgba(107,114,128,0.36)",
+            color: isWaiting ? "var(--ci-text-dim)" : "#6B7280",
+            cursor: "pointer",
+            padding: "4px 8px",
+            borderRadius: 6,
+            flexShrink: 0,
+            fontSize: 11,
+            transition: "all 0.12s",
+          }}
+          onMouseEnter={e => {
+            e.currentTarget.style.background = isWaiting ? "rgba(107,114,128,0.14)" : "rgba(107,114,128,0.2)";
+            e.currentTarget.style.borderColor = "rgba(107,114,128,0.44)";
+            e.currentTarget.style.color = "#4B5563";
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.background = isWaiting ? "var(--ci-btn-ghost-bg)" : "rgba(107,114,128,0.14)";
+            e.currentTarget.style.borderColor = isWaiting ? "var(--ci-border)" : "rgba(107,114,128,0.36)";
+            e.currentTarget.style.color = isWaiting ? "var(--ci-text-dim)" : "#6B7280";
+          }}
+        >
+          {isWaiting ? "挂起" : "恢复"}
+        </button>
+      )}
+
       {/* 展开终端 */}
       <button
         onClick={(e) => { e.stopPropagation(); onExpand(); }}
@@ -344,40 +378,6 @@ function SessionCard({
       >
         <ExpandIcon />
       </button>
-
-      {(isWaiting || isSuspended) && (
-        <button
-          onClick={(e) => { e.stopPropagation(); onRotateSuspend(); }}
-          onMouseDown={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-          }}
-          title={isWaiting ? "挂起" : "恢复为需要操作"}
-          style={{
-            background: isWaiting ? "var(--ci-btn-ghost-bg)" : "rgba(107,114,128,0.14)",
-            border: isWaiting ? "1px solid var(--ci-border)" : "1px solid rgba(107,114,128,0.36)",
-            color: isWaiting ? "var(--ci-text-dim)" : "#6B7280",
-            cursor: "pointer",
-            padding: "4px 8px",
-            borderRadius: 6,
-            flexShrink: 0,
-            fontSize: 11,
-            transition: "all 0.12s",
-          }}
-          onMouseEnter={e => {
-            e.currentTarget.style.background = isWaiting ? "rgba(107,114,128,0.14)" : "rgba(107,114,128,0.2)";
-            e.currentTarget.style.borderColor = "rgba(107,114,128,0.44)";
-            e.currentTarget.style.color = "#4B5563";
-          }}
-          onMouseLeave={e => {
-            e.currentTarget.style.background = isWaiting ? "var(--ci-btn-ghost-bg)" : "rgba(107,114,128,0.14)";
-            e.currentTarget.style.borderColor = isWaiting ? "var(--ci-border)" : "rgba(107,114,128,0.36)";
-            e.currentTarget.style.color = isWaiting ? "var(--ci-text-dim)" : "#6B7280";
-          }}
-        >
-          {isWaiting ? "挂起" : "恢复"}
-        </button>
-      )}
 
       {/* 删除 */}
       <button
