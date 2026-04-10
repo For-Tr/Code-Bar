@@ -5,6 +5,7 @@ const STATUS_LABEL: Record<SessionStatus, string> = {
   idle:    "空闲",
   running: "运行中",
   waiting: "等待确认",
+  suspended: "已挂起",
   done:    "完成",
   error:   "出错",
 };
@@ -14,6 +15,7 @@ const STATUS_COLOR: Record<SessionStatus, string> = {
   idle:    "rgba(120,120,128,0.4)",
   running: "#34C759",
   waiting: "#FF9F0A",
+  suspended: "#6B7280",
   done:    "#007AFF",
   error:   "#FF3B30",
 };
