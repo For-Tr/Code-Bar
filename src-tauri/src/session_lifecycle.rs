@@ -137,18 +137,26 @@ pub(crate) fn resolve_session_ids(app: &AppHandle, routing: &SessionRoutingHint)
         matches.push(sid.clone());
     }
 
+    // 仅在精确匹配或唯一候选时路由，避免 hooks 事件串到其他会话。
+    // 旧逻辑在未匹配到 cwd/session_id 时会退化为同 runner 全量广播，容易误标记状态。
     if !matches.is_empty() {
         return matches;
     }
 
-    active_ids
+    let same_runner_ids: Vec<String> = active_ids
         .into_iter()
         .filter(|sid| {
             meta.get(sid)
                 .map(|info| info.runner_type == routing.source.runner_type())
                 .unwrap_or(false)
         })
-        .collect()
+        .collect();
+
+    if same_runner_ids.len() == 1 {
+        return same_runner_ids;
+    }
+
+    Vec::new()
 }
 
 pub fn emit_session_lifecycle(
