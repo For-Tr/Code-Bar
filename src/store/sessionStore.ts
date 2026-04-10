@@ -4,7 +4,7 @@ import type { RunnerConfig } from "./settingsStore";
 
 // ── 类型定义 ────────────────────────────────────────────────
 
-export type SessionStatus = "idle" | "running" | "waiting" | "done" | "error";
+export type SessionStatus = "idle" | "running" | "waiting" | "suspended" | "done" | "error";
 
 export interface DiffFile {
   path: string;
