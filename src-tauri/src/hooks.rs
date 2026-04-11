@@ -248,7 +248,8 @@ fn managed_legacy_commands(source: HookSource) -> &'static [&'static str] {
 fn is_managed_command(command: &str, source: HookSource) -> bool {
     #[cfg(unix)]
     {
-        return command.contains(source.socket_path())
+        let socket_path = source.socket_path();
+        return command.contains(&socket_path)
             || managed_legacy_commands(source)
                 .iter()
                 .any(|legacy| command.contains(legacy));
@@ -838,9 +839,20 @@ fn start_hook_socket_server(app: tauri::AppHandle, source: HookSource) {
     use std::os::unix::net::UnixListener;
 
     let socket_path = source.socket_path();
-    let _ = fs::remove_file(socket_path);
+    if let Some(parent) = std::path::Path::new(&socket_path).parent() {
+        if let Err(e) = fs::create_dir_all(parent) {
+            eprintln!(
+                "[hooks:{}] 创建 socket 目录失败 {}: {e}",
+                source.label(),
+                parent.display()
+            );
+            return;
+        }
+    }
 
-    let listener = match UnixListener::bind(socket_path) {
+    let _ = fs::remove_file(&socket_path);
+
+    let listener = match UnixListener::bind(&socket_path) {
         Ok(listener) => listener,
         Err(e) => {
             eprintln!("[hooks:{}] bind 失败: {e}", source.label());

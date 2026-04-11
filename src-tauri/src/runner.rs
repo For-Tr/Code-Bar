@@ -69,6 +69,12 @@ pub async fn start_runner(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    let codebar_tmp = crate::util::codebar_tmp_dir()
+        .to_string_lossy()
+        .to_string();
+    cmd.env("TMPDIR", &codebar_tmp);
+    cmd.env("TEMP", &codebar_tmp);
+    cmd.env("TMP", &codebar_tmp);
 
     match runner_type.as_str() {
         "claude-code" => {
@@ -119,7 +125,7 @@ pub async fn start_runner(
             for arg in &rewritten_args {
                 cmd.arg(arg);
             }
-            cmd.arg("--non-interactive").arg("--no-color").arg(&task);
+            cmd.arg("exec").arg("--color").arg("never").arg(&task);
         }
         "custom-cli" => {
             for arg in &rewritten_args {

@@ -466,32 +466,6 @@ export default function App() {
     });
   }, []);
 
-  // ── 启动时清理孤儿 worktree（应用崩溃/session 数据丢失导致的遗留资源）──
-  useEffect(() => {
-    if (!("__TAURI_INTERNALS__" in window)) return;
-    const { workspaces } = useWorkspaceStore.getState();
-    const { sessions } = useSessionStore.getState();
-
-    // 收集所有 session 中已知的 worktreePath（按 workspace 分组）
-    workspaces.forEach((ws) => {
-      const knownPaths = sessions
-        .filter((s) => s.workspaceId === ws.id && s.worktreePath)
-        .map((s) => s.worktreePath as string);
-
-      invoke<string[]>("prune_orphan_worktrees", {
-        workdir: ws.path,
-        knownWorktreePaths: knownPaths,
-      })
-        .then((pruned) => {
-          if (pruned.length > 0) {
-            console.log(`[worktree] pruned ${pruned.length} orphan(s) in ${ws.path}:`, pruned);
-          }
-        })
-        .catch(() => {});
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   // ── 启动时加载保存的 API Key ──────────────────────────────
   useEffect(() => {
     if (!("__TAURI_INTERNALS__" in window)) return;
