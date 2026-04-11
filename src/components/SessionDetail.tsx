@@ -320,9 +320,12 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
   }, [isOpen]);
 
   // 首条 query 提交后才激活 PTY，避免 CLI 初始化阶段的输入竞争。
+  // resume 场景不依赖 worktreeReady；异常退出后只要仍有 provider session 绑定，也应允许重启 PTY。
   useEffect(() => {
-    if (querySent && worktreeReady && !ptyEverActive) setPtyEverActive(true);
-  }, [querySent, worktreeReady, ptyEverActive]);
+    if (querySent && (worktreeReady || hasNativeResumeBinding(session)) && !ptyEverActive) {
+      setPtyEverActive(true);
+    }
+  }, [querySent, worktreeReady, ptyEverActive, session]);
 
   // 展开且未发送 query 时自动聚焦输入框
   useEffect(() => {
@@ -590,7 +593,8 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     : cliCommand.split("/").pop() ?? cliCommand;
 
   const isRunning = session.status === "running";
-  const waitingForPtyLaunch = !isNativeMode && querySent && !ptyEverActive && !isResumeLaunch;
+  const waitingForPtyLaunch =
+    !isNativeMode && querySent && !ptyEverActive && !(worktreeReady || isResumeLaunch);
   const sessionOutput = session.output ?? [];
   const installCmd = CLI_INSTALL_CMD[runner.type];
 

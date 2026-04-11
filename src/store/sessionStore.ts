@@ -336,19 +336,16 @@ export const useSessionStore = create<SessionStore>()(
         activeSessionId: state.activeSessionId,
         sessionOrderByWorkspace: state.sessionOrderByWorkspace,
       }),
-      // 恢复时：修复 _counter，并将已有 worktreePath 的 session 标记为 worktreeReady
-      // 这些 session 的 worktree 可能已存在（或被孤儿清理），但不再新建——直接用持久化路径
+      // 恢复时：修复 _counter，并将持久化 session 统一标记为 ready。
+      // worktree 只是隔离增强，不应决定 session 是否能重新启动；
+      // 非 git 目录 / detached HEAD / worktree 创建失败的 session 也必须能恢复运行。
       onRehydrateStorage: () => (state) => {
         if (!state) return;
         const ids = state.sessions.map((s) => Number(s.id)).filter((n) => !isNaN(n));
         if (ids.length > 0) {
           _counter = Math.max(...ids) + 1;
         }
-        // 有 worktreePath 的持久化 session：worktree 已在文件系统中（由启动时的清理机制保证有效性）
-        // 直接标记为 ready，不重新创建
-        const readyIds = new Set<string>(
-          state.sessions.filter((s) => s.worktreePath).map((s) => s.id)
-        );
+        const readyIds = new Set<string>(state.sessions.map((s) => s.id));
         state.worktreeReadyIds = readyIds;
 
         // 修复每个 workspace 的 session 顺序：补齐遗漏、去掉无效项
