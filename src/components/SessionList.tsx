@@ -2,9 +2,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import { invoke } from "@tauri-apps/api/core";
 import { useMemo, type CSSProperties, type ReactNode } from "react";
 import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
-import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { ClaudeSession, SessionStatus, useSessionStore } from "../store/sessionStore";
+import { ClaudeSession, SessionStatus, orderWorkspaceSessions, useSessionStore } from "../store/sessionStore";
 import { useWorkspaceStore, getWorkspaceColor } from "../store/workspaceStore";
 import { useSettingsStore, RUNNER_LABELS, sanitizeRunnerConfig, isGlassTheme } from "../store/settingsStore";
 
@@ -436,7 +436,7 @@ export function SessionList() {
     setExpandedSession,
     addSession,
     markWorktreeReady,
-    reorderWorkspaceSessions,
+    reorderWorkspaceSessionsByVisibleMove,
     updateSession,
   } = useSessionStore();
   const { activeWorkspaceId } = useWorkspaceStore();
@@ -453,21 +453,7 @@ export function SessionList() {
 
   const accentColor = getWorkspaceColor(activeWorkspace.color);
   const wsSessions = useMemo(() => {
-    const filtered = sessions.filter((s) => s.workspaceId === activeWorkspaceId);
-    const byId = new Map(filtered.map((s) => [s.id, s]));
-    const persistedOrder = sessionOrderByWorkspace[activeWorkspace.id] ?? [];
-    const ordered: ClaudeSession[] = [];
-
-    for (const id of persistedOrder) {
-      const session = byId.get(id);
-      if (!session) continue;
-      ordered.push(session);
-      byId.delete(id);
-    }
-    for (const session of filtered) {
-      if (byId.has(session.id)) ordered.push(session);
-    }
-    return ordered;
+    return orderWorkspaceSessions(sessions, activeWorkspace.id, sessionOrderByWorkspace);
   }, [sessions, activeWorkspaceId, sessionOrderByWorkspace]);
 
   const sensors = useSensors(
@@ -479,12 +465,11 @@ export function SessionList() {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
 
-    const oldIndex = wsSessions.findIndex((s) => s.id === String(active.id));
-    const newIndex = wsSessions.findIndex((s) => s.id === String(over.id));
-    if (oldIndex < 0 || newIndex < 0) return;
-
-    const nextOrder = arrayMove(wsSessions, oldIndex, newIndex).map((s) => s.id);
-    reorderWorkspaceSessions(activeWorkspace.id, nextOrder);
+    reorderWorkspaceSessionsByVisibleMove(
+      activeWorkspace.id,
+      String(active.id),
+      String(over.id)
+    );
   };
 
   const handleNewSession = async () => {

@@ -67,11 +67,60 @@ interface SessionStore {
   removeSessionsByWorkspace: (workspaceId: string) => void;
   markWorktreeReady: (id: string) => void;
   reorderWorkspaceSessions: (workspaceId: string, orderedSessionIds: string[]) => void;
+  reorderWorkspaceSessionsByVisibleMove: (workspaceId: string, activeId: string, overId: string) => void;
 }
 
 // ── 工厂函数 ─────────────────────────────────────────────────
 
 let _counter = 1;
+
+const STATUS_PRIORITY: Partial<Record<SessionStatus, number>> = {
+  waiting: 0,
+  running: 1,
+  suspended: 2,
+};
+
+function getStatusPriority(status: SessionStatus): number {
+  return STATUS_PRIORITY[status] ?? 3;
+}
+
+function buildWorkspaceManualOrder(
+  sessions: ClaudeSession[],
+  workspaceId: string,
+  persistedOrder: string[] | undefined
+): string[] {
+  const workspaceSessions = sessions.filter((s) => s.workspaceId === workspaceId);
+  const workspaceIds = workspaceSessions.map((s) => s.id);
+  const validSet = new Set(workspaceIds);
+  const normalizedPersisted = (persistedOrder ?? []).filter((id) => validSet.has(id));
+  const missing = workspaceIds.filter((id) => !normalizedPersisted.includes(id));
+  return [...normalizedPersisted, ...missing];
+}
+
+export function orderWorkspaceSessions(
+  sessions: ClaudeSession[],
+  workspaceId: string,
+  sessionOrderByWorkspace: Record<string, string[]>
+): ClaudeSession[] {
+  const workspaceSessions = sessions.filter((s) => s.workspaceId === workspaceId);
+  const manualOrder = buildWorkspaceManualOrder(
+    sessions,
+    workspaceId,
+    sessionOrderByWorkspace[workspaceId]
+  );
+  const manualIndex = new Map(manualOrder.map((id, index) => [id, index]));
+
+  return [...workspaceSessions].sort((a, b) => {
+    const priorityDelta = getStatusPriority(a.status) - getStatusPriority(b.status);
+    if (priorityDelta !== 0) return priorityDelta;
+
+    const aIndex = manualIndex.get(a.id) ?? Number.MAX_SAFE_INTEGER;
+    const bIndex = manualIndex.get(b.id) ?? Number.MAX_SAFE_INTEGER;
+    if (aIndex !== bIndex) return aIndex - bIndex;
+
+    return a.createdAt - b.createdAt;
+  });
+}
 
 function makeSession(overrides: Partial<ClaudeSession> & { workspaceId: string; workdir: string }): ClaudeSession {
   const id = String(_counter++);
@@ -195,18 +244,59 @@ export const useSessionStore = create<SessionStore>()(
 
       reorderWorkspaceSessions: (workspaceId, orderedSessionIds) =>
         set((state) => {
-          const workspaceIds = state.sessions
-            .filter((s) => s.workspaceId === workspaceId)
-            .map((s) => s.id);
-          const workspaceIdSet = new Set(workspaceIds);
-          const dedupedRequested = Array.from(
-            new Set(orderedSessionIds.filter((id) => workspaceIdSet.has(id)))
+          const manualOrder = buildWorkspaceManualOrder(
+            state.sessions,
+            workspaceId,
+            orderedSessionIds
           );
-          const missingIds = workspaceIds.filter((id) => !dedupedRequested.includes(id));
           return {
             sessionOrderByWorkspace: {
               ...state.sessionOrderByWorkspace,
-              [workspaceId]: [...dedupedRequested, ...missingIds],
+              [workspaceId]: manualOrder,
+            },
+          };
+        }),
+
+      reorderWorkspaceSessionsByVisibleMove: (workspaceId, activeId, overId) =>
+        set((state) => {
+          const visibleOrdered = orderWorkspaceSessions(
+            state.sessions,
+            workspaceId,
+            state.sessionOrderByWorkspace
+          );
+          const oldIndex = visibleOrdered.findIndex((s) => s.id === activeId);
+          const newIndex = visibleOrdered.findIndex((s) => s.id === overId);
+          if (oldIndex < 0 || newIndex < 0) return {};
+
+          const activeSession = visibleOrdered[oldIndex];
+          const overSession = visibleOrdered[newIndex];
+          // 状态分组优先，拖拽只允许调整同优先级分组内部顺序
+          if (getStatusPriority(activeSession.status) !== getStatusPriority(overSession.status)) {
+            return {};
+          }
+
+          const movedVisible = [...visibleOrdered];
+          const [moved] = movedVisible.splice(oldIndex, 1);
+          movedVisible.splice(newIndex, 0, moved);
+          const movedIds = movedVisible.map((s) => s.id);
+          const movedIndex = new Map(movedIds.map((id, index) => [id, index]));
+
+          const manualOrder = buildWorkspaceManualOrder(
+            state.sessions,
+            workspaceId,
+            state.sessionOrderByWorkspace[workspaceId]
+          );
+
+          const nextManualOrder = [...manualOrder].sort((a, b) => {
+            const aIdx = movedIndex.get(a) ?? Number.MAX_SAFE_INTEGER;
+            const bIdx = movedIndex.get(b) ?? Number.MAX_SAFE_INTEGER;
+            return aIdx - bIdx;
+          });
+
+          return {
+            sessionOrderByWorkspace: {
+              ...state.sessionOrderByWorkspace,
+              [workspaceId]: nextManualOrder,
             },
           };
         }),
