@@ -2,17 +2,14 @@ import React, { useEffect, useState } from "react";
 import {
   useSettingsStore,
   RUNNER_LABELS,
-  PROVIDER_LABELS,
-  PROVIDER_MODELS,
   RUNNER_PROVIDER,
   type RunnerType,
-  type ModelProvider,
   type ThemeMode,
   isGlassTheme,
 } from "../store/settingsStore";
 import { useWorkspaceStore } from "../store/workspaceStore";
 import { useSessionStore } from "../store/sessionStore";
-// ── Design tokens（使用 CSS 变量，支持深/浅色主题）─────────────
+
 const C = {
   bg:        "var(--ci-bg)",
   surface:   "var(--ci-surface)",
@@ -35,12 +32,7 @@ const C = {
   yellow:    "var(--ci-yellow)",
   yellowBg:  "var(--ci-yellow-bg)",
   yellowBdr: "var(--ci-yellow-bdr)",
-  purple:    "var(--ci-purple)",
-  purpleBg:  "var(--ci-purple-bg)",
-  purpleBdr: "var(--ci-purple-bdr)",
 };
-
-// ── 通用小件 ──────────────────────────────────────────────────
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -107,31 +99,46 @@ function SectionDivider({ label }: { label: string }) {
   );
 }
 
-function StatusPill({
-  ok,
-  label,
+function Toggle({
+  value, onChange, label, desc, disabled = false, showDivider = true, labelStyle,
 }: {
-  ok: boolean;
-  label: string;
+  value: boolean; onChange: (v: boolean) => void; label: string; desc?: string; disabled?: boolean; showDivider?: boolean; labelStyle?: React.CSSProperties;
 }) {
   return (
-    <span
+    <div
+      onClick={() => {
+        if (disabled) return;
+        onChange(!value);
+      }}
       style={{
-        fontSize: 10,
-        padding: "2px 7px",
-        borderRadius: 99,
-        background: ok ? C.greenBg : C.yellowBg,
-        border: `1px solid ${ok ? C.greenBdr : C.yellowBdr}`,
-        color: ok ? C.greenDark : C.yellow,
-        fontWeight: 600,
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        padding: "9px 0", cursor: disabled ? "default" : "pointer",
+        borderBottom: showDivider ? `1px solid ${C.border}` : "none",
+        opacity: disabled ? 0.56 : 1,
       }}
     >
-      {label}
-    </span>
+      <div>
+        <div style={{ fontSize: 12, color: C.text, ...labelStyle }}>{label}</div>
+        {desc && <div style={{ fontSize: 11, color: C.textDim, marginTop: 2 }}>{desc}</div>}
+      </div>
+      <div style={{
+        width: 36, height: 20, borderRadius: 99, flexShrink: 0,
+        background: value ? C.accent : "rgba(120,120,128,0.2)",
+        display: "flex", alignItems: "center",
+        padding: "0 2px",
+        transition: "background 0.22s",
+        boxShadow: "inset 0 0 0 0.5px rgba(0,0,0,0.06)",
+      }}>
+        <div style={{
+          width: 16, height: 16, borderRadius: "50%", background: "#fff",
+          boxShadow: "0 1px 4px rgba(0,0,0,0.25), 0 0.5px 1px rgba(0,0,0,0.12)",
+          transform: value ? "translateX(16px)" : "translateX(0)",
+          transition: "transform 0.22s",
+        }} />
+      </div>
+    </div>
   );
 }
-
-// ── 卡片式单选 ─────────────────────────────────────────────────
 
 function CardSelect<T extends string>({
   value, onChange, options,
@@ -191,58 +198,13 @@ function CardSelect<T extends string>({
   );
 }
 
-// ── Toggle ────────────────────────────────────────────────────
-
-function Toggle({
-  value, onChange, label, desc, disabled = false, showDivider = true, labelStyle,
-}: {
-  value: boolean; onChange: (v: boolean) => void; label: string; desc?: string; disabled?: boolean; showDivider?: boolean; labelStyle?: React.CSSProperties;
-}) {
-  return (
-    <div
-      onClick={() => {
-        if (disabled) return;
-        onChange(!value);
-      }}
-      style={{
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "9px 0", cursor: disabled ? "default" : "pointer",
-        borderBottom: showDivider ? `1px solid ${C.border}` : "none",
-        opacity: disabled ? 0.56 : 1,
-      }}
-    >
-      <div>
-        <div style={{ fontSize: 12, color: C.text, ...labelStyle }}>{label}</div>
-        {desc && <div style={{ fontSize: 11, color: C.textDim, marginTop: 2 }}>{desc}</div>}
-      </div>
-      <div style={{
-        width: 36, height: 20, borderRadius: 99, flexShrink: 0,
-        background: value ? C.accent : "rgba(120,120,128,0.2)",
-        display: "flex", alignItems: "center",
-        padding: "0 2px",
-        transition: "background 0.22s",
-        boxShadow: "inset 0 0 0 0.5px rgba(0,0,0,0.06)",
-      }}>
-        <div style={{
-          width: 16, height: 16, borderRadius: "50%", background: "#fff",
-          boxShadow: "0 1px 4px rgba(0,0,0,0.25), 0 0.5px 1px rgba(0,0,0,0.12)",
-          transform: value ? "translateX(16px)" : "translateX(0)",
-          transition: "transform 0.22s",
-        }} />
-      </div>
-    </div>
-  );
-}
-
-// ── 单个 API Key 编辑行 ───────────────────────────────────────
-
 function ApiKeyRow({
   provider,
   label,
   hint,
   placeholder,
 }: {
-  provider: ModelProvider;
+  provider: "anthropic" | "openai";
   label: string;
   hint?: string;
   placeholder?: string;
@@ -318,313 +280,138 @@ function ApiKeyRow({
   );
 }
 
-// ── Runner Tab ────────────────────────────────────────────────
-
 const RUNNER_HINTS: Record<RunnerType, string> = {
   "claude-code": "调用本地 claude CLI，需提前安装",
-  "codex":       "调用本地 codex CLI，需提前安装",
-  "custom-cli":  "任意兼容 CLI，自定义路径和参数",
-  "native":      "内置工作流，直接用 API Key 驱动 LLM",
+  "codex": "调用本地 codex CLI，需提前安装",
 };
 
-function RunnerTab() {
+function RunnerSettings() {
   const { settings, patchRunner, openSettings } = useSettingsStore();
   const { runner } = settings;
-
-  // 为每个需要 API Key 的 runner 生成角标
-  const getRunnerBadge = (type: RunnerType) => {
-    const provider = RUNNER_PROVIDER[type];
-    if (!provider) return undefined;
-    const hasKey = (settings.apiKeys[provider] || "").length > 0;
-    return (
-      <span style={{
-        fontSize: 9, padding: "1px 5px", borderRadius: 99,
-        background: hasKey ? C.greenBg : C.yellowBg,
-        border: `1px solid ${hasKey ? C.greenBdr : C.yellowBdr}`,
-        color: hasKey ? C.green : C.yellow,
-      }}>
-        {hasKey ? "Key 已配置" : "需要 API Key"}
-      </span>
-    );
-  };
 
   const runnerOptions = (Object.entries(RUNNER_LABELS) as [RunnerType, string][]).map(
     ([value, label]) => ({
       value,
       label,
       hint: RUNNER_HINTS[value],
-      badge: getRunnerBadge(value),
+      badge: (
+        <span style={{
+          fontSize: 9, padding: "1px 5px", borderRadius: 99,
+          background: settings.apiKeys[RUNNER_PROVIDER[value]] ? C.greenBg : C.yellowBg,
+          border: `1px solid ${settings.apiKeys[RUNNER_PROVIDER[value]] ? C.greenBdr : C.yellowBdr}`,
+          color: settings.apiKeys[RUNNER_PROVIDER[value]] ? C.green : C.yellow,
+        }}>
+          {settings.apiKeys[RUNNER_PROVIDER[value]] ? "Key 已配置" : "需要 API Key"}
+        </span>
+      ),
     })
   );
 
   return (
     <div>
+      <SectionDivider label="Runner" />
       <CardSelect<RunnerType>
         value={runner.type}
         onChange={(v) => patchRunner({ type: v })}
         options={runnerOptions}
       />
 
-      {/* CLI 模式下显示 API Key 快捷入口 */}
-      {RUNNER_PROVIDER[runner.type] && (
-        <div style={{
-          marginTop: 12, padding: "10px 12px",
-          background: C.yellowBg, border: `1px solid ${C.yellowBdr}`,
-          borderRadius: 10,
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-        }}>
-          <div style={{ fontSize: 11, color: C.yellow, fontWeight: 500 }}>
-            {runner.type === "claude-code" ? "Claude Code 需要 Anthropic API Key" : "Codex 需要 OpenAI API Key"}
-          </div>
-          <button
-            onClick={() => openSettings("apikeys")}
-            style={{
-              fontSize: 11, padding: "4px 10px", borderRadius: 7,
-              background: C.yellow, border: "none",
-              color: "#fff", cursor: "pointer", fontWeight: 600,
-            }}
-          >
-            管理 →
-          </button>
+      <div style={{
+        marginTop: 12, padding: "10px 12px",
+        background: C.yellowBg, border: `1px solid ${C.yellowBdr}`,
+        borderRadius: 10,
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+      }}>
+        <div style={{ fontSize: 11, color: C.yellow, fontWeight: 500 }}>
+          {runner.type === "claude-code" ? "Claude Code 需要 Anthropic API Key" : "Codex 需要 OpenAI API Key"}
         </div>
-      )}
+        <button
+          onClick={() => openSettings("system")}
+          style={{
+            fontSize: 11, padding: "4px 10px", borderRadius: 7,
+            background: C.yellow, border: "none",
+            color: "#fff", cursor: "pointer", fontWeight: 600,
+          }}
+        >
+          查看下方配置
+        </button>
+      </div>
 
-      {runner.type !== "native" && (
-        <>
-          <SectionDivider label="CLI 路径" />
-          <FieldLabel>可执行文件（留空从 PATH 自动查找）</FieldLabel>
-          <TextInput
-            value={runner.cliPath ?? ""}
-            onChange={(v) => patchRunner({ cliPath: v })}
-            placeholder={
-              runner.type === "claude-code" ? "/usr/local/bin/claude"
-              : runner.type === "codex" ? "/usr/local/bin/codex"
-              : "/path/to/my-agent"
-            }
-          />
-        </>
-      )}
-
-      {runner.type === "custom-cli" && (
-        <div style={{ marginTop: 10 }}>
-          <FieldLabel>附加参数</FieldLabel>
-          <TextInput
-            value={runner.cliArgs ?? ""}
-            onChange={(v) => patchRunner({ cliArgs: v })}
-            placeholder="--model gpt-4o --no-color"
-          />
-          <HintText>任务描述会作为最后一个参数传入</HintText>
-        </div>
-      )}
-
-      {/* 三方 API 配置（CLI 模式下显示） */}
-      {runner.type !== "native" && (
-        <>
-          <SectionDivider label="三方 API（可选）" />
-          <FieldLabel>
-            {runner.type === "claude-code" ? "API Base URL（ANTHROPIC_BASE_URL）"
-            : runner.type === "codex" ? "API Base URL（OPENAI_BASE_URL）"
-            : "API Base URL（API_BASE_URL）"}
-          </FieldLabel>
-          <TextInput
-            value={runner.apiBaseUrl ?? ""}
-            onChange={(v) => patchRunner({ apiBaseUrl: v })}
-            placeholder={
-              runner.type === "claude-code" ? "https://openrouter.ai/api/v1  （留空用官方端点）"
-              : runner.type === "codex" ? "https://api.deepseek.com/v1  （留空用官方端点）"
-              : "https://your-proxy.com/v1"
-            }
-          />
-          <HintText>
-            {runner.type === "claude-code"
-              ? "支持 OpenRouter、AWS Bedrock 代理、Cloudflare AI Gateway 等兼容 Anthropic API 的服务"
-              : runner.type === "codex"
-              ? "支持 Azure OpenAI、DeepSeek 等兼容 OpenAI API 的服务"
-              : "将作为 API_BASE_URL 环境变量注入 CLI 进程"}
-          </HintText>
-          <div style={{ marginTop: 10 }}>
-            <FieldLabel>专属 API Key（留空则使用 API Keys 页中配置的对应密钥）</FieldLabel>
-            <TextInput
-              type="password"
-              value={runner.apiKeyOverride ?? ""}
-              onChange={(v) => patchRunner({ apiKeyOverride: v })}
-              placeholder={runner.type === "claude-code" ? "sk-or-...  （三方服务专属 key）" : "sk-..."}
-            />
-            <HintText>
-              此处的 Key 优先级高于 API Keys 页，适合不同服务商使用不同密钥的场景
-            </HintText>
-          </div>
-        </>
-      )}
-
-      {runner.type === "native" && (
-        <div style={{
-          marginTop: 12, padding: "10px 12px",
-          background: C.accentBg, border: `1px solid ${C.accentBdr}`,
-          borderRadius: 10,
-        }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: C.accent, marginBottom: 3 }}>内置 Harness</div>
-          <div style={{ fontSize: 11, color: C.textMuted, lineHeight: "1.6" }}>
-            无需安装任何 CLI，直接用 API Key 调用 LLM。内置文件读写、命令执行、git diff 工具。
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Model Tab ─────────────────────────────────────────────────
-
-const PROVIDER_HINTS: Record<ModelProvider, string> = {
-  anthropic:           "Claude 系列模型",
-  openai:              "GPT / o 系列模型",
-  deepseek:            "DeepSeek Chat & Reasoner",
-  "openai-compatible": "兼容 OpenAI 接口的自定义服务（智谱 GLM、OpenRouter 等）",
-};
-
-function ModelTab() {
-  const { settings, patchModel } = useSettingsStore();
-  const { model } = settings;
-
-  const providerOptions = (Object.entries(PROVIDER_LABELS) as [ModelProvider, string][]).map(
-    ([value, label]) => ({ value, label, hint: PROVIDER_HINTS[value] })
-  );
-
-  const modelOptions = PROVIDER_MODELS[model.provider].map((m) => ({
-    value: m, label: m,
-  }));
-
-  return (
-    <div>
-      <SectionDivider label="服务商" />
-      <CardSelect<ModelProvider>
-        value={model.provider}
-        onChange={(v) => patchModel({ provider: v, model: PROVIDER_MODELS[v][0] })}
-        options={providerOptions}
+      <SectionDivider label="CLI 路径" />
+      <FieldLabel>可执行文件（留空从 PATH 自动查找）</FieldLabel>
+      <TextInput
+        value={runner.cliPath ?? ""}
+        onChange={(v) => patchRunner({ cliPath: v })}
+        placeholder={runner.type === "claude-code" ? "/usr/local/bin/claude" : "/usr/local/bin/codex"}
       />
 
-      <SectionDivider label="模型" />
-      {model.provider === "openai-compatible" ? (
-        <>
-          <FieldLabel>Base URL</FieldLabel>
-          <TextInput
-            value={model.baseUrl ?? ""}
-            onChange={(v) => patchModel({ baseUrl: v })}
-            placeholder="https://open.bigmodel.cn/api/paas/v4"
-          />
-          <HintText>智谱 GLM 默认：https://open.bigmodel.cn/api/paas/v4</HintText>
-          <div style={{ marginTop: 10 }}>
-            <FieldLabel>模型名称</FieldLabel>
-            <CardSelect<string>
-              value={model.model}
-              onChange={(v) => patchModel({ model: v })}
-              options={[
-                { value: "glm-4-flash",     label: "glm-4-flash",     hint: "免费额度，速度快" },
-                { value: "glm-4-flash-250414", label: "glm-4-flash-250414", hint: "最新版 flash，免费额度" },
-                { value: "glm-4",           label: "glm-4",           hint: "标准版，付费" },
-                { value: "glm-4-plus",      label: "glm-4-plus",      hint: "高性能版，付费" },
-                { value: "glm-z1-flash",    label: "glm-z1-flash",    hint: "推理增强，免费额度" },
-              ]}
-            />
-            <div style={{ marginTop: 8 }}>
-              <FieldLabel>自定义模型名（留空则用上方选择）</FieldLabel>
-              <TextInput
-                value={PROVIDER_MODELS[model.provider].includes(model.model) ? "" : model.model}
-                onChange={(v) => { if (v) patchModel({ model: v }); }}
-                placeholder="输入其他模型名，如 glm-4-airx"
-              />
-            </div>
-          </div>
-        </>
-      ) : (
-        <CardSelect<string>
-          value={model.model}
-          onChange={(v) => patchModel({ model: v })}
-          options={modelOptions}
+      <SectionDivider label="三方 API（可选）" />
+      <FieldLabel>
+        {runner.type === "claude-code" ? "API Base URL（ANTHROPIC_BASE_URL）" : "API Base URL（OPENAI_BASE_URL）"}
+      </FieldLabel>
+      <TextInput
+        value={runner.apiBaseUrl ?? ""}
+        onChange={(v) => patchRunner({ apiBaseUrl: v })}
+        placeholder={runner.type === "claude-code" ? "https://openrouter.ai/api/v1  （留空用官方端点）" : "https://api.openai.com/v1  （留空用官方端点）"}
+      />
+      <HintText>
+        {runner.type === "claude-code"
+          ? "支持 OpenRouter、AWS Bedrock 代理、Cloudflare AI Gateway 等兼容 Anthropic API 的服务"
+          : "支持 Azure OpenAI、DeepSeek 等兼容 OpenAI API 的服务"}
+      </HintText>
+      <div style={{ marginTop: 10 }}>
+        <FieldLabel>专属 API Key（留空则使用下方保存的对应密钥）</FieldLabel>
+        <TextInput
+          type="password"
+          value={runner.apiKeyOverride ?? ""}
+          onChange={(v) => patchRunner({ apiKeyOverride: v })}
+          placeholder={runner.type === "claude-code" ? "sk-or-...  （三方服务专属 key）" : "sk-..."}
         />
-      )}
-
-      <SectionDivider label="参数" />
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <div>
-          <FieldLabel>Max Tokens</FieldLabel>
-          <TextInput
-            type="number"
-            value={String(model.maxTokens ?? 8192)}
-            onChange={(v) => patchModel({ maxTokens: Number(v) })}
-          />
-        </div>
-        <div>
-          <FieldLabel>Temperature</FieldLabel>
-          <TextInput
-            type="number"
-            value={String(model.temperature ?? 0.7)}
-            onChange={(v) => patchModel({ temperature: Number(v) })}
-          />
-        </div>
       </div>
     </div>
   );
 }
 
-// ── API Keys Tab ───────────────────────────────────────────────
-
-function ApiKeysTab() {
-  const { settings, saveProviderApiKey, patchRunner } = useSettingsStore();
+function SystemTab() {
+  const { settings, patchSettings, saveProviderApiKey, patchRunner } = useSettingsStore();
+  const workspaces = useWorkspaceStore((s) => s.workspaces);
+  const sessions = useSessionStore((s) => s.sessions);
+  const [pruningWorktrees, setPruningWorktrees] = useState(false);
   const [detecting, setDetecting] = useState(false);
-  const [detectResult, setDetectResult] = useState<string>("");
+  const [detectResult, setDetectResult] = useState("");
   const [integrationBusy, setIntegrationBusy] = useState(false);
-  const [integrationStatusLoading, setIntegrationStatusLoading] = useState(false);
-  const [integrationMessage, setIntegrationMessage] = useState("");
-  const [testingNotification, setTestingNotification] = useState(false);
-  const [integrationStatus, setIntegrationStatus] = useState<{
-    enabled: boolean;
-    claude_hooks_configured: boolean;
-    codex_hooks_configured: boolean;
-    codex_feature_enabled: boolean;
-    claude_listener_ready: boolean;
-    codex_listener_ready: boolean;
-    healthy: boolean;
-    issues: string[];
-  } | null>(null);
+  const [integrationStatus, setIntegrationStatus] = useState<{ enabled: boolean } | null>(null);
 
-  useEffect(() => {
+  const refreshIntegrationStatus = async () => {
     if (!("__TAURI_INTERNALS__" in window)) return;
 
-    let cancelled = false;
-    const run = async () => {
-      setIntegrationStatusLoading(true);
-      try {
-        const { invoke } = await import("@tauri-apps/api/core");
-        const status = await invoke<{
-          enabled: boolean;
-          claude_hooks_configured: boolean;
-          codex_hooks_configured: boolean;
-          codex_feature_enabled: boolean;
-          claude_listener_ready: boolean;
-          codex_listener_ready: boolean;
-          healthy: boolean;
-          issues: string[];
-        }>("get_notifications_and_hooks_status");
-        if (!cancelled) {
-          setIntegrationStatus(status);
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setIntegrationMessage(`状态检查失败: ${e}`);
-        }
-      } finally {
-        if (!cancelled) {
-          setIntegrationStatusLoading(false);
-        }
-      }
-    };
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const status = await invoke<{ enabled: boolean }>("get_notifications_and_hooks_status");
+      setIntegrationStatus({ enabled: status.enabled });
+    } catch {}
+  };
 
-    run();
-    return () => {
-      cancelled = true;
-    };
+  useEffect(() => {
+    void refreshIntegrationStatus();
   }, []);
+
+  const handleToggleIntegrations = async () => {
+    if (integrationBusy || !("__TAURI_INTERNALS__" in window)) return;
+
+    const nextEnabled = !(integrationStatus?.enabled ?? true);
+    setIntegrationBusy(true);
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke<string>("set_notifications_and_hooks_enabled", {
+        enabled: nextEnabled,
+      });
+      await refreshIntegrationStatus();
+    } catch {
+    } finally {
+      setIntegrationBusy(false);
+    }
+  };
 
   const handleAutoDetect = async () => {
     if (detecting) return;
@@ -637,14 +424,12 @@ function ApiKeysTab() {
         anthropic_base_url: string;
         openai_api_key: string;
         openai_base_url: string;
-        claude_settings: Record<string, unknown>;
         claude_cli_path: string;
         codex_cli_path: string;
         claude_oauth_logged_in: boolean;
         claude_oauth_email: string;
       }>("detect_cli_config");
 
-      // 回填检测到的值（仅当本地为空时才填充）
       const filled: string[] = [];
       if (result.anthropic_api_key && !settings.apiKeys.anthropic) {
         await saveProviderApiKey("anthropic", result.anthropic_api_key);
@@ -654,11 +439,11 @@ function ApiKeysTab() {
         await saveProviderApiKey("openai", result.openai_api_key);
         filled.push("OpenAI Key");
       }
-      if (result.anthropic_base_url && !settings.runner.apiBaseUrl) {
+      if (result.anthropic_base_url && settings.runner.type === "claude-code" && !settings.runner.apiBaseUrl) {
         patchRunner({ apiBaseUrl: result.anthropic_base_url });
         filled.push("Anthropic Base URL");
       }
-      if (result.openai_base_url && !settings.runner.apiBaseUrl) {
+      if (result.openai_base_url && settings.runner.type === "codex" && !settings.runner.apiBaseUrl) {
         patchRunner({ apiBaseUrl: result.openai_base_url });
         filled.push("OpenAI Base URL");
       }
@@ -666,320 +451,81 @@ function ApiKeysTab() {
       if (filled.length > 0) {
         setDetectResult(`✓ 已导入: ${filled.join(", ")}`);
       } else if (result.claude_oauth_logged_in) {
-        // Claude Code OAuth 登录模式：不需要 API Key
         const email = result.claude_oauth_email ? ` (${result.claude_oauth_email})` : "";
         setDetectResult(`✓ Claude Code 已登录${email}，无需配置 API Key`);
-      } else if (result.claude_cli_path) {
-        setDetectResult("Claude CLI 已安装，但未检测到 API Key。请在下方手动填写，或运行 claude /login 登录");
+      } else if (result.claude_cli_path || result.codex_cli_path) {
+        setDetectResult("已检测到 CLI 安装，可继续按需填写 API Key / Base URL");
       } else {
-        setDetectResult("未检测到配置。请手动填写 API Key 或安装 Claude Code CLI");
+        setDetectResult("未检测到配置。请手动填写 API Key 或安装 Claude Code / Codex CLI");
       }
     } catch (e) {
       setDetectResult(`检测失败: ${e}`);
     } finally {
       setDetecting(false);
-      setTimeout(() => setDetectResult(""), 6000);
-    }
-  };
-
-  const refreshIntegrationStatus = async () => {
-    if (!("__TAURI_INTERNALS__" in window)) return;
-
-    setIntegrationStatusLoading(true);
-    try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      const status = await invoke<{
-        enabled: boolean;
-        claude_hooks_configured: boolean;
-        codex_hooks_configured: boolean;
-        codex_feature_enabled: boolean;
-        claude_listener_ready: boolean;
-        codex_listener_ready: boolean;
-        healthy: boolean;
-        issues: string[];
-      }>("get_notifications_and_hooks_status");
-      setIntegrationStatus(status);
-    } catch (e) {
-      setIntegrationMessage(`状态检查失败: ${e}`);
-    } finally {
-      setIntegrationStatusLoading(false);
-    }
-  };
-
-  const handleToggleIntegrations = async () => {
-    if (integrationBusy || !("__TAURI_INTERNALS__" in window)) return;
-
-    const nextEnabled = !(integrationStatus?.enabled ?? true);
-    setIntegrationBusy(true);
-    setIntegrationMessage("");
-    try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      const result = await invoke<string>("set_notifications_and_hooks_enabled", {
-        enabled: nextEnabled,
-      });
-      setIntegrationMessage(result);
-      await refreshIntegrationStatus();
-    } catch (e) {
-      setIntegrationMessage(`切换失败: ${e}`);
-    } finally {
-      setIntegrationBusy(false);
-    }
-  };
-
-  const handleTestNotification = async () => {
-    if (testingNotification || !("__TAURI_INTERNALS__" in window)) return;
-
-    setTestingNotification(true);
-    setIntegrationMessage("");
-    try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("send_notification", {
-        title: "Code Bar",
-        body: "通知与 Hooks 当前可用，这条测试通知由设置页发出。",
-      });
-      setIntegrationMessage("测试通知已发送。若未看到弹窗，请检查系统通知权限。");
-    } catch (e) {
-      setIntegrationMessage(`通知发送失败: ${e}`);
-    } finally {
-      setTestingNotification(false);
     }
   };
 
   return (
     <div>
-      <div style={{
-        padding: "8px 10px 12px",
-        fontSize: 11,
-        color: C.textMuted,
-        lineHeight: "1.6",
-        borderBottom: `1px solid ${C.border}`,
-        marginBottom: 14,
-      }}>
-        所有密钥均加密存储在本地，不上传任何服务器。切换模型服务商时会自动使用对应的密钥。
-      </div>
+      <RunnerSettings />
 
-      {/* 操作按钮区 */}
-      <div style={{ marginBottom: 14, display: "flex", gap: 7, alignItems: "center", flexWrap: "wrap" }}>
-        <button
-          onClick={handleAutoDetect}
-          disabled={detecting}
-          style={{
-            padding: "7px 12px", borderRadius: 8,
-            border: `1px solid ${C.accentBdr}`,
-            background: C.accentBg, color: C.accentTxt,
-            fontSize: 11, fontWeight: 500,
-            cursor: detecting ? "default" : "pointer",
-            opacity: detecting ? 0.6 : 1, transition: "filter 0.12s",
-          }}
-          onMouseEnter={e => e.currentTarget.style.filter = "brightness(0.9)"}
-          onMouseLeave={e => e.currentTarget.style.filter = "none"}
-        >
-          {detecting ? "检测中…" : "🔍 自动检测系统配置"}
-        </button>
-        <button
-          onClick={async () => {
-            const { invoke } = await import("@tauri-apps/api/core");
-            const result = await invoke("debug_env", { command: "claude" });
-            alert(JSON.stringify(result, null, 2));
-          }}
-          style={{
-            padding: "7px 12px", borderRadius: 8,
-            border: `1px solid ${C.yellowBdr}`,
-            background: C.yellowBg, color: C.yellow,
-            fontSize: 11, fontWeight: 500, cursor: "pointer",
-            transition: "filter 0.12s",
-          }}
-          onMouseEnter={e => e.currentTarget.style.filter = "brightness(0.9)"}
-          onMouseLeave={e => e.currentTarget.style.filter = "none"}
-        >
-          🐞 诊断 PATH
-        </button>
-        {detectResult && (
-          <span style={{ fontSize: 10, color: C.textMuted }}>{detectResult}</span>
-        )}
-      </div>
-      <HintText>
-        自动从 Claude 配置目录、系统环境变量（ANTHROPIC_API_KEY 等）及 Shell 配置文件中检测 API Key 和 Base URL
-      </HintText>
-
-      <SectionDivider label="通知与 Hooks" />
-      <div
-        style={{
-          marginBottom: 14,
-          padding: "12px 14px",
-          background: C.surfaceHi,
-          border: `1px solid ${C.border}`,
-          borderRadius: 12,
-        }}
-      >
-        <div style={{ fontSize: 12, color: C.text, fontWeight: 600, marginBottom: 4 }}>
-          Provider Hooks 与系统通知
-        </div>
-        <div style={{ fontSize: 11, color: C.textMuted, lineHeight: "1.6", marginBottom: 10 }}>
-          这里统一管理 Claude / Codex provider hooks 和系统通知。关闭后不再自动同步 provider 生命周期，也不会再发送 Code Bar 通知。
-        </div>
-
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
-          <StatusPill
-            ok={integrationStatus?.enabled ?? false}
-            label={(integrationStatus?.enabled ?? false) ? "已启用" : "已关闭"}
-          />
-          <StatusPill
-            ok={integrationStatus?.claude_hooks_configured ?? false}
-            label="Claude Hooks"
-          />
-          <StatusPill
-            ok={integrationStatus?.codex_hooks_configured ?? false}
-            label="Codex Hooks"
-          />
-          <StatusPill
-            ok={integrationStatus?.codex_feature_enabled ?? false}
-            label="Codex Feature"
-          />
-          <StatusPill
-            ok={Boolean(integrationStatus?.claude_listener_ready && integrationStatus?.codex_listener_ready)}
-            label="Listener"
-          />
-          <StatusPill
-            ok={integrationStatus?.healthy ?? false}
-            label="健康检查"
-          />
-        </div>
-
-        <div style={{ display: "flex", gap: 7, alignItems: "center", flexWrap: "wrap" }}>
-          <button
-            onClick={handleToggleIntegrations}
-            disabled={integrationBusy || integrationStatus === null}
-            style={{
-              padding: "7px 12px",
-              borderRadius: 8,
-              border: `1px solid ${(integrationStatus?.enabled ?? false) ? C.yellowBdr : C.greenBdr}`,
-              background: (integrationStatus?.enabled ?? false) ? C.yellowBg : C.greenBg,
-              color: (integrationStatus?.enabled ?? false) ? C.yellow : C.greenDark,
-              fontSize: 11,
-              fontWeight: 600,
-              cursor: (integrationBusy || integrationStatus === null) ? "default" : "pointer",
-              opacity: (integrationBusy || integrationStatus === null) ? 0.6 : 1,
-              transition: "filter 0.12s",
-            }}
-            onMouseEnter={e => e.currentTarget.style.filter = "brightness(0.9)"}
-            onMouseLeave={e => e.currentTarget.style.filter = "none"}
-          >
-            {integrationBusy
-              ? "处理中…"
-              : (integrationStatus?.enabled ?? false)
-              ? "关闭通知与 Hooks"
-              : "启用通知与 Hooks"}
-          </button>
-
-          <button
-            onClick={refreshIntegrationStatus}
-            disabled={integrationStatusLoading}
-            style={{
-              padding: "7px 12px",
-              borderRadius: 8,
-              border: `1px solid ${C.purpleBdr}`,
-              background: C.purpleBg,
-              color: C.purple,
-              fontSize: 11,
-              fontWeight: 500,
-              cursor: integrationStatusLoading ? "default" : "pointer",
-              opacity: integrationStatusLoading ? 0.6 : 1,
-              transition: "filter 0.12s",
-            }}
-            onMouseEnter={e => e.currentTarget.style.filter = "brightness(0.9)"}
-            onMouseLeave={e => e.currentTarget.style.filter = "none"}
-          >
-            {integrationStatusLoading ? "检查中…" : "重新校验"}
-          </button>
-
-          <button
-            onClick={handleTestNotification}
-            disabled={testingNotification || integrationStatus === null || !(integrationStatus?.enabled ?? false)}
-            style={{
-              padding: "7px 12px",
-              borderRadius: 8,
-              border: `1px solid ${C.accentBdr}`,
-              background: C.accentBg,
-              color: C.accentTxt,
-              fontSize: 11,
-              fontWeight: 500,
-              cursor: (testingNotification || integrationStatus === null || !(integrationStatus?.enabled ?? false)) ? "default" : "pointer",
-              opacity: (testingNotification || integrationStatus === null || !(integrationStatus?.enabled ?? false)) ? 0.6 : 1,
-              transition: "filter 0.12s",
-            }}
-            onMouseEnter={e => e.currentTarget.style.filter = "brightness(0.9)"}
-            onMouseLeave={e => e.currentTarget.style.filter = "none"}
-          >
-            {testingNotification ? "发送中…" : "测试通知"}
-          </button>
-        </div>
-
-        {integrationStatus?.issues?.length ? (
-          <div style={{ marginTop: 10, fontSize: 10, color: C.yellow, lineHeight: "1.6" }}>
-            {integrationStatus.issues.join("；")}
-          </div>
-        ) : null}
-
-        {integrationMessage ? (
-          <div style={{ marginTop: 10, fontSize: 10, color: C.textMuted, whiteSpace: "pre-wrap", lineHeight: "1.6" }}>
-            {integrationMessage}
-          </div>
-        ) : null}
-      </div>
-
+      <SectionDivider label="API Keys" />
       <ApiKeyRow
         provider="anthropic"
         label="Anthropic"
-        hint="用于 Claude Code CLI 和内置 Harness（Anthropic 模型）"
+        hint="用于 Claude Code CLI"
         placeholder="sk-ant-..."
       />
-
       <ApiKeyRow
         provider="openai"
         label="OpenAI"
-        hint="用于 OpenAI Codex CLI 和内置 Harness（OpenAI 模型）"
+        hint="用于 OpenAI Codex CLI"
         placeholder="sk-..."
       />
 
-      <ApiKeyRow
-        provider="deepseek"
-        label="DeepSeek"
-        hint="用于内置 Harness（DeepSeek 模型）"
-        placeholder="sk-..."
-      />
-
-      <ApiKeyRow
-        provider="openai-compatible"
-        label="自定义服务"
-        hint="用于 OpenAI 兼容接口"
-        placeholder="sk-... 或自定义 token"
-      />
-    </div>
-  );
-}
-
-// ── Harness Tab ───────────────────────────────────────────────
-
-function HarnessTab() {
-  const { settings, patchHarness, patchSettings } = useSettingsStore();
-  const workspaces = useWorkspaceStore((s) => s.workspaces);
-  const sessions = useSessionStore((s) => s.sessions);
-  const [pruningWorktrees, setPruningWorktrees] = useState(false);
-  const { harness } = settings;
-
-  return (
-    <div>
-      <HintText>
-        以下权限仅在「内置 Harness」模式下生效，CLI 工具的权限由其自身控制。
-      </HintText>
       <div style={{ marginTop: 8 }}>
-        <Toggle value={harness.allowReadFiles}    onChange={(v) => patchHarness({ allowReadFiles: v })}    label="读取文件"    desc="读取工作目录内的文件" />
-        <Toggle value={harness.allowWriteFiles}   onChange={(v) => patchHarness({ allowWriteFiles: v })}   label="写入文件"    desc="创建或修改文件" />
-        <Toggle value={harness.confirmBeforeWrite}onChange={(v) => patchHarness({ confirmBeforeWrite: v })} label="写入前确认"  desc="每次写操作前弹出确认框" />
-        <Toggle value={harness.allowRunCommands}  onChange={(v) => patchHarness({ allowRunCommands: v })}  label="执行命令"    desc="运行 Shell 命令" />
-        <Toggle value={harness.confirmBeforeRun}  onChange={(v) => patchHarness({ confirmBeforeRun: v })}  label="执行前确认"  desc="每次执行前弹出确认框" />
-        <Toggle value={harness.allowNetworkRequests} onChange={(v) => patchHarness({ allowNetworkRequests: v })} label="网络请求" desc="调用外部 HTTP 接口" />
+        <button
+          onClick={() => { void handleAutoDetect(); }}
+          disabled={detecting}
+          style={{
+            padding: "7px 12px",
+            borderRadius: 8,
+            border: `1px solid ${C.accentBdr}`,
+            background: C.accentBg,
+            color: C.accent,
+            fontSize: 11,
+            fontWeight: 600,
+            cursor: detecting ? "default" : "pointer",
+            opacity: detecting ? 0.6 : 1,
+          }}
+        >
+          {detecting ? "检测中…" : "自动检测 CLI 配置"}
+        </button>
+        {detectResult && (
+          <div style={{ marginTop: 8, fontSize: 11, color: C.textDim, lineHeight: "1.6" }}>
+            {detectResult}
+          </div>
+        )}
+      </div>
+
+      <SectionDivider label="通知" />
+      <div
+        style={{
+          padding: "0 14px",
+          background: "var(--ci-surface-hi)",
+          borderRadius: 14,
+        }}
+      >
+        <Toggle
+          value={integrationStatus?.enabled ?? false}
+          onChange={() => {
+            void handleToggleIntegrations();
+          }}
+          label="通知"
+          disabled={integrationBusy || integrationStatus === null}
+          showDivider={false}
+          labelStyle={{ fontSize: 14, fontWeight: 600 }}
+        />
       </div>
 
       <SectionDivider label="Git Diff" />
@@ -1078,8 +624,6 @@ function HarnessTab() {
     </div>
   );
 }
-
-// ── Appearance Tab ────────────────────────────────────────────
 
 function AppearanceTab() {
   const { settings, patchSettings } = useSettingsStore();
@@ -1257,70 +801,6 @@ function AppearanceTab() {
   );
 }
 
-function SystemTab() {
-  const [integrationBusy, setIntegrationBusy] = useState(false);
-  const [integrationStatus, setIntegrationStatus] = useState<{
-    enabled: boolean;
-  } | null>(null);
-
-  const refreshIntegrationStatus = async () => {
-    if (!("__TAURI_INTERNALS__" in window)) return;
-
-    try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      const status = await invoke<{
-        enabled: boolean;
-      }>("get_notifications_and_hooks_status");
-      setIntegrationStatus({ enabled: status.enabled });
-    } catch {}
-  };
-
-  useEffect(() => {
-    void refreshIntegrationStatus();
-  }, []);
-
-  const handleToggleIntegrations = async () => {
-    if (integrationBusy || !("__TAURI_INTERNALS__" in window)) return;
-
-    const nextEnabled = !(integrationStatus?.enabled ?? true);
-    setIntegrationBusy(true);
-    try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      await invoke<string>("set_notifications_and_hooks_enabled", {
-        enabled: nextEnabled,
-      });
-      await refreshIntegrationStatus();
-    } catch {
-    } finally {
-      setIntegrationBusy(false);
-    }
-  };
-
-  return (
-    <div>
-      <div
-        style={{
-          padding: "0 14px",
-          background: "var(--ci-surface-hi)",
-          borderRadius: 14,
-        }}
-      >
-        <Toggle
-          value={integrationStatus?.enabled ?? false}
-          onChange={() => {
-            void handleToggleIntegrations();
-          }}
-          label="通知"
-          disabled={integrationBusy || integrationStatus === null}
-          showDivider={false}
-          labelStyle={{ fontSize: 14, fontWeight: 600 }}
-        />
-      </div>
-    </div>
-  );
-}
-
-// ── 主 Settings Panel ─────────────────────────────────────────
 type VisibleSettingsTab = "system" | "appearance";
 
 const SETTINGS_NAV_ITEMS: {
@@ -1339,9 +819,6 @@ const SETTINGS_NAV_ITEMS: {
     icon: "⚙",
   },
 ];
-
-const LEGACY_SETTINGS_TABS = [RunnerTab, ModelTab, ApiKeysTab, HarnessTab];
-void LEGACY_SETTINGS_TABS;
 
 function resolveVisibleSettingsTab(tab: string): VisibleSettingsTab {
   return tab === "appearance" ? "appearance" : "system";

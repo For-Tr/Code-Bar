@@ -469,49 +469,21 @@ export default function App() {
   // ── 启动时加载保存的 API Key ──────────────────────────────
   useEffect(() => {
     if (!("__TAURI_INTERNALS__" in window)) return;
-    const store = useSettingsStore.getState();
-    const { patchModel, saveProviderApiKey, patchSettings, settings } = store;
 
-    // 一次性写入智谱 GLM 配置（仅在 openai-compatible key 为空时）
-    const GLM_KEY = "2662038d1d0a4fba8e15f1e17114519c.G1vYtztPnytuiI3x";
-    const GLM_BASE_URL = "https://open.bigmodel.cn/api/paas/v4";
-    const GLM_MODEL = "glm-4-flash";
-
-    if (!settings.apiKeys["openai-compatible"]) {
-      saveProviderApiKey("openai-compatible", GLM_KEY).catch(() => {});
-    }
-    if (!settings.model.baseUrl || settings.model.baseUrl === "") {
-      patchModel({ baseUrl: GLM_BASE_URL });
-    }
-    if (settings.model.provider === "openai-compatible" && (settings.model.model === "custom" || !settings.model.model)) {
-      patchModel({ model: GLM_MODEL });
-    }
-
-    // 加载当前激活 provider 的 key（从 Rust keychain）
-    invoke<string>("load_api_key", { provider: settings.model.provider })
-      .then((key) => {
-        if (key) patchModel({ apiKey: key });
-      })
-      .catch(() => {});
-
-    // 同时加载所有 provider 的 key 到 apiKeys
-    (["anthropic", "openai", "deepseek", "openai-compatible"] as const).forEach((p) => {
-      invoke<string>("load_api_key", { provider: p })
+    (["anthropic", "openai"] as const).forEach((provider) => {
+      invoke<string>("load_api_key", { provider })
         .then((key) => {
           if (key) {
             useSettingsStore.setState((s) => ({
               settings: {
                 ...s.settings,
-                apiKeys: { ...s.settings.apiKeys, [p]: key },
+                apiKeys: { ...s.settings.apiKeys, [provider]: key },
               },
             }));
           }
         })
         .catch(() => {});
     });
-
-    void patchSettings; // suppress unused warning
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── 监听 Rust 侧事件 ──────────────────────────────────────
