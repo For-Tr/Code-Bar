@@ -516,6 +516,8 @@ export function SessionList() {
     }
   };
 
+  if (!activeWorkspace) return null;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
       {/* 区域头 */}
@@ -567,8 +569,6 @@ export function SessionList() {
         </button>
       </div>
 
-      {activeWorkspace ? (
-        <>
           {/* Session 列表 */}
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <SortableContext items={wsSessions.map((s) => s.id)} strategy={verticalListSortingStrategy}>
@@ -598,22 +598,7 @@ export function SessionList() {
             </SortableContext>
           </DndContext>
 
-          {wsSessions.length === 0 && (
-            <div
-              style={{
-              textAlign: "center", padding: "22px 0 12px",
-              color: "var(--ci-text-dim)", fontSize: 12,
-              border: "1px dashed var(--ci-pill-border)",
-              borderRadius: 18,
-              background: "var(--ci-panel-grad)",
-              boxShadow: "var(--ci-inset-highlight), var(--ci-card-shadow)",
-              textShadow,
-            }}>
-              点击「+ 新建」开始新会话
-            </div>
-          )}
-        </>
-      ) : (
+      {wsSessions.length === 0 && (
         <div
           style={{
           textAlign: "center", padding: "22px 0 12px",
@@ -624,7 +609,7 @@ export function SessionList() {
           boxShadow: "var(--ci-inset-highlight), var(--ci-card-shadow)",
           textShadow,
         }}>
-          先创建一个 Workspace 再开始会话
+          点击「+ 新建」开始新会话
         </div>
       )}
     </div>
