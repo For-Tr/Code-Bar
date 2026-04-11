@@ -2,7 +2,7 @@
 
 <div align="center">
 
-A macOS / Windows menu bar and tray app built with Tauri + React. Unified management of multiple AI coding tools (Claude Code, Codex, custom CLI, built-in Harness) with Git worktree isolation, PTY terminal integration, and persistent session state.
+A macOS / Windows desktop app built with Tauri + React, with menu bar / tray entry points. Unified management of multiple AI coding tools (Claude Code, Codex, custom CLI, built-in Harness) with Git worktree isolation, PTY terminal integration, and persistent session state.
 
 <p>
   <a href="https://github.com/For-Tr/Code-Bar/releases/latest/download/code-bar-windows-x64.msi">Windows x64 MSI</a> |
@@ -42,7 +42,7 @@ English | [简体中文](./README.zh.md)
 - **🪟 Windows Compatibility** - Windows CLI path detection, `.cmd` / `.bat` shim handling, PowerShell hook bridge, and native folder picker
 - **📊 Git Diff Viewer** - Live diff display with diff2html rendering, auto-refresh at configurable intervals
 - **🔧 Native Harness** - Direct LLM API calls without any external CLI dependency
-- **🎨 Adaptive Theme** - Light / Dark / System themes with Framer Motion animations, menu bar / tray resident
+- **🎨 Adaptive Theme** - Light / Dark / System themes with Framer Motion animations and menu bar / tray entry points
 - **📍 Position Memory** - Window position and size are remembered across restarts
 - **🔔 Notification Callback** - Native click-to-focus notifications on macOS, desktop notification fallback on Windows
 - **⚙️ Rich Settings** - Runner, model, API keys, tool permissions, and appearance — all configurable
@@ -51,7 +51,7 @@ English | [简体中文](./README.zh.md)
 
 ### Supported Platforms
 
-- **macOS** - menu bar mode, native notification click callback
+- **macOS** - standard app activation with a menu bar icon, native notification click callback
 - **Windows** - tray mode, PowerShell / loopback TCP bridge for hooks and notifications
 
 ### Prerequisites
@@ -77,12 +77,14 @@ pnpm install
 ### Development
 
 ```bash
-# Start development server
-pnpm dev
-
-# Run Tauri in another terminal
+# Run the full Tauri app in development
 pnpm tauri dev
+
+# Frontend-only development server
+pnpm dev
 ```
+
+When multiple worktrees run `pnpm tauri dev` at the same time, Code Bar automatically picks a free Vite/HMR port pair and updates Tauri `devUrl` to match.
 
 ### Build
 
@@ -208,15 +210,15 @@ code-bar/
 
 Application configuration is located at `src-tauri/tauri.conf.json`:
 
-- **Window**: Initial 360×220 px, transparent background, always-on-top, no taskbar entry
+- **Window**: Initial 360×220 px, transparent background, standard window stacking, hidden from the Windows taskbar
 - **Expansion**: Auto-expands to ~700×600 when PTY terminal is open
 - **Position Memory**: Last window position/size restored on next launch
-- **Behavior**: macOS menu bar resident (`Accessory` activation policy), Windows tray resident
+- **Behavior**: macOS uses `Regular` activation policy with a menu bar icon and standard app switching, Windows remains tray-resident
 - **Bundle ID**: `com.xiangbingzhou.code-bar`
 
 ## 🪟 Platform Notes
 
-- **macOS**: uses native menu bar behavior, Unix Domain Socket hook bridge, and click-to-focus notification callbacks
+- **macOS**: uses a menu bar icon plus standard app activation, Unix Domain Socket hook bridge, and click-to-focus notification callbacks
 - **Windows**: uses tray mode, PowerShell hook bridge assets under `~/.codebar/hooks`, loopback TCP event routing, and `.cmd` / `.bat` PTY compatibility
 - **Codex on Windows**: upstream Codex hooks are currently disabled on Windows, so Code Bar configures `~/.codex/config.toml` `notify` instead of `~/.codex/hooks.json`
 

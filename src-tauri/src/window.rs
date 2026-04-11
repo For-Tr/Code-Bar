@@ -128,16 +128,9 @@ pub fn setup_popup_window(win: &tauri::WebviewWindow) {
         let clear: cocoa::base::id = msg_send![class!(NSColor), clearColor];
         let _: () = msg_send![ns_window, setBackgroundColor: clear];
 
-        // NSWindowCollectionBehavior：
-        //   1   = CanJoinAllSpaces（在所有 Space 可见）
-        //   16  = FullScreenAuxiliary（全屏时也可见）
-        //   128 = IgnoresCycle（不出现在 Cmd+Tab）
-        // 注意：不加 Stationary(64)，加了会阻止用户拖动窗口
-        let behavior: u64 = 1 | 16 | 128;
-        let _: () = msg_send![ns_window, setCollectionBehavior: behavior];
-
-        // NSFloatingWindowLevel = 3
-        let _: () = msg_send![ns_window, setLevel: 3_i64];
+        // 使用普通窗口层级，避免像 Spotlight / Raycast 那样浮在其他应用之上。
+        // NSNormalWindowLevel = 0
+        let _: () = msg_send![ns_window, setLevel: 0_i64];
 
         // hidesOnDeactivate = false：切换应用时弹窗不消失
         let _: () = msg_send![ns_window, setHidesOnDeactivate: NO];
@@ -320,7 +313,7 @@ fn create_popup(app: &tauri::AppHandle) {
         .inner_size(default_w, default_h)
         .decorations(false)
         .transparent(true)
-        .always_on_top(true)
+        .always_on_top(false)
         .shadow(false)
         .resizable(true)
         .skip_taskbar(true)

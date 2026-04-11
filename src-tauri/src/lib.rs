@@ -95,7 +95,7 @@ pub fn run() {
         .manage(RestoringLock::new())
         .setup(|app| {
             #[cfg(target_os = "macos")]
-            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+            app.set_activation_policy(tauri::ActivationPolicy::Regular);
 
             // 启动 CLI hook 接收器（Unix Socket / Windows Loopback TCP）
             hooks::start_hook_socket_servers(app.handle().clone());
@@ -129,7 +129,7 @@ pub fn run() {
             .inner_size(popup_w, popup_h)
             .decorations(false)
             .transparent(true)
-            .always_on_top(true)
+            .always_on_top(false)
             .shadow(false)
             .resizable(true)
             .skip_taskbar(true)
