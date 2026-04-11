@@ -1,103 +1,17 @@
 import React, { useEffect, useState } from "react";
-import {
-  useSettingsStore,
-  RUNNER_LABELS,
-  RUNNER_PROVIDER,
-  type RunnerType,
-  type ThemeMode,
-  isGlassTheme,
-} from "../store/settingsStore";
-import { useWorkspaceStore } from "../store/workspaceStore";
-import { useSessionStore } from "../store/sessionStore";
+import { useSettingsStore, type ThemeMode, isGlassTheme } from "../store/settingsStore";
 
 const C = {
-  bg:        "var(--ci-bg)",
   surface:   "var(--ci-surface)",
-  surfaceHi: "var(--ci-surface-hi)",
   border:    "var(--ci-border)",
-  borderHi:  "var(--ci-border-hi)",
-  borderMed: "var(--ci-border-med)",
   text:      "var(--ci-text)",
   textMuted: "var(--ci-text-muted)",
   textDim:   "var(--ci-text-dim)",
   accent:    "var(--ci-accent)",
   accentBg:  "var(--ci-accent-bg)",
   accentBdr: "var(--ci-accent-bdr)",
-  accentTxt: "var(--ci-accent)",
-  green:     "var(--ci-green)",
-  greenDark: "var(--ci-green-dark)",
-  greenBg:   "var(--ci-green-bg)",
-  greenBdr:  "var(--ci-green-bdr)",
   red:       "var(--ci-red)",
-  yellow:    "var(--ci-yellow)",
-  yellowBg:  "var(--ci-yellow-bg)",
-  yellowBdr: "var(--ci-yellow-bdr)",
 };
-
-function FieldLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 5, fontWeight: 500 }}>
-      {children}
-    </div>
-  );
-}
-
-function TextInput({
-  value, onChange, type = "text", placeholder, disabled,
-}: {
-  value: string; onChange: (v: string) => void;
-  type?: string; placeholder?: string; disabled?: boolean;
-}) {
-  const [focused, setFocused] = useState(false);
-  return (
-    <input
-      type={type}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder={placeholder}
-      disabled={disabled}
-      onFocus={() => setFocused(true)}
-      onBlur={() => setFocused(false)}
-      style={{
-        width: "100%",
-        background: focused ? C.surfaceHi : C.surface,
-        border: `1px solid ${focused ? C.borderHi : C.border}`,
-        borderRadius: 8,
-        padding: "7px 10px",
-        fontSize: 12,
-        color: C.text,
-        outline: "none",
-        boxSizing: "border-box",
-        transition: "border-color 0.15s, box-shadow 0.15s, background 0.15s",
-        opacity: disabled ? 0.45 : 1,
-        boxShadow: focused ? "0 0 0 3px rgba(0,122,255,0.12)" : "none",
-        fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif",
-      }}
-    />
-  );
-}
-
-function HintText({ children }: { children: React.ReactNode }) {
-  return (
-    <div style={{ fontSize: 11, color: C.textDim, marginTop: 5, lineHeight: "1.5" }}>
-      {children}
-    </div>
-  );
-}
-
-function SectionDivider({ label }: { label: string }) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "16px 0 10px" }}>
-      <span style={{
-        fontSize: 10, fontWeight: 600, letterSpacing: "0.08em",
-        textTransform: "uppercase", color: C.textDim, whiteSpace: "nowrap",
-      }}>
-        {label}
-      </span>
-      <div style={{ flex: 1, height: 1, background: C.border }} />
-    </div>
-  );
-}
 
 function Toggle({
   value, onChange, label, desc, disabled = false, showDivider = true, labelStyle,
@@ -135,491 +49,6 @@ function Toggle({
           transform: value ? "translateX(16px)" : "translateX(0)",
           transition: "transform 0.22s",
         }} />
-      </div>
-    </div>
-  );
-}
-
-function CardSelect<T extends string>({
-  value, onChange, options,
-}: {
-  value: T;
-  onChange: (v: T) => void;
-  options: { value: T; label: string; hint?: string; badge?: React.ReactNode }[];
-}) {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-      {options.map((o) => {
-        const active = o.value === value;
-        return (
-          <button
-            key={o.value}
-            onClick={() => onChange(o.value)}
-            style={{
-              display: "flex", alignItems: "center", gap: 10,
-              padding: "9px 12px",
-              background: active ? C.surfaceHi : C.surface,
-              border: `1px solid ${active ? "rgba(0,122,255,0.3)" : C.border}`,
-              borderRadius: 10,
-              cursor: "pointer",
-              textAlign: "left",
-              transition: "all 0.15s",
-              boxShadow: active ? "0 1px 4px rgba(0,0,0,0.06)" : "none",
-            }}
-          >
-            <div style={{
-              width: 16, height: 16, borderRadius: "50%", flexShrink: 0,
-              border: `2px solid ${active ? C.accent : C.borderMed}`,
-              background: active ? C.accent : "transparent",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              transition: "all 0.15s",
-            }}>
-              {active && <div style={{ width: 5, height: 5, borderRadius: "50%", background: "#fff" }} />}
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{
-                fontSize: 12, fontWeight: 500,
-                color: active ? C.text : C.textMuted,
-                display: "flex", alignItems: "center", gap: 6,
-              }}>
-                {o.label}
-                {o.badge}
-              </div>
-              {o.hint && (
-                <div style={{ fontSize: 10, color: C.textDim, marginTop: 1 }}>
-                  {o.hint}
-                </div>
-              )}
-            </div>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function ApiKeyRow({
-  provider,
-  label,
-  hint,
-  placeholder,
-}: {
-  provider: "anthropic" | "openai";
-  label: string;
-  hint?: string;
-  placeholder?: string;
-}) {
-  const { settings, saveProviderApiKey } = useSettingsStore();
-  const stored = settings.apiKeys[provider] || "";
-  const [inputVal, setInputVal] = useState(stored);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const hasKey = stored.length > 0;
-
-  const handleSave = async () => {
-    if (saving) return;
-    setSaving(true);
-    await saveProviderApiKey(provider, inputVal);
-    setSaving(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  };
-
-  return (
-    <div style={{
-      marginBottom: 10,
-      padding: "10px 12px",
-      background: C.surfaceHi,
-      border: `1px solid ${C.border}`,
-      borderRadius: 10,
-    }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: hint ? 4 : 8 }}>
-        <span style={{ fontSize: 12, fontWeight: 600, color: C.text }}>{label}</span>
-        {hasKey ? (
-          <span style={{
-            fontSize: 10, padding: "1px 6px", borderRadius: 99,
-            background: C.greenBg, border: `1px solid ${C.greenBdr}`,
-            color: C.greenDark, fontWeight: 600,
-          }}>✓ 已配置</span>
-        ) : (
-          <span style={{
-            fontSize: 10, padding: "1px 6px", borderRadius: 99,
-            background: C.yellowBg, border: `1px solid ${C.yellowBdr}`,
-            color: C.yellow, fontWeight: 600,
-          }}>未配置</span>
-        )}
-      </div>
-      {hint && <div style={{ fontSize: 10, color: C.textDim, marginBottom: 8 }}>{hint}</div>}
-      <div style={{ display: "flex", gap: 7 }}>
-        <div style={{ flex: 1 }}>
-          <TextInput
-            type="password"
-            value={inputVal}
-            onChange={setInputVal}
-            placeholder={placeholder ?? "sk-..."}
-          />
-        </div>
-        <button
-          onClick={handleSave}
-          style={{
-            padding: "0 14px",
-            borderRadius: 8,
-            border: `1px solid ${saved ? C.greenBdr : C.accentBdr}`,
-            background: saved ? C.greenBg : C.accentBg,
-            color: saved ? C.greenDark : C.accentTxt,
-            fontSize: 12, fontWeight: 600, cursor: "pointer",
-            whiteSpace: "nowrap",
-            transition: "all 0.2s",
-            opacity: saving ? 0.6 : 1,
-          }}
-        >
-          {saved ? "✓ 已保存" : saving ? "…" : "保存"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-const RUNNER_HINTS: Record<RunnerType, string> = {
-  "claude-code": "调用本地 claude CLI，需提前安装",
-  "codex": "调用本地 codex CLI，需提前安装",
-};
-
-function RunnerSettings() {
-  const { settings, patchRunner, openSettings } = useSettingsStore();
-  const { runner } = settings;
-
-  const runnerOptions = (Object.entries(RUNNER_LABELS) as [RunnerType, string][]).map(
-    ([value, label]) => ({
-      value,
-      label,
-      hint: RUNNER_HINTS[value],
-      badge: (
-        <span style={{
-          fontSize: 9, padding: "1px 5px", borderRadius: 99,
-          background: settings.apiKeys[RUNNER_PROVIDER[value]] ? C.greenBg : C.yellowBg,
-          border: `1px solid ${settings.apiKeys[RUNNER_PROVIDER[value]] ? C.greenBdr : C.yellowBdr}`,
-          color: settings.apiKeys[RUNNER_PROVIDER[value]] ? C.green : C.yellow,
-        }}>
-          {settings.apiKeys[RUNNER_PROVIDER[value]] ? "Key 已配置" : "需要 API Key"}
-        </span>
-      ),
-    })
-  );
-
-  return (
-    <div>
-      <SectionDivider label="Runner" />
-      <CardSelect<RunnerType>
-        value={runner.type}
-        onChange={(v) => patchRunner({ type: v })}
-        options={runnerOptions}
-      />
-
-      <div style={{
-        marginTop: 12, padding: "10px 12px",
-        background: C.yellowBg, border: `1px solid ${C.yellowBdr}`,
-        borderRadius: 10,
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-      }}>
-        <div style={{ fontSize: 11, color: C.yellow, fontWeight: 500 }}>
-          {runner.type === "claude-code" ? "Claude Code 需要 Anthropic API Key" : "Codex 需要 OpenAI API Key"}
-        </div>
-        <button
-          onClick={() => openSettings("system")}
-          style={{
-            fontSize: 11, padding: "4px 10px", borderRadius: 7,
-            background: C.yellow, border: "none",
-            color: "#fff", cursor: "pointer", fontWeight: 600,
-          }}
-        >
-          查看下方配置
-        </button>
-      </div>
-
-      <SectionDivider label="CLI 路径" />
-      <FieldLabel>可执行文件（留空从 PATH 自动查找）</FieldLabel>
-      <TextInput
-        value={runner.cliPath ?? ""}
-        onChange={(v) => patchRunner({ cliPath: v })}
-        placeholder={runner.type === "claude-code" ? "/usr/local/bin/claude" : "/usr/local/bin/codex"}
-      />
-
-      <SectionDivider label="三方 API（可选）" />
-      <FieldLabel>
-        {runner.type === "claude-code" ? "API Base URL（ANTHROPIC_BASE_URL）" : "API Base URL（OPENAI_BASE_URL）"}
-      </FieldLabel>
-      <TextInput
-        value={runner.apiBaseUrl ?? ""}
-        onChange={(v) => patchRunner({ apiBaseUrl: v })}
-        placeholder={runner.type === "claude-code" ? "https://openrouter.ai/api/v1  （留空用官方端点）" : "https://api.openai.com/v1  （留空用官方端点）"}
-      />
-      <HintText>
-        {runner.type === "claude-code"
-          ? "支持 OpenRouter、AWS Bedrock 代理、Cloudflare AI Gateway 等兼容 Anthropic API 的服务"
-          : "支持 Azure OpenAI、DeepSeek 等兼容 OpenAI API 的服务"}
-      </HintText>
-      <div style={{ marginTop: 10 }}>
-        <FieldLabel>专属 API Key（留空则使用下方保存的对应密钥）</FieldLabel>
-        <TextInput
-          type="password"
-          value={runner.apiKeyOverride ?? ""}
-          onChange={(v) => patchRunner({ apiKeyOverride: v })}
-          placeholder={runner.type === "claude-code" ? "sk-or-...  （三方服务专属 key）" : "sk-..."}
-        />
-      </div>
-    </div>
-  );
-}
-
-function SystemTab() {
-  const { settings, patchSettings, saveProviderApiKey, patchRunner } = useSettingsStore();
-  const workspaces = useWorkspaceStore((s) => s.workspaces);
-  const sessions = useSessionStore((s) => s.sessions);
-  const [pruningWorktrees, setPruningWorktrees] = useState(false);
-  const [detecting, setDetecting] = useState(false);
-  const [detectResult, setDetectResult] = useState("");
-  const [integrationBusy, setIntegrationBusy] = useState(false);
-  const [integrationStatus, setIntegrationStatus] = useState<{ enabled: boolean } | null>(null);
-
-  const refreshIntegrationStatus = async () => {
-    if (!("__TAURI_INTERNALS__" in window)) return;
-
-    try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      const status = await invoke<{ enabled: boolean }>("get_notifications_and_hooks_status");
-      setIntegrationStatus({ enabled: status.enabled });
-    } catch {}
-  };
-
-  useEffect(() => {
-    void refreshIntegrationStatus();
-  }, []);
-
-  const handleToggleIntegrations = async () => {
-    if (integrationBusy || !("__TAURI_INTERNALS__" in window)) return;
-
-    const nextEnabled = !(integrationStatus?.enabled ?? true);
-    setIntegrationBusy(true);
-    try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      await invoke<string>("set_notifications_and_hooks_enabled", {
-        enabled: nextEnabled,
-      });
-      await refreshIntegrationStatus();
-    } catch {
-    } finally {
-      setIntegrationBusy(false);
-    }
-  };
-
-  const handleAutoDetect = async () => {
-    if (detecting) return;
-    setDetecting(true);
-    setDetectResult("");
-    try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      const result = await invoke<{
-        anthropic_api_key: string;
-        anthropic_base_url: string;
-        openai_api_key: string;
-        openai_base_url: string;
-        claude_cli_path: string;
-        codex_cli_path: string;
-        claude_oauth_logged_in: boolean;
-        claude_oauth_email: string;
-      }>("detect_cli_config");
-
-      const filled: string[] = [];
-      if (result.anthropic_api_key && !settings.apiKeys.anthropic) {
-        await saveProviderApiKey("anthropic", result.anthropic_api_key);
-        filled.push("Anthropic Key");
-      }
-      if (result.openai_api_key && !settings.apiKeys.openai) {
-        await saveProviderApiKey("openai", result.openai_api_key);
-        filled.push("OpenAI Key");
-      }
-      if (result.anthropic_base_url && settings.runner.type === "claude-code" && !settings.runner.apiBaseUrl) {
-        patchRunner({ apiBaseUrl: result.anthropic_base_url });
-        filled.push("Anthropic Base URL");
-      }
-      if (result.openai_base_url && settings.runner.type === "codex" && !settings.runner.apiBaseUrl) {
-        patchRunner({ apiBaseUrl: result.openai_base_url });
-        filled.push("OpenAI Base URL");
-      }
-
-      if (filled.length > 0) {
-        setDetectResult(`✓ 已导入: ${filled.join(", ")}`);
-      } else if (result.claude_oauth_logged_in) {
-        const email = result.claude_oauth_email ? ` (${result.claude_oauth_email})` : "";
-        setDetectResult(`✓ Claude Code 已登录${email}，无需配置 API Key`);
-      } else if (result.claude_cli_path || result.codex_cli_path) {
-        setDetectResult("已检测到 CLI 安装，可继续按需填写 API Key / Base URL");
-      } else {
-        setDetectResult("未检测到配置。请手动填写 API Key 或安装 Claude Code / Codex CLI");
-      }
-    } catch (e) {
-      setDetectResult(`检测失败: ${e}`);
-    } finally {
-      setDetecting(false);
-    }
-  };
-
-  return (
-    <div>
-      <RunnerSettings />
-
-      <SectionDivider label="API Keys" />
-      <ApiKeyRow
-        provider="anthropic"
-        label="Anthropic"
-        hint="用于 Claude Code CLI"
-        placeholder="sk-ant-..."
-      />
-      <ApiKeyRow
-        provider="openai"
-        label="OpenAI"
-        hint="用于 OpenAI Codex CLI"
-        placeholder="sk-..."
-      />
-
-      <div style={{ marginTop: 8 }}>
-        <button
-          onClick={() => { void handleAutoDetect(); }}
-          disabled={detecting}
-          style={{
-            padding: "7px 12px",
-            borderRadius: 8,
-            border: `1px solid ${C.accentBdr}`,
-            background: C.accentBg,
-            color: C.accent,
-            fontSize: 11,
-            fontWeight: 600,
-            cursor: detecting ? "default" : "pointer",
-            opacity: detecting ? 0.6 : 1,
-          }}
-        >
-          {detecting ? "检测中…" : "自动检测 CLI 配置"}
-        </button>
-        {detectResult && (
-          <div style={{ marginTop: 8, fontSize: 11, color: C.textDim, lineHeight: "1.6" }}>
-            {detectResult}
-          </div>
-        )}
-      </div>
-
-      <SectionDivider label="通知" />
-      <div
-        style={{
-          padding: "0 14px",
-          background: "var(--ci-surface-hi)",
-          borderRadius: 14,
-        }}
-      >
-        <Toggle
-          value={integrationStatus?.enabled ?? false}
-          onChange={() => {
-            void handleToggleIntegrations();
-          }}
-          label="通知"
-          disabled={integrationBusy || integrationStatus === null}
-          showDivider={false}
-          labelStyle={{ fontSize: 14, fontWeight: 600 }}
-        />
-      </div>
-
-      <SectionDivider label="Git Diff" />
-      <Toggle
-        value={settings.autoRefreshDiff}
-        onChange={(v) => patchSettings({ autoRefreshDiff: v })}
-        label="自动刷新 Diff"
-        desc="Session 运行期间定期刷新 git diff"
-      />
-      {settings.autoRefreshDiff && (
-        <div style={{ marginTop: 10 }}>
-          <FieldLabel>刷新间隔（秒）</FieldLabel>
-          <TextInput
-            type="number"
-            value={String(settings.diffRefreshIntervalSec)}
-            onChange={(v) => patchSettings({ diffRefreshIntervalSec: Number(v) })}
-          />
-        </div>
-      )}
-
-      <SectionDivider label="Git Worktree" />
-      <div style={{
-        padding: "10px 12px",
-        background: C.accentBg,
-        border: `1px solid ${C.accentBdr}`,
-        borderRadius: 10,
-      }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: C.accent, marginBottom: 3 }}>
-          ✦ 独立 Worktree 工作流
-        </div>
-        <div style={{ fontSize: 11, color: C.textMuted, lineHeight: "1.6" }}>
-          每次任务在独立的 <code style={{ color: C.accent, fontSize: 10 }}>git worktree</code> 中运行，不影响主工作区。
-          任务完成后可查看 Diff，选择「合并到主分支」或「丢弃」。
-        </div>
-        <button
-          onClick={async () => {
-            if (pruningWorktrees) return;
-            if (!("__TAURI_INTERNALS__" in window)) return;
-            if (!confirm("将扫描并删除孤儿 worktree 目录（不在当前 session 列表中的 worktree）。是否继续？")) {
-              return;
-            }
-
-            setPruningWorktrees(true);
-            try {
-              const { invoke } = await import("@tauri-apps/api/core");
-              let total = 0;
-              const lines: string[] = [];
-
-              for (const ws of workspaces) {
-                const knownPaths = sessions
-                  .filter((s) => s.workspaceId === ws.id && s.worktreePath)
-                  .map((s) => s.worktreePath as string);
-
-                const pruned = await invoke<string[]>("prune_orphan_worktrees", {
-                  workdir: ws.path,
-                  knownWorktreePaths: knownPaths,
-                });
-
-                if (pruned.length > 0) {
-                  total += pruned.length;
-                  lines.push(`${ws.name}: ${pruned.length} 个`);
-                }
-              }
-
-              if (total > 0) {
-                alert(`已清理 ${total} 个孤儿 worktree。\n${lines.join("\n")}`);
-              } else {
-                alert("未发现需要清理的孤儿 worktree。");
-              }
-            } catch (e) {
-              alert(`清理失败: ${e}`);
-            } finally {
-              setPruningWorktrees(false);
-            }
-          }}
-          disabled={pruningWorktrees}
-          style={{
-            marginTop: 10,
-            padding: "7px 12px",
-            borderRadius: 8,
-            border: `1px solid ${C.yellowBdr}`,
-            background: C.yellowBg,
-            color: C.yellow,
-            fontSize: 11,
-            fontWeight: 500,
-            cursor: pruningWorktrees ? "default" : "pointer",
-            opacity: pruningWorktrees ? 0.6 : 1,
-            transition: "filter 0.12s",
-          }}
-          onMouseEnter={e => e.currentTarget.style.filter = "brightness(0.9)"}
-          onMouseLeave={e => e.currentTarget.style.filter = "none"}
-        >
-          {pruningWorktrees ? "清理中…" : "🧹 手动清理孤儿 Worktree"}
-        </button>
       </div>
     </div>
   );
@@ -796,6 +225,69 @@ function AppearanceTab() {
             </button>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+function SystemTab() {
+  const [integrationBusy, setIntegrationBusy] = useState(false);
+  const [integrationStatus, setIntegrationStatus] = useState<{
+    enabled: boolean;
+  } | null>(null);
+
+  const refreshIntegrationStatus = async () => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const status = await invoke<{
+        enabled: boolean;
+      }>("get_notifications_and_hooks_status");
+      setIntegrationStatus({ enabled: status.enabled });
+    } catch {}
+  };
+
+  useEffect(() => {
+    void refreshIntegrationStatus();
+  }, []);
+
+  const handleToggleIntegrations = async () => {
+    if (integrationBusy || !("__TAURI_INTERNALS__" in window)) return;
+
+    const nextEnabled = !(integrationStatus?.enabled ?? true);
+    setIntegrationBusy(true);
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke<string>("set_notifications_and_hooks_enabled", {
+        enabled: nextEnabled,
+      });
+      await refreshIntegrationStatus();
+    } catch {
+    } finally {
+      setIntegrationBusy(false);
+    }
+  };
+
+  return (
+    <div>
+      <div
+        style={{
+          padding: "0 14px",
+          background: "var(--ci-surface-hi)",
+          borderRadius: 14,
+        }}
+      >
+        <Toggle
+          value={integrationStatus?.enabled ?? false}
+          onChange={() => {
+            void handleToggleIntegrations();
+          }}
+          label="通知"
+          disabled={integrationBusy || integrationStatus === null}
+          showDivider={false}
+          labelStyle={{ fontSize: 14, fontWeight: 600 }}
+        />
       </div>
     </div>
   );
