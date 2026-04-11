@@ -17,10 +17,10 @@ impl HookSource {
     }
 
     #[cfg(unix)]
-    pub fn socket_path(self) -> &'static str {
+    pub fn socket_path(self) -> String {
         match self {
-            Self::ClaudeCode => "/tmp/code-bar-hook-claude.sock",
-            Self::Codex => "/tmp/code-bar-hook-codex.sock",
+            Self::ClaudeCode => crate::util::hook_socket_path("code-bar-hook-claude.sock"),
+            Self::Codex => crate::util::hook_socket_path("code-bar-hook-codex.sock"),
         }
     }
 

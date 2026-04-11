@@ -60,6 +60,28 @@ pub fn home_dir() -> Option<PathBuf> {
     None
 }
 
+pub fn codebar_runtime_dir() -> PathBuf {
+    let base = home_dir().unwrap_or_else(std::env::temp_dir);
+    let dir = base.join(".codebar").join("run");
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
+pub fn codebar_tmp_dir() -> PathBuf {
+    let base = home_dir().unwrap_or_else(std::env::temp_dir);
+    let dir = base.join(".codebar").join("tmp");
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
+#[cfg(unix)]
+pub fn hook_socket_path(file_name: &str) -> String {
+    codebar_runtime_dir()
+        .join(file_name)
+        .to_string_lossy()
+        .to_string()
+}
+
 #[cfg(windows)]
 fn extract_node_script_from_cmd_shim(command: &str) -> Option<PathBuf> {
     let shim_path = PathBuf::from(command);
