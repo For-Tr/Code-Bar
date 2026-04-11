@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { motion, AnimatePresence } from "framer-motion";
 import { invoke } from "@tauri-apps/api/core";
 import { useSessionStore } from "../store/sessionStore";
-import { useSettingsStore, RUNNER_LABELS, sanitizeRunnerConfig, isGlassTheme, type RunnerType } from "../store/settingsStore";
+import { useSettingsStore, RUNNER_LABELS, isGlassTheme, type RunnerType } from "../store/settingsStore";
 import { useWorkspaceStore } from "../store/workspaceStore";
 import { PtyTerminal } from "./PtyTerminal";
 import { TrafficLights } from "./TrafficLights";
@@ -511,7 +511,6 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
 
   const runnerBadge = RUNNER_LABELS[runner.type];
 
-  const isRunning = session.status === "running";
   const waitingForPtyLaunch = querySent && !ptyEverActive && !isResumeLaunch;
   const installCmd = CLI_INSTALL_CMD[runner.type];
 

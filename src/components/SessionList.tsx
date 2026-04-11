@@ -505,15 +505,18 @@ export function SessionList() {
   const handleRemoveSession = (session: ClaudeSession) => {
     removeSession(session.id);
 
-    if ("__TAURI_INTERNALS__" in window && session.worktreePath && session.branchName) {
-      invoke("teardown_session_worktree", {
-        workdir: activeWorkspace.path,
-        worktreePath: session.worktreePath,
-        branch: session.branchName,
-      }).catch((e) => {
-        console.warn("[worktree] teardown failed:", e);
-      });
+    const workspacePath = activeWorkspace?.path;
+    if (!("__TAURI_INTERNALS__" in window) || !workspacePath || !session.worktreePath || !session.branchName) {
+      return;
     }
+
+    invoke("teardown_session_worktree", {
+      workdir: workspacePath,
+      worktreePath: session.worktreePath,
+      branch: session.branchName,
+    }).catch((e) => {
+      console.warn("[worktree] teardown failed:", e);
+    });
   };
 
   if (!activeWorkspace) return null;
