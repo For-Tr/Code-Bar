@@ -1165,25 +1165,229 @@ function AppearanceTab() {
   );
 }
 
-// ── 主 Settings Panel ─────────────────────────────────────────
+function SystemTab() {
+  const [integrationBusy, setIntegrationBusy] = useState(false);
+  const [integrationStatusLoading, setIntegrationStatusLoading] = useState(false);
+  const [integrationMessage, setIntegrationMessage] = useState("");
+  const [testingNotification, setTestingNotification] = useState(false);
+  const [integrationStatus, setIntegrationStatus] = useState<{
+    enabled: boolean;
+    claude_hooks_configured: boolean;
+    codex_hooks_configured: boolean;
+    codex_feature_enabled: boolean;
+    claude_listener_ready: boolean;
+    codex_listener_ready: boolean;
+    healthy: boolean;
+    issues: string[];
+  } | null>(null);
 
-type SettingsTab = "runner" | "model" | "apikeys" | "harness" | "appearance";
+  const refreshIntegrationStatus = async () => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+
+    setIntegrationStatusLoading(true);
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const status = await invoke<{
+        enabled: boolean;
+        claude_hooks_configured: boolean;
+        codex_hooks_configured: boolean;
+        codex_feature_enabled: boolean;
+        claude_listener_ready: boolean;
+        codex_listener_ready: boolean;
+        healthy: boolean;
+        issues: string[];
+      }>("get_notifications_and_hooks_status");
+      setIntegrationStatus(status);
+    } catch (e) {
+      setIntegrationMessage(`状态检查失败: ${e}`);
+    } finally {
+      setIntegrationStatusLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void refreshIntegrationStatus();
+  }, []);
+
+  const handleToggleIntegrations = async () => {
+    if (integrationBusy || !("__TAURI_INTERNALS__" in window)) return;
+
+    const nextEnabled = !(integrationStatus?.enabled ?? true);
+    setIntegrationBusy(true);
+    setIntegrationMessage("");
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const result = await invoke<string>("set_notifications_and_hooks_enabled", {
+        enabled: nextEnabled,
+      });
+      setIntegrationMessage(result);
+      await refreshIntegrationStatus();
+    } catch (e) {
+      setIntegrationMessage(`切换失败: ${e}`);
+    } finally {
+      setIntegrationBusy(false);
+    }
+  };
+
+  const handleTestNotification = async () => {
+    if (testingNotification || !("__TAURI_INTERNALS__" in window)) return;
+
+    setTestingNotification(true);
+    setIntegrationMessage("");
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("send_notification", {
+        title: "Code Bar",
+        body: "通知与 Hooks 当前可用，这条测试通知由系统设置发出。",
+      });
+      setIntegrationMessage("测试通知已发送。若未看到弹窗，请检查系统通知权限。");
+    } catch (e) {
+      setIntegrationMessage(`通知发送失败: ${e}`);
+    } finally {
+      setTestingNotification(false);
+    }
+  };
+
+  return (
+    <div>
+      <div
+        style={{
+          padding: "12px 14px",
+          background: C.surfaceHi,
+          border: `1px solid ${C.border}`,
+          borderRadius: 12,
+        }}
+      >
+        <div style={{ fontSize: 12, color: C.text, fontWeight: 600, marginBottom: 4 }}>
+          通知与 Hooks
+        </div>
+        <div style={{ fontSize: 11, color: C.textMuted, lineHeight: "1.6", marginBottom: 10 }}>
+          统一管理 Claude / Codex provider hooks 与系统通知。关闭后不再自动同步 provider 生命周期，也不会再发送 Code Bar 通知。
+        </div>
+
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+          <StatusPill
+            ok={integrationStatus?.enabled ?? false}
+            label={(integrationStatus?.enabled ?? false) ? "已启用" : "已关闭"}
+          />
+          <StatusPill
+            ok={integrationStatus?.claude_hooks_configured ?? false}
+            label="Claude Hooks"
+          />
+          <StatusPill
+            ok={integrationStatus?.codex_hooks_configured ?? false}
+            label="Codex Hooks"
+          />
+          <StatusPill
+            ok={integrationStatus?.codex_feature_enabled ?? false}
+            label="Codex Feature"
+          />
+          <StatusPill
+            ok={Boolean(integrationStatus?.claude_listener_ready && integrationStatus?.codex_listener_ready)}
+            label="Listener"
+          />
+          <StatusPill
+            ok={integrationStatus?.healthy ?? false}
+            label="健康检查"
+          />
+        </div>
+
+        <div style={{ display: "flex", gap: 7, alignItems: "center", flexWrap: "wrap" }}>
+          <button
+            onClick={handleToggleIntegrations}
+            disabled={integrationBusy || integrationStatus === null}
+            style={{
+              padding: "7px 12px",
+              borderRadius: 8,
+              border: `1px solid ${(integrationStatus?.enabled ?? false) ? C.yellowBdr : C.greenBdr}`,
+              background: (integrationStatus?.enabled ?? false) ? C.yellowBg : C.greenBg,
+              color: (integrationStatus?.enabled ?? false) ? C.yellow : C.greenDark,
+              fontSize: 11,
+              fontWeight: 600,
+              cursor: (integrationBusy || integrationStatus === null) ? "default" : "pointer",
+              opacity: (integrationBusy || integrationStatus === null) ? 0.6 : 1,
+              transition: "filter 0.12s",
+            }}
+            onMouseEnter={e => e.currentTarget.style.filter = "brightness(0.9)"}
+            onMouseLeave={e => e.currentTarget.style.filter = "none"}
+          >
+            {integrationBusy
+              ? "处理中…"
+              : (integrationStatus?.enabled ?? false)
+              ? "关闭通知与 Hooks"
+              : "启用通知与 Hooks"}
+          </button>
+
+          <button
+            onClick={refreshIntegrationStatus}
+            disabled={integrationStatusLoading}
+            style={{
+              padding: "7px 12px",
+              borderRadius: 8,
+              border: `1px solid ${C.purpleBdr}`,
+              background: C.purpleBg,
+              color: C.purple,
+              fontSize: 11,
+              fontWeight: 500,
+              cursor: integrationStatusLoading ? "default" : "pointer",
+              opacity: integrationStatusLoading ? 0.6 : 1,
+              transition: "filter 0.12s",
+            }}
+            onMouseEnter={e => e.currentTarget.style.filter = "brightness(0.9)"}
+            onMouseLeave={e => e.currentTarget.style.filter = "none"}
+          >
+            {integrationStatusLoading ? "检查中…" : "重新校验"}
+          </button>
+
+          <button
+            onClick={handleTestNotification}
+            disabled={testingNotification || integrationStatus === null || !(integrationStatus?.enabled ?? false)}
+            style={{
+              padding: "7px 12px",
+              borderRadius: 8,
+              border: `1px solid ${C.accentBdr}`,
+              background: C.accentBg,
+              color: C.accentTxt,
+              fontSize: 11,
+              fontWeight: 500,
+              cursor: (testingNotification || integrationStatus === null || !(integrationStatus?.enabled ?? false)) ? "default" : "pointer",
+              opacity: (testingNotification || integrationStatus === null || !(integrationStatus?.enabled ?? false)) ? 0.6 : 1,
+              transition: "filter 0.12s",
+            }}
+            onMouseEnter={e => e.currentTarget.style.filter = "brightness(0.9)"}
+            onMouseLeave={e => e.currentTarget.style.filter = "none"}
+          >
+            {testingNotification ? "发送中…" : "测试通知"}
+          </button>
+        </div>
+
+        {integrationStatus?.issues?.length ? (
+          <div style={{ marginTop: 10, fontSize: 10, color: C.yellow, lineHeight: "1.6" }}>
+            {integrationStatus.issues.join("；")}
+          </div>
+        ) : null}
+
+        {integrationMessage ? (
+          <div style={{ marginTop: 10, fontSize: 10, color: C.textMuted, whiteSpace: "pre-wrap", lineHeight: "1.6" }}>
+            {integrationMessage}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+// ── 主 Settings Panel ─────────────────────────────────────────
+const LEGACY_SETTINGS_TABS = [RunnerTab, ModelTab, ApiKeysTab, HarnessTab, AppearanceTab];
+void LEGACY_SETTINGS_TABS;
 
 export default function Settings() {
-  const { settingsOpen, activeTab, setTab, closeSettings } = useSettingsStore();
+  const { settingsOpen, closeSettings } = useSettingsStore();
   const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
   const textShadow = isGlass ? "var(--ci-glass-text-shadow)" : "none";
   const strongTextShadow = isGlass ? "var(--ci-glass-text-shadow-strong)" : "none";
 
   if (!settingsOpen) return null;
-
-  const tabs: { id: SettingsTab; label: string }[] = [
-    { id: "runner",     label: "Runner" },
-    { id: "model",      label: "模型" },
-    { id: "apikeys",    label: "API Keys" },
-    { id: "harness",    label: "Harness" },
-    { id: "appearance", label: "外观" },
-  ];
 
   return (
     <div style={{
@@ -1217,7 +1421,7 @@ export default function Settings() {
           flexShrink: 0,
           background: isGlass ? "var(--ci-toolbar-bg)" : "transparent",
         }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: C.text, letterSpacing: -0.2, textShadow: strongTextShadow }}>设置</span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: C.text, letterSpacing: -0.2, textShadow: strongTextShadow }}>系统设置</span>
           <button
             onClick={closeSettings}
             style={{
@@ -1241,51 +1445,6 @@ export default function Settings() {
           </button>
         </div>
 
-        {/* Tab bar（分段控件风格）*/}
-        <div style={{
-          display: "flex", gap: 0,
-          padding: "8px 12px",
-          borderBottom: `1px solid ${C.border}`,
-          flexShrink: 0,
-          background: isGlass ? "var(--ci-toolbar-bg)" : "transparent",
-        }}>
-          <div style={{
-            display: "flex",
-            background: "var(--ci-pill-bg)",
-            border: `1px solid var(--ci-pill-border)`,
-            borderRadius: 9, padding: 2, gap: 0,
-            width: "100%",
-            boxShadow: "var(--ci-inset-highlight)",
-          }}>
-            {tabs.map((t) => {
-              const active = activeTab === t.id;
-              return (
-                <button
-                  key={t.id}
-                  onClick={() => setTab(t.id as SettingsTab)}
-                  style={{
-                    flex: 1,
-                    padding: "5px 0",
-                    borderRadius: 7,
-                    border: "none",
-                    background: active ? "var(--ci-surface-hi)" : "transparent",
-                    color: active ? C.text : C.textMuted,
-                    fontSize: 11, fontWeight: active ? 600 : 400,
-                    cursor: "pointer",
-                    transition: isGlass ? "color 0.18s, border-color 0.18s" : "all 0.18s",
-                    boxShadow: active
-                      ? (isGlass ? "var(--ci-inset-highlight)" : "0 1px 3px rgba(0,0,0,0.12), 0 0.5px 1px rgba(0,0,0,0.08)")
-                      : "none",
-                    textShadow: active ? strongTextShadow : textShadow,
-                  }}
-                >
-                  {t.label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
         {/* Content */}
         <div style={{
           flex: 1, overflowY: "auto",
@@ -1293,11 +1452,7 @@ export default function Settings() {
           scrollbarWidth: "none",
           background: isGlass ? "var(--ci-bg-grad)" : "transparent",
         }}>
-          {activeTab === "runner"     && <RunnerTab />}
-          {activeTab === "model"      && <ModelTab />}
-          {activeTab === "apikeys"    && <ApiKeysTab />}
-          {activeTab === "harness"    && <HarnessTab />}
-          {activeTab === "appearance" && <AppearanceTab />}
+          <SystemTab />
         </div>
       </div>
     </div>

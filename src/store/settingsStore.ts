@@ -209,7 +209,7 @@ const DEFAULT_SETTINGS: Settings = {
 interface SettingsStore {
   settings: Settings;
   settingsOpen: boolean;
-  activeTab: "runner" | "model" | "harness" | "apikeys" | "appearance";
+  activeTab: "system" | "runner" | "model" | "harness" | "apikeys" | "appearance";
 
   openSettings: (tab?: SettingsStore["activeTab"]) => void;
   closeSettings: () => void;
@@ -232,12 +232,12 @@ export const useSettingsStore = create<SettingsStore>()(
     (set, get) => ({
       settings: DEFAULT_SETTINGS,
       settingsOpen: false,
-      activeTab: "runner",
+      activeTab: "system",
 
-      openSettings: (tab = "runner") =>
-        set({ settingsOpen: true, activeTab: tab }),
+      openSettings: () =>
+        set({ settingsOpen: true, activeTab: "system" }),
       closeSettings: () => set({ settingsOpen: false }),
-      setTab: (tab) => set({ activeTab: tab }),
+      setTab: () => set({ activeTab: "system" }),
 
       patchRunner: (patch) =>
         set((s) => {
