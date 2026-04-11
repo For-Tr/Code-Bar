@@ -292,12 +292,21 @@ pub fn toggle_popup(app: &tauri::AppHandle) {
             app.state::<PopupVisible>().set(false);
             let _ = win.hide();
         } else {
-            popup_log!("[popup] showing via focus_popup");
-            focus_popup(app.clone(), None);
+            popup_log!("[popup] showing via show_popup_only");
+            show_popup_only(app.clone());
         }
     } else {
         popup_log!("[popup] window not found, creating");
         create_popup(app);
+    }
+}
+
+/// 仅显示并置前窗口，不发 popup-focused（不会触发展开 session）。
+pub fn show_popup_only(app: tauri::AppHandle) {
+    if let Some(win) = app.get_webview_window("popup") {
+        show_popup(&app, &win);
+    } else {
+        create_popup(&app);
     }
 }
 

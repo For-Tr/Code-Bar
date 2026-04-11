@@ -77,7 +77,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             // 多次点击 exe 时复用已运行实例并唤起窗口。
-            window::focus_popup(app.clone(), None);
+            window::show_popup_only(app.clone());
         }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_liquid_glass::init())

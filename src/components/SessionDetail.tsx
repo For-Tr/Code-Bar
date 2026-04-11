@@ -263,6 +263,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     invoke("send_notification", {
       title: "Code Bar",
       body: `✅ ${taskName} — 已完成，等待下一步指令`,
+      sessionId: sid,
     }).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flushPendingQuery, isWindows, updateSession]);
