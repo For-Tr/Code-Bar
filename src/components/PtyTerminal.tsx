@@ -211,8 +211,12 @@ export function PtyTerminal({
   // runner/workdir 切换会通过 key 触发卸载；这里顺手停掉旧 PTY，避免旧 CLI 抢到下一条输入。
   useEffect(() => {
     return () => {
-      if (!startedRef.current) return;
-      invoke("stop_pty_session", { sessionId }).catch(() => {});
+      if (!startedRef.current && !startingRef.current) return;
+      startingRef.current = false;
+      launchTokenRef.current += 1;
+      if (startedRef.current) {
+        invoke("stop_pty_session", { sessionId }).catch(() => {});
+      }
     };
   }, [sessionId]);
 
@@ -296,6 +300,7 @@ export function PtyTerminal({
         setExited(true);
         startedRef.current = false; // 允许重启
         startingRef.current = false;
+        launchTokenRef.current += 1;
         clearLaunchMetric(sessionId);
       }
     );
@@ -455,6 +460,7 @@ export function PtyTerminal({
     startedRef.current = false;
     startingRef.current = false;
     firstDataLoggedRef.current = false;
+    launchTokenRef.current += 1;
     termRef.current?.clear();
 
     const fit = fitRef.current;
@@ -462,10 +468,13 @@ export function PtyTerminal({
     if (fit) fit.fit();
     const cols = Math.max(term?.cols ?? 80, 40);
     const rows = Math.max(term?.rows ?? 24, 12);
-    startedRef.current = true;
 
     const displayCmd = [command, ...argsRef.current].join(" ");
     term?.writeln(`\x1b[90m$ ${displayCmd}\x1b[0m`);
+
+    startingRef.current = true;
+    const launchToken = launchTokenRef.current + 1;
+    launchTokenRef.current = launchToken;
 
     invoke("start_pty_session", {
       sessionId,
@@ -477,9 +486,15 @@ export function PtyTerminal({
       env: envRef.current ?? null,
     })
       .then(() => {
+        if (launchTokenRef.current !== launchToken) return;
+        startedRef.current = true;
+        startingRef.current = false;
         onReadyRef.current?.();
       })
       .catch((e) => {
+        if (launchTokenRef.current !== launchToken) return;
+        startedRef.current = false;
+        startingRef.current = false;
         termRef.current?.writeln(`\x1b[31m启动失败: ${e}\x1b[0m`);
       });
   };

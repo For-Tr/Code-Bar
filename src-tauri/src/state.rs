@@ -48,6 +48,10 @@ impl PreExpandPos {
         *self.0.lock().unwrap() = Some(b);
     }
 
+    pub fn clear(&self) {
+        *self.0.lock().unwrap() = None;
+    }
+
     /// 取出并清空（consume-once）
     pub fn take(&self) -> Option<Bounds4> {
         self.0.lock().unwrap().take()
