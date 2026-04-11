@@ -10,6 +10,8 @@ import {
   type ThemeMode,
   isGlassTheme,
 } from "../store/settingsStore";
+import { useWorkspaceStore } from "../store/workspaceStore";
+import { useSessionStore } from "../store/sessionStore";
 // ── Design tokens（使用 CSS 变量，支持深/浅色主题）─────────────
 const C = {
   bg:        "var(--ci-bg)",
@@ -738,6 +740,9 @@ function ApiKeysTab() {
 
 function HarnessTab() {
   const { settings, patchHarness, patchSettings } = useSettingsStore();
+  const workspaces = useWorkspaceStore((s) => s.workspaces);
+  const sessions = useSessionStore((s) => s.sessions);
+  const [pruningWorktrees, setPruningWorktrees] = useState(false);
   const { harness } = settings;
 
   return (
@@ -786,6 +791,66 @@ function HarnessTab() {
           每次任务在独立的 <code style={{ color: C.accent, fontSize: 10 }}>git worktree</code> 中运行，不影响主工作区。
           任务完成后可查看 Diff，选择「合并到主分支」或「丢弃」。
         </div>
+        <button
+          onClick={async () => {
+            if (pruningWorktrees) return;
+            if (!("__TAURI_INTERNALS__" in window)) return;
+            if (!confirm("将扫描并删除孤儿 worktree 目录（不在当前 session 列表中的 worktree）。是否继续？")) {
+              return;
+            }
+
+            setPruningWorktrees(true);
+            try {
+              const { invoke } = await import("@tauri-apps/api/core");
+              let total = 0;
+              const lines: string[] = [];
+
+              for (const ws of workspaces) {
+                const knownPaths = sessions
+                  .filter((s) => s.workspaceId === ws.id && s.worktreePath)
+                  .map((s) => s.worktreePath as string);
+
+                const pruned = await invoke<string[]>("prune_orphan_worktrees", {
+                  workdir: ws.path,
+                  knownWorktreePaths: knownPaths,
+                });
+
+                if (pruned.length > 0) {
+                  total += pruned.length;
+                  lines.push(`${ws.name}: ${pruned.length} 个`);
+                }
+              }
+
+              if (total > 0) {
+                alert(`已清理 ${total} 个孤儿 worktree。\n${lines.join("\n")}`);
+              } else {
+                alert("未发现需要清理的孤儿 worktree。");
+              }
+            } catch (e) {
+              alert(`清理失败: ${e}`);
+            } finally {
+              setPruningWorktrees(false);
+            }
+          }}
+          disabled={pruningWorktrees}
+          style={{
+            marginTop: 10,
+            padding: "7px 12px",
+            borderRadius: 8,
+            border: `1px solid ${C.yellowBdr}`,
+            background: C.yellowBg,
+            color: C.yellow,
+            fontSize: 11,
+            fontWeight: 500,
+            cursor: pruningWorktrees ? "default" : "pointer",
+            opacity: pruningWorktrees ? 0.6 : 1,
+            transition: "filter 0.12s",
+          }}
+          onMouseEnter={e => e.currentTarget.style.filter = "brightness(0.9)"}
+          onMouseLeave={e => e.currentTarget.style.filter = "none"}
+        >
+          {pruningWorktrees ? "清理中…" : "🧹 手动清理孤儿 Worktree"}
+        </button>
       </div>
     </div>
   );
