@@ -458,6 +458,14 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
   // ── 用户提交 query ──
   const nativeRunnerRef = useRef<RunnerHandle | null>(null);
 
+  useEffect(() => {
+    return () => {
+      clearPendingQueryTimer();
+      nativeRunnerRef.current?.stop();
+      nativeRunnerRef.current = null;
+    };
+  }, [clearPendingQueryTimer]);
+
   const handleSubmitQuery = useCallback((q: string) => {
     const trimmed = q.trim();
     if (!trimmed || !session) return;

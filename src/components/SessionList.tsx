@@ -502,10 +502,17 @@ export function SessionList() {
     markWorktreeReady(id);
   };
 
-  const handleRemoveSession = (session: ClaudeSession) => {
+  const handleRemoveSession = async (session: ClaudeSession) => {
     removeSession(session.id);
 
-    if ("__TAURI_INTERNALS__" in window && session.worktreePath && session.branchName) {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+
+    await Promise.allSettled([
+      invoke("stop_pty_session", { sessionId: session.id }),
+      invoke("stop_runner", { sessionId: session.id }),
+    ]);
+
+    if (session.worktreePath && session.branchName) {
       invoke("teardown_session_worktree", {
         workdir: activeWorkspace.path,
         worktreePath: session.worktreePath,
@@ -583,7 +590,7 @@ export function SessionList() {
                     setActiveSession(session.id);
                     setExpandedSession(session.id);
                   }}
-                  onRemove={() => handleRemoveSession(session)}
+                  onRemove={() => { void handleRemoveSession(session); }}
                   onRotateSuspend={() => {
                     updateSession(session.id, {
                       status: session.status === "waiting" ? "suspended" : "waiting",
