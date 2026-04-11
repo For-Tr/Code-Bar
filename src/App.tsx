@@ -450,8 +450,10 @@ export default function App() {
           ? sid
           : (aid ?? ss[ss.length - 1]?.id ?? null);
       if (target) {
-        setExpandedSession(target);
-        refreshSessionDiff(target);
+        requestAnimationFrame(() => {
+          setExpandedSession(target);
+          refreshSessionDiff(target);
+        });
       }
     });
     return () => { unlisten.then((f) => f()); };
