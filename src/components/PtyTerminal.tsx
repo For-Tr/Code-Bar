@@ -131,6 +131,8 @@ export function PtyTerminal({
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const startedRef = useRef(false);
+  const startingRef = useRef(false);
+  const launchTokenRef = useRef(0);
   const [exited, setExited] = useState(false);
 
   // 读取当前主题
@@ -201,8 +203,12 @@ export function PtyTerminal({
   // runner/workdir 切换会通过 key 触发卸载；这里顺手停掉旧 PTY，避免旧 CLI 抢到下一条输入。
   useEffect(() => {
     return () => {
-      if (!startedRef.current) return;
-      invoke("stop_pty_session", { sessionId }).catch(() => {});
+      if (!startedRef.current && !startingRef.current) return;
+      startingRef.current = false;
+      launchTokenRef.current += 1;
+      if (startedRef.current) {
+        invoke("stop_pty_session", { sessionId }).catch(() => {});
+      }
     };
   }, [sessionId]);
 
@@ -281,6 +287,8 @@ export function PtyTerminal({
         termRef.current?.writeln("\x1b[90m[进程已退出]\x1b[0m");
         setExited(true);
         startedRef.current = false; // 允许重启
+        startingRef.current = false;
+        launchTokenRef.current += 1;
       }
     );
 
@@ -353,12 +361,15 @@ export function PtyTerminal({
   };
 
   useEffect(() => {
-    if (!active || startedRef.current) return;
-    startedRef.current = true;
+    if (!active || startedRef.current || startingRef.current) return;
+    startingRef.current = true;
     setExited(false);
+    const launchToken = launchTokenRef.current + 1;
+    launchTokenRef.current = launchToken;
 
     // 延迟 250ms：等 resize_popup_full 动画完成，容器达到目标尺寸
     const timer = setTimeout(() => {
+      if (launchTokenRef.current !== launchToken) return;
       const fit = fitRef.current;
       const term = termRef.current;
       if (fit) fit.fit();
@@ -383,21 +394,34 @@ export function PtyTerminal({
         env: envRef.current ?? null,
       })
         .then(() => {
+          if (launchTokenRef.current !== launchToken) return;
+          startedRef.current = true;
+          startingRef.current = false;
           // spawn 返回 = CLI 进程已启动（resolve_command_path 保证是完整路径直接 spawn）
           onReadyRef.current?.();
         })
         .catch((e) => {
+          if (launchTokenRef.current !== launchToken) return;
+          startingRef.current = false;
+          startedRef.current = false;
           termRef.current?.writeln(`\x1b[31m启动失败: ${e}\x1b[0m`);
         });
     }, 250);
 
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      if (launchTokenRef.current === launchToken && !startedRef.current) {
+        startingRef.current = false;
+      }
+    };
   }, [active, sessionId, workdir, command]);
 
   // ── 重新启动（退出后用户点击重启）───────────────────────
   const handleRestart = () => {
     setExited(false);
     startedRef.current = false;
+    startingRef.current = false;
+    launchTokenRef.current += 1;
     termRef.current?.clear();
 
     const fit = fitRef.current;
@@ -405,7 +429,9 @@ export function PtyTerminal({
     if (fit) fit.fit();
     const cols = Math.max(term?.cols ?? 80, 40);
     const rows = Math.max(term?.rows ?? 24, 12);
-    startedRef.current = true;
+    startingRef.current = true;
+    const launchToken = launchTokenRef.current + 1;
+    launchTokenRef.current = launchToken;
 
     const displayCmd = [command, ...argsRef.current].join(" ");
     term?.writeln(`\x1b[90m$ ${displayCmd}\x1b[0m`);
@@ -420,9 +446,15 @@ export function PtyTerminal({
       env: envRef.current ?? null,
     })
       .then(() => {
+        if (launchTokenRef.current !== launchToken) return;
+        startedRef.current = true;
+        startingRef.current = false;
         onReadyRef.current?.();
       })
       .catch((e) => {
+        if (launchTokenRef.current !== launchToken) return;
+        startedRef.current = false;
+        startingRef.current = false;
         termRef.current?.writeln(`\x1b[31m启动失败: ${e}\x1b[0m`);
       });
   };

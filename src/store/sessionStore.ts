@@ -172,6 +172,10 @@ export const useSessionStore = create<SessionStore>()(
             state.activeSessionId === id
               ? (sessions[0]?.id ?? null)
               : state.activeSessionId;
+          const expandedSessionId =
+            state.expandedSessionId === id
+              ? null
+              : state.expandedSessionId;
           const worktreeReadyIds = new Set(state.worktreeReadyIds);
           worktreeReadyIds.delete(id);
           const sessionOrderByWorkspace = Object.fromEntries(
@@ -180,7 +184,7 @@ export const useSessionStore = create<SessionStore>()(
               ids.filter((sid) => sid !== id),
             ])
           );
-          return { sessions, activeSessionId, worktreeReadyIds, sessionOrderByWorkspace };
+          return { sessions, activeSessionId, expandedSessionId, worktreeReadyIds, sessionOrderByWorkspace };
         }),
 
       setActiveSession: (id) =>
@@ -226,13 +230,17 @@ export const useSessionStore = create<SessionStore>()(
             state.sessions.find((s) => s.id === state.activeSessionId)?.workspaceId === workspaceId
               ? (sessions[0]?.id ?? null)
               : state.activeSessionId;
+          const expandedSessionId =
+            state.sessions.find((s) => s.id === state.expandedSessionId)?.workspaceId === workspaceId
+              ? null
+              : state.expandedSessionId;
           const removedIds = state.sessions
             .filter((s) => s.workspaceId === workspaceId)
             .map((s) => s.id);
           const worktreeReadyIds = new Set(state.worktreeReadyIds);
           removedIds.forEach((id) => worktreeReadyIds.delete(id));
           const { [workspaceId]: _, ...restOrder } = state.sessionOrderByWorkspace;
-          return { sessions, activeSessionId, worktreeReadyIds, sessionOrderByWorkspace: restOrder };
+          return { sessions, activeSessionId, expandedSessionId, worktreeReadyIds, sessionOrderByWorkspace: restOrder };
         }),
 
       markWorktreeReady: (id) =>
