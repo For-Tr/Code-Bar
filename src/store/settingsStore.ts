@@ -234,10 +234,10 @@ export const useSettingsStore = create<SettingsStore>()(
       settingsOpen: false,
       activeTab: "system",
 
-      openSettings: () =>
-        set({ settingsOpen: true, activeTab: "system" }),
+      openSettings: (tab = "system") =>
+        set({ settingsOpen: true, activeTab: tab }),
       closeSettings: () => set({ settingsOpen: false }),
-      setTab: () => set({ activeTab: "system" }),
+      setTab: (tab) => set({ activeTab: tab }),
 
       patchRunner: (patch) =>
         set((s) => {

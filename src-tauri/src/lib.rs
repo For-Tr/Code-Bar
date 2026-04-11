@@ -75,11 +75,14 @@ pub fn run() {
     #[cfg(target_os = "macos")]
     fix_path_env();
 
-    tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            // 多次点击 exe 时复用已运行实例并唤起窗口。
-            window::show_popup_only(app.clone());
-        }))
+    let builder = tauri::Builder::default();
+    #[cfg(not(debug_assertions))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+        // 多次点击 exe 时复用已运行实例并唤起窗口。
+        window::show_popup_only(app.clone());
+    }));
+
+    builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_liquid_glass::init())
         .plugin(tauri_plugin_notification::init())
