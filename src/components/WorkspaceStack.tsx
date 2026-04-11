@@ -191,6 +191,9 @@ function WorkspaceCardExpanded({
   const sessionCount = useSessionStore((s) =>
     s.sessions.filter((sess) => sess.workspaceId === ws.id).length
   );
+  const waitingCount = useSessionStore((s) =>
+    s.sessions.filter((sess) => sess.workspaceId === ws.id && sess.status === "waiting").length
+  );
   const runningCount = useSessionStore((s) =>
     s.sessions.filter((sess) => sess.workspaceId === ws.id && sess.status === "running").length
   );
@@ -251,6 +254,17 @@ function WorkspaceCardExpanded({
 
       {/* 会话数 badge */}
       <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+        {waitingCount > 0 && (
+          <span style={{
+            fontSize: 10, padding: "1px 6px", borderRadius: 99,
+            background: "var(--ci-yellow-bg)",
+            border: "1px solid var(--ci-yellow-bdr)",
+            color: "var(--ci-yellow-dark)",
+            fontWeight: 600,
+          }}>
+            {waitingCount} 待操作
+          </span>
+        )}
         {runningCount > 0 && (
           <span style={{
             fontSize: 10, padding: "1px 6px", borderRadius: 99,
