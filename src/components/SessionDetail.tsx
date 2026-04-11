@@ -7,8 +7,6 @@ import { useSettingsStore, RUNNER_LABELS, sanitizeRunnerConfig, isGlassTheme, ty
 import { useWorkspaceStore } from "../store/workspaceStore";
 import { PtyTerminal } from "./PtyTerminal";
 import { TrafficLights } from "./TrafficLights";
-import { startRunner } from "../harness/runnerRouter";
-import type { RunnerHandle } from "../harness/runnerRouter";
 
 // 弹簧参数
 const SPRING = {
@@ -136,10 +134,10 @@ interface PanelProps {
 }
 
 function hasNativeResumeBinding(
-  session: { runner?: { type?: string }; providerSessionId?: string } | undefined
+  session: { runner: { type: RunnerType }; providerSessionId?: string } | undefined
 ): boolean {
   if (!session?.providerSessionId?.trim()) return false;
-  const runnerType = session.runner?.type;
+  const runnerType = session.runner.type;
   return runnerType === "claude-code" || runnerType === "codex";
 }
 
@@ -147,7 +145,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
   const isWindows = navigator.userAgent.toLowerCase().includes("windows");
   const session = useSessionStore((s) => s.sessions.find((x) => x.id === sessionId));
   const worktreeReady = useSessionStore((s) => s.worktreeReadyIds.has(sessionId));
-  const { updateSession, appendOutput, clearOutput } = useSessionStore();
+  const { updateSession } = useSessionStore();
   const { settings, patchRunner, getRunnerConfigForType } = useSettingsStore();
   const isGlass = isGlassTheme(settings.theme);
   const textShadow = isGlass ? "var(--ci-glass-text-shadow)" : "none";
@@ -297,7 +295,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     setPendingQuery("");
     setLaunchPrompt(null);
     setLaunchResumeSessionId(
-      s && (s.runner?.type === "claude-code" || s.runner?.type === "codex")
+      s && (s.runner.type === "claude-code" || s.runner.type === "codex")
         ? (s.providerSessionId?.trim() ?? "")
         : ""
     );
@@ -332,26 +330,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     }
   }, [isOpen, querySent]);
 
-  useEffect(() => {
-    if (!session?.runner) {
-      updateSession(sessionId, { runner: { ...sanitizeRunnerConfig(settings.runner) } });
-      return;
-    }
-
-    const normalizedRunner = sanitizeRunnerConfig(session.runner);
-    if (
-      normalizedRunner.type !== session.runner.type
-      || (normalizedRunner.cliPath ?? "") !== (session.runner.cliPath ?? "")
-      || (normalizedRunner.cliArgs ?? "") !== (session.runner.cliArgs ?? "")
-      || (normalizedRunner.apiBaseUrl ?? "") !== (session.runner.apiBaseUrl ?? "")
-      || (normalizedRunner.apiKeyOverride ?? "") !== (session.runner.apiKeyOverride ?? "")
-    ) {
-      updateSession(sessionId, { runner: normalizedRunner });
-    }
-  }, [session?.runner, sessionId, settings.runner, updateSession]);
-
-  const runner = sanitizeRunnerConfig(session?.runner ?? settings.runner);
-  const isNativeMode = runner.type === "native";
+  const runner = session ? session.runner : settings.runner;
   const supportsPromptLaunch = runner.type === "claude-code" || runner.type === "codex";
   const boundResumeSessionId = supportsPromptLaunch ? (session?.providerSessionId?.trim() ?? "") : "";
   const resumeSessionId = supportsPromptLaunch
@@ -370,14 +349,11 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
 
   const cliCommand =
     runner.type === "claude-code" ? runner.cliPath || "claude"
-    : runner.type === "codex" ? runner.cliPath || "codex"
-    : runner.type === "custom-cli" ? runner.cliPath || "sh"
-    : "claude";
+    : runner.cliPath || "codex";
 
   // CLI 可用性检测
   const [cliAvailable, setCliAvailable] = useState<boolean | null>(null);
   const recheckCli = useCallback(() => {
-    if (isNativeMode) { setCliAvailable(true); return; }
     setCliAvailable(null);
     invoke<boolean>("check_cli", { command: cliCommand })
       .then((ok) => {
@@ -385,7 +361,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
         if (ok) setInstalling(false);
       })
       .catch(() => setCliAvailable(false));
-  }, [isNativeMode, cliCommand]);
+  }, [cliCommand]);
 
   useEffect(() => {
     recheckCli();
@@ -394,7 +370,6 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
 
   // PTY 退出后标记 done
   useEffect(() => {
-    if (isNativeMode) return;
     const u = listen<{ session_id: string }>("pty-exit", ({ payload }) => {
       if (payload.session_id !== sessionIdRef.current) return;
       setTimeout(() => {
@@ -404,7 +379,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     });
     return () => { u.then((f: () => void) => f()); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isNativeMode]);
+  }, []);
 
   // ── 构建注入给 PTY 进程的环境变量 ──
   // 包含：CODE_BAR_* 上下文信息 + CLI 所需的 API Key / Base URL
@@ -436,28 +411,22 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     // ── CLI 专用：注入 API Key 和 Base URL ──
     // apiKeyOverride 优先，否则从 apiKeys 取对应服务商的 key
     const apiKey = runner.apiKeyOverride?.trim()
-      || settings.apiKeys?.[runner.type === "claude-code" ? "anthropic" : runner.type === "codex" ? "openai" : "openai-compatible"]
+      || settings.apiKeys?.[runner.type === "claude-code" ? "anthropic" : "openai"]
       || "";
     const apiBaseUrl = runner.apiBaseUrl?.trim() ?? "";
 
     if (runner.type === "claude-code") {
       if (apiKey)     env.push(["ANTHROPIC_API_KEY", apiKey]);
       if (apiBaseUrl) env.push(["ANTHROPIC_BASE_URL", apiBaseUrl]);
-    } else if (runner.type === "codex") {
+    } else {
       if (apiKey)     env.push(["OPENAI_API_KEY", apiKey]);
       if (apiBaseUrl) env.push(["OPENAI_BASE_URL", apiBaseUrl]);
-    } else if (runner.type === "custom-cli") {
-      // 自定义 CLI：通用变量名，CLI 自己读取
-      if (apiKey)     env.push(["API_KEY", apiKey]);
-      if (apiBaseUrl) env.push(["API_BASE_URL", apiBaseUrl]);
     }
 
     return env;
   }, [session, workspaces, runner, settings.apiKeys]);
 
   // ── 用户提交 query ──
-  const nativeRunnerRef = useRef<RunnerHandle | null>(null);
-
   const handleSubmitQuery = useCallback((q: string) => {
     const trimmed = q.trim();
     if (!trimmed || !session) return;
@@ -465,35 +434,6 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     lastQuerySentAtRef.current = Date.now();
     updateSession(session.id, { name: title, currentTask: trimmed, status: "running" });
     setQuerySent(true);
-
-    // ── Native 模式 ──
-    if (isNativeMode) {
-      clearOutput(sessionIdRef.current);
-      const activeApiKey = settings.apiKeys?.[settings.model.provider] || settings.model.apiKey || "";
-      startRunner({
-        sessionId: session.id,
-        workdir: session.workdir,
-        task: trimmed,
-        runner,
-        model: { ...settings.model, apiKey: activeApiKey },
-        harness: settings.harness,
-        onOutput: (line) => appendOutput(sessionIdRef.current, line),
-        onDone: () => {
-          updateSession(sessionIdRef.current, { status: "done", currentTask: "已完成" });
-          setQuerySent(false);
-        },
-        onError: (msg) => {
-          updateSession(sessionIdRef.current, { status: "error", currentTask: msg });
-          setQuerySent(false);
-        },
-      }).then((handle) => {
-        nativeRunnerRef.current = handle;
-      }).catch((e) => {
-        updateSession(sessionIdRef.current, { status: "error", currentTask: String(e) });
-        setQuerySent(false);
-      });
-      return;
-    }
 
     // ── PTY 模式 ──
     if (ptyReadyRef.current) {
@@ -506,15 +446,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
       pendingQueryRef.current = trimmed;
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, updateSession, appendOutput, clearOutput, flushPendingQuery, isNativeMode, isWindows, ptyEverActive, runner, settings.apiKeys, settings.model, settings.harness, supportsPromptLaunch]);
-
-  const handleStopNative = useCallback(() => {
-    nativeRunnerRef.current?.stop();
-    nativeRunnerRef.current = null;
-    updateSession(sessionId, { status: "idle" });
-    setQuerySent(false);
-    setPendingQuery("");
-  }, [sessionId, updateSession]);
+  }, [session, updateSession, flushPendingQuery, isWindows, ptyEverActive, supportsPromptLaunch]);
 
   const handleInstall = useCallback(() => {
     const cmd = CLI_INSTALL_CMD[runner.type];
@@ -577,13 +509,10 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
 
   if (!session) return null;
 
-  const runnerBadge = isNativeMode
-    ? RUNNER_LABELS["native"]
-    : cliCommand.split("/").pop() ?? cliCommand;
+  const runnerBadge = RUNNER_LABELS[runner.type];
 
   const isRunning = session.status === "running";
-  const waitingForPtyLaunch = !isNativeMode && querySent && !ptyEverActive && !isResumeLaunch;
-  const sessionOutput = session.output ?? [];
+  const waitingForPtyLaunch = querySent && !ptyEverActive && !isResumeLaunch;
   const installCmd = CLI_INSTALL_CMD[runner.type];
 
   // CLI 基础 args（不含 task，task 通过 write_pty 写入）
@@ -592,9 +521,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
       ? (resumeSessionId
           ? ["--resume", resumeSessionId, "--dangerously-skip-permissions"]
           : ["--dangerously-skip-permissions"])
-      : runner.type === "codex"
-      ? (resumeSessionId ? ["resume", resumeSessionId] : [])
-      : runner.cliArgs ? runner.cliArgs.split(/\s+/).filter(Boolean) : [];
+      : (resumeSessionId ? ["resume", resumeSessionId] : []);
 
   const contextEnv = buildContextEnv();
   const panelRadius = isGlass ? "var(--ci-shell-radius)" : 14;
@@ -622,7 +549,6 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
   const installOverlayBackground = isGlass ? "transparent" : "var(--ci-pty-panel-bg)";
   const installStripBackground = isGlass ? "var(--ci-toolbar-bg)" : "transparent";
   const installPromptColor = isGlass ? "var(--ci-text-dim)" : "var(--ci-pty-mask-footer)";
-  const terminalSurface = isGlass ? "var(--ci-code-bg)" : "var(--ci-pty-term-bg)";
   const queryCardShadow = isGlass
     ? "var(--ci-inset-highlight), var(--ci-card-shadow-strong)"
     : "none";
@@ -696,23 +622,6 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
         >
           {runnerBadge}
         </span>
-
-        {isNativeMode && isRunning && (
-          <button
-            onClick={handleStopNative}
-            style={{
-              background: "rgba(255,59,48,0.12)",
-              border: "1px solid rgba(255,59,48,0.28)",
-              borderRadius: 6, padding: "2px 10px",
-              color: "#ff6b6b", fontSize: 11, cursor: "pointer",
-              transition: "background 0.15s",
-            }}
-            onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,59,48,0.22)")}
-            onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,59,48,0.12)")}
-          >
-            停止
-          </button>
-        )}
 
         {installing && (
           <button
@@ -801,53 +710,30 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
           )}
         </AnimatePresence>
 
-        {/* ── Native 模式：输出面板 ── */}
-        {isNativeMode && querySent && (
-          <div style={{
-            flex: 1, overflow: "auto",
-            padding: "12px 16px",
-            background: terminalSurface,
-          }}>
-            <pre style={{
-              fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-              fontSize: isGlass ? 12.5 : 12,
-              lineHeight: isGlass ? "1.7" : "1.6",
-              color: isGlass ? "rgba(11,34,56,0.94)" : "rgba(230,230,235,0.82)",
-              whiteSpace: "pre-wrap",
-              wordBreak: "break-word",
-              margin: 0,
-            }}>
-              {sessionOutput.join("\n")}
-            </pre>
-          </div>
-        )}
-
         {/* ── PTY 终端：面板打开即启动（常驻），发送 query 后可见 ── */}
-        {!isNativeMode && (
-          <div style={{
-            position: "absolute",
-            inset: 0,
-            overflow: "hidden",
-            padding: isGlass ? 0 : "8px 4px 4px",
-            opacity: querySent && ptyEverActive ? 1 : 0,
-            pointerEvents: querySent && ptyEverActive ? "auto" : "none",
-          }}>
-            <PtyTerminal
-              sessionId={sessionId}
-              command={cliCommand}
-              args={cliBaseArgs}
-              workdir={session.workdir}
-              active={isOpen && querySent && ptyEverActive}
-              initialPrompt={launchPrompt}
-              supportsPromptArg={supportsPromptLaunch}
-              onReady={handlePtyReady}
-              onWaiting={handlePtyWaiting}
-              onRunning={handlePtyRunning}
-              onError={handlePtyError}
-              env={contextEnv}
-            />
-          </div>
-        )}
+        <div style={{
+          position: "absolute",
+          inset: 0,
+          overflow: "hidden",
+          padding: isGlass ? 0 : "8px 4px 4px",
+          opacity: querySent && ptyEverActive ? 1 : 0,
+          pointerEvents: querySent && ptyEverActive ? "auto" : "none",
+        }}>
+          <PtyTerminal
+            sessionId={sessionId}
+            command={cliCommand}
+            args={cliBaseArgs}
+            workdir={session.workdir}
+            active={isOpen && querySent && ptyEverActive}
+            initialPrompt={launchPrompt}
+            supportsPromptArg={supportsPromptLaunch}
+            onReady={handlePtyReady}
+            onWaiting={handlePtyWaiting}
+            onRunning={handlePtyRunning}
+            onError={handlePtyError}
+            env={contextEnv}
+          />
+        </div>
 
         {/* Query 输入遮罩 */}
         <AnimatePresence>
@@ -896,9 +782,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
                     描述你的任务
                   </div>
                   <div style={{ fontSize: 11, color: overlayHint }}>
-                    {isNativeMode
-                      ? `使用内置 Harness 调用 ${settings.model.model}`
-                      : `回车后将自动启动 ${runnerBadge} 并透传给 AI`}
+                    {`回车后将自动启动当前会话的运行器（${runnerBadge}），并将内容透传给 AI`}
                   </div>
                 </div>
 
@@ -919,33 +803,35 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
                   </div>
                 )}
 
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "center" }}>
-                  {(Object.entries(RUNNER_LABELS) as [RunnerType, string][]).map(([type, label]) => {
-                    const active = runner.type === type;
-                    return (
-                      <button
-                        key={type}
-                        onClick={() => handleSwitchRunner(type)}
-                        disabled={waitingForPtyLaunch}
-                        style={{
-                          fontSize: 10, padding: "3px 10px", borderRadius: 99,
-                          background: active ? "var(--ci-accent-bg)" : actionButtonBackground,
-                          border: active ? "1px solid var(--ci-accent-bdr)" : actionButtonBorder,
-                          color: active ? "var(--ci-accent)" : actionButtonText,
-                          cursor: waitingForPtyLaunch ? "default" : "pointer",
-                          transition: "all 0.15s",
-                          fontWeight: active ? 600 : 400,
-                          opacity: waitingForPtyLaunch ? 0.7 : 1,
-                        }}
-                      >
-                        {label}
-                      </button>
-                    );
-                  })}
-                </div>
+                {!querySent && (
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "center" }}>
+                    {(Object.entries(RUNNER_LABELS) as [RunnerType, string][]).map(([type, label]) => {
+                      const active = runner.type === type;
+                      return (
+                        <button
+                          key={type}
+                          onClick={() => handleSwitchRunner(type)}
+                          disabled={waitingForPtyLaunch}
+                          style={{
+                            fontSize: 10, padding: "3px 10px", borderRadius: 99,
+                            background: active ? "var(--ci-accent-bg)" : actionButtonBackground,
+                            border: active ? "1px solid var(--ci-accent-bdr)" : actionButtonBorder,
+                            color: active ? "var(--ci-accent)" : actionButtonText,
+                            cursor: waitingForPtyLaunch ? "default" : "pointer",
+                            transition: "all 0.15s",
+                            fontWeight: active ? 600 : 400,
+                            opacity: waitingForPtyLaunch ? 0.7 : 1,
+                          }}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
 
                 {/* CLI 不可用警告 + 一键安装 */}
-                {!isNativeMode && cliAvailable === false && (
+                {cliAvailable === false && (
                   <div style={{
                     width: "100%",
                     background: "var(--ci-yellow-bg)",
@@ -965,9 +851,6 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
                       )}
                       {runner.type === "codex" && (
                         <>安装命令：<code style={{ color: "rgba(255,195,80,0.8)", fontFamily: "'JetBrains Mono', monospace", fontSize: 10 }}>npm install -g @openai/codex</code></>
-                      )}
-                      {runner.type === "custom-cli" && (
-                        <>请在设置中配置正确的可执行文件路径</>
                       )}
                     </div>
                     {installCmd && (

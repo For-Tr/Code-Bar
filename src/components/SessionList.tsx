@@ -103,6 +103,7 @@ function SessionCard({
   onRemove: () => void;
   onRotateSuspend: () => void;
 }) {
+  const runnerLabel = RUNNER_LABELS[session.runner.type];
   const cfg = STATUS_CONFIG[session.status];
   const isWaiting = session.status === "waiting";
   const isSuspended = session.status === "suspended";
@@ -186,13 +187,23 @@ function SessionCard({
       <StatusDot status={session.status} isGlass={isGlass} />
 
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
           <span style={{
             color: isActive ? "var(--ci-text)" : isWaiting ? "var(--ci-text)" : "var(--ci-text-muted)",
             fontSize: 12, fontWeight: isWaiting ? 700 : 600,
             overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            minWidth: 0,
           }}>
             {session.name}
+          </span>
+          <span style={{
+            fontSize: 9.5, padding: "1px 6px", borderRadius: 99,
+            background: "var(--ci-accent-bg)",
+            border: "1px solid var(--ci-accent-bdr)",
+            color: "var(--ci-accent)",
+            flexShrink: 0, fontWeight: 600,
+          }}>
+            {runnerLabel}
           </span>
           {/* 状态 badge：idle 时不显示 */}
           {session.status !== "idle" && (
@@ -260,26 +271,16 @@ function SessionCard({
             display: "flex", alignItems: "center", gap: 4,
           }}>
             <span style={{
-              fontSize: 9, padding: "1px 5px", borderRadius: 99,
+              fontSize: 9, padding: "1px 6px", borderRadius: 99,
               background: "var(--ci-purple-bg)",
               border: "1px solid var(--ci-purple-bdr)",
               color: "var(--ci-purple)",
               fontFamily: "monospace",
               overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-              maxWidth: 80,
+              maxWidth: 140,
             }}>
               ⎇ {session.branchName.replace("ci/", "")}
             </span>
-            {session.worktreePath && (
-              <span style={{
-                fontSize: 9, padding: "1px 5px", borderRadius: 99,
-                background: "var(--ci-green-bg)",
-                border: "1px solid var(--ci-green-bdr)",
-                color: "var(--ci-green-dark)",
-              }}>
-                worktree
-              </span>
-            )}
             {session.diffFiles.length > 0 && (
               <>
                 <span style={{ opacity: 0.35 }}>·</span>
@@ -444,8 +445,6 @@ export function SessionList() {
     s.workspaces.find((w) => w.id === activeWorkspaceId)
   );
   const runner = sanitizeRunnerConfig(useSettingsStore((s) => s.settings.runner));
-  const runnerType = runner.type;
-  const runnerLabel = RUNNER_LABELS[runnerType];
   const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
   const textShadow = isGlass ? "var(--ci-glass-text-shadow)" : "none";
 
@@ -537,7 +536,7 @@ export function SessionList() {
             letterSpacing: "0.03em",
             textTransform: "uppercase",
           }}>
-            {runnerLabel} 会话
+            会话
           </span>
         </div>
 
@@ -607,7 +606,7 @@ export function SessionList() {
           boxShadow: "var(--ci-inset-highlight), var(--ci-card-shadow)",
           textShadow,
         }}>
-          点击「+ 新建」开始 {runnerLabel} 会话
+          点击「+ 新建」开始新会话
         </div>
       )}
     </div>

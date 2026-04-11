@@ -357,6 +357,9 @@ struct PopupFocusedPayload {
 /// - 无论当前窗口是否可见，都强制置于前台
 #[tauri::command]
 pub fn focus_popup(app: tauri::AppHandle, session_id: Option<String>) {
+    // 通知点击唤起时，先清掉旧的展开前快照，避免收起时恢复到过期的小窗尺寸。
+    app.state::<crate::state::PreExpandPos>().clear();
+
     if let Some(win) = app.get_webview_window("popup") {
         let _ = win.show();
 

@@ -37,7 +37,7 @@ pub fn parse_claude_line(line: &str) -> String {
 
 // ── Tauri Commands ────────────────────────────────────────────────
 
-/// 启动任意 Runner（claude-code / codex / custom-cli）
+/// 启动任意 Runner（claude-code / codex）
 #[tauri::command]
 pub async fn start_runner(
     app: tauri::AppHandle,
@@ -127,18 +127,7 @@ pub async fn start_runner(
             }
             cmd.arg("exec").arg("--color").arg("never").arg(&task);
         }
-        "custom-cli" => {
-            for arg in &rewritten_args {
-                cmd.arg(arg);
-            }
-            cmd.arg(&task);
-        }
-        _ => {
-            for arg in &rewritten_args {
-                cmd.arg(arg);
-            }
-            cmd.arg(&task);
-        }
+        _ => unreachable!("unsupported runner type: {runner_type}"),
     }
 
     let mut child = cmd.spawn().map_err(|e| {

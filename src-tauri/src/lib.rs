@@ -1,7 +1,6 @@
 // ── 模块声明 ──────────────────────────────────────────────────────
 mod cli_detect;
 mod git;
-mod harness;
 mod hooks;
 mod integration_control;
 mod keystore;
@@ -204,13 +203,6 @@ pub fn run() {
             runner::stop_runner,
             runner::start_claude_session,
             runner::stop_claude_session,
-            // NativeHarness 工具
-            harness::harness_read_file,
-            harness::harness_write_file,
-            harness::harness_list_dir,
-            harness::harness_run_command,
-            harness::harness_git_diff,
-            harness::harness_confirm,
             // CLI 检测
             cli_detect::check_cli,
             cli_detect::debug_env,
