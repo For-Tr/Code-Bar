@@ -3,6 +3,7 @@ mod cli_detect;
 mod git;
 mod harness;
 mod hooks;
+mod integration_control;
 mod keystore;
 mod notification;
 mod provider_sessions;
@@ -97,10 +98,14 @@ pub fn run() {
             // 启动 CLI hook 接收器（Unix Socket / Windows Loopback TCP）
             hooks::start_hook_socket_servers(app.handle().clone());
 
-            // 自动配置 Claude / Codex hooks（幂等）
-            if let Err(e) = hooks::setup_all_hooks() {
-                let _ = e;
-            } else {
+            // 启动时按持久化偏好自动协调通知与 hooks 配置。
+            match hooks::reconcile_integrations_on_startup(app.handle()) {
+                Ok(message) => {
+                    eprintln!("[hooks] startup reconcile ok: {message}");
+                }
+                Err(e) => {
+                    eprintln!("[hooks] startup reconcile failed: {e}");
+                }
             }
 
             // 隐藏默认主窗口
@@ -236,6 +241,8 @@ pub fn run() {
             hooks::setup_all_hooks,
             hooks::setup_claude_hooks,
             hooks::setup_codex_hooks,
+            hooks::set_notifications_and_hooks_enabled,
+            hooks::get_notifications_and_hooks_status,
             hooks::trust_workspace,
             // 支持点击回调的原生通知（macOS 常驻等待 + click callback）
             notification::send_notification_with_callback,

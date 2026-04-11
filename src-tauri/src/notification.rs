@@ -118,6 +118,11 @@ pub fn send_notification_with_callback(
     sound: Option<bool>,
     session_id: Option<String>,
 ) -> Result<(), String> {
+    if !crate::integration_control::notifications_and_hooks_enabled(&app) {
+        eprintln!("[notification] skipped because notifications and hooks are disabled");
+        return Ok(());
+    }
+
     let play_sound = sound.unwrap_or(true);
 
     #[cfg(target_os = "macos")]

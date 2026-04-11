@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   useSettingsStore,
   RUNNER_LABELS,
@@ -104,6 +104,30 @@ function SectionDivider({ label }: { label: string }) {
       </span>
       <div style={{ flex: 1, height: 1, background: C.border }} />
     </div>
+  );
+}
+
+function StatusPill({
+  ok,
+  label,
+}: {
+  ok: boolean;
+  label: string;
+}) {
+  return (
+    <span
+      style={{
+        fontSize: 10,
+        padding: "2px 7px",
+        borderRadius: 99,
+        background: ok ? C.greenBg : C.yellowBg,
+        border: `1px solid ${ok ? C.greenBdr : C.yellowBdr}`,
+        color: ok ? C.greenDark : C.yellow,
+        fontWeight: 600,
+      }}
+    >
+      {label}
+    </span>
   );
 }
 
@@ -545,6 +569,58 @@ function ApiKeysTab() {
   const { settings, saveProviderApiKey, patchRunner } = useSettingsStore();
   const [detecting, setDetecting] = useState(false);
   const [detectResult, setDetectResult] = useState<string>("");
+  const [integrationBusy, setIntegrationBusy] = useState(false);
+  const [integrationStatusLoading, setIntegrationStatusLoading] = useState(false);
+  const [integrationMessage, setIntegrationMessage] = useState("");
+  const [testingNotification, setTestingNotification] = useState(false);
+  const [integrationStatus, setIntegrationStatus] = useState<{
+    enabled: boolean;
+    claude_hooks_configured: boolean;
+    codex_hooks_configured: boolean;
+    codex_feature_enabled: boolean;
+    claude_listener_ready: boolean;
+    codex_listener_ready: boolean;
+    healthy: boolean;
+    issues: string[];
+  } | null>(null);
+
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+
+    let cancelled = false;
+    const run = async () => {
+      setIntegrationStatusLoading(true);
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const status = await invoke<{
+          enabled: boolean;
+          claude_hooks_configured: boolean;
+          codex_hooks_configured: boolean;
+          codex_feature_enabled: boolean;
+          claude_listener_ready: boolean;
+          codex_listener_ready: boolean;
+          healthy: boolean;
+          issues: string[];
+        }>("get_notifications_and_hooks_status");
+        if (!cancelled) {
+          setIntegrationStatus(status);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setIntegrationMessage(`状态检查失败: ${e}`);
+        }
+      } finally {
+        if (!cancelled) {
+          setIntegrationStatusLoading(false);
+        }
+      }
+    };
+
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleAutoDetect = async () => {
     if (detecting) return;
@@ -602,6 +678,69 @@ function ApiKeysTab() {
     }
   };
 
+  const refreshIntegrationStatus = async () => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+
+    setIntegrationStatusLoading(true);
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const status = await invoke<{
+        enabled: boolean;
+        claude_hooks_configured: boolean;
+        codex_hooks_configured: boolean;
+        codex_feature_enabled: boolean;
+        claude_listener_ready: boolean;
+        codex_listener_ready: boolean;
+        healthy: boolean;
+        issues: string[];
+      }>("get_notifications_and_hooks_status");
+      setIntegrationStatus(status);
+    } catch (e) {
+      setIntegrationMessage(`状态检查失败: ${e}`);
+    } finally {
+      setIntegrationStatusLoading(false);
+    }
+  };
+
+  const handleToggleIntegrations = async () => {
+    if (integrationBusy || !("__TAURI_INTERNALS__" in window)) return;
+
+    const nextEnabled = !(integrationStatus?.enabled ?? true);
+    setIntegrationBusy(true);
+    setIntegrationMessage("");
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const result = await invoke<string>("set_notifications_and_hooks_enabled", {
+        enabled: nextEnabled,
+      });
+      setIntegrationMessage(result);
+      await refreshIntegrationStatus();
+    } catch (e) {
+      setIntegrationMessage(`切换失败: ${e}`);
+    } finally {
+      setIntegrationBusy(false);
+    }
+  };
+
+  const handleTestNotification = async () => {
+    if (testingNotification || !("__TAURI_INTERNALS__" in window)) return;
+
+    setTestingNotification(true);
+    setIntegrationMessage("");
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("send_notification", {
+        title: "Code Bar",
+        body: "通知与 Hooks 当前可用，这条测试通知由设置页发出。",
+      });
+      setIntegrationMessage("测试通知已发送。若未看到弹窗，请检查系统通知权限。");
+    } catch (e) {
+      setIntegrationMessage(`通知发送失败: ${e}`);
+    } finally {
+      setTestingNotification(false);
+    }
+  };
+
   return (
     <div>
       <div style={{
@@ -651,52 +790,6 @@ function ApiKeysTab() {
         >
           🐞 诊断 PATH
         </button>
-        <button
-          onClick={async () => {
-            const { invoke } = await import("@tauri-apps/api/core");
-            try {
-              const result = await invoke<string>("setup_all_hooks");
-              alert(result);
-            } catch (e) {
-              alert(`配置失败: ${e}`);
-            }
-          }}
-          style={{
-            padding: "7px 12px", borderRadius: 8,
-            border: `1px solid ${C.purpleBdr}`,
-            background: C.purpleBg, color: C.purple,
-            fontSize: 11, fontWeight: 500, cursor: "pointer",
-            transition: "filter 0.12s",
-          }}
-          onMouseEnter={e => e.currentTarget.style.filter = "brightness(0.9)"}
-          onMouseLeave={e => e.currentTarget.style.filter = "none"}
-        >
-          🔔 启用 Claude / Codex Hooks
-        </button>
-        <button
-          onClick={async () => {
-            const { invoke } = await import("@tauri-apps/api/core");
-            try {
-              await invoke("send_notification", {
-                title: "Code Bar",
-                body: "🔔 通知权限正常，任务完成时会弹出此提示",
-              });
-            } catch (e) {
-              alert(`通知发送失败: ${e}\n\n请在「系统设置 → 通知 → Code Bar」中开启通知权限`);
-            }
-          }}
-          style={{
-            padding: "7px 12px", borderRadius: 8,
-            border: `1px solid ${C.greenBdr}`,
-            background: C.greenBg, color: C.greenDark,
-            fontSize: 11, fontWeight: 500, cursor: "pointer",
-            transition: "filter 0.12s",
-          }}
-          onMouseEnter={e => e.currentTarget.style.filter = "brightness(0.9)"}
-          onMouseLeave={e => e.currentTarget.style.filter = "none"}
-        >
-          🔔 测试通知
-        </button>
         {detectResult && (
           <span style={{ fontSize: 10, color: C.textMuted }}>{detectResult}</span>
         )}
@@ -704,6 +797,132 @@ function ApiKeysTab() {
       <HintText>
         自动从 Claude 配置目录、系统环境变量（ANTHROPIC_API_KEY 等）及 Shell 配置文件中检测 API Key 和 Base URL
       </HintText>
+
+      <SectionDivider label="通知与 Hooks" />
+      <div
+        style={{
+          marginBottom: 14,
+          padding: "12px 14px",
+          background: C.surfaceHi,
+          border: `1px solid ${C.border}`,
+          borderRadius: 12,
+        }}
+      >
+        <div style={{ fontSize: 12, color: C.text, fontWeight: 600, marginBottom: 4 }}>
+          Provider Hooks 与系统通知
+        </div>
+        <div style={{ fontSize: 11, color: C.textMuted, lineHeight: "1.6", marginBottom: 10 }}>
+          这里统一管理 Claude / Codex provider hooks 和系统通知。关闭后不再自动同步 provider 生命周期，也不会再发送 Code Bar 通知。
+        </div>
+
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+          <StatusPill
+            ok={integrationStatus?.enabled ?? false}
+            label={(integrationStatus?.enabled ?? false) ? "已启用" : "已关闭"}
+          />
+          <StatusPill
+            ok={integrationStatus?.claude_hooks_configured ?? false}
+            label="Claude Hooks"
+          />
+          <StatusPill
+            ok={integrationStatus?.codex_hooks_configured ?? false}
+            label="Codex Hooks"
+          />
+          <StatusPill
+            ok={integrationStatus?.codex_feature_enabled ?? false}
+            label="Codex Feature"
+          />
+          <StatusPill
+            ok={Boolean(integrationStatus?.claude_listener_ready && integrationStatus?.codex_listener_ready)}
+            label="Listener"
+          />
+          <StatusPill
+            ok={integrationStatus?.healthy ?? false}
+            label="健康检查"
+          />
+        </div>
+
+        <div style={{ display: "flex", gap: 7, alignItems: "center", flexWrap: "wrap" }}>
+          <button
+            onClick={handleToggleIntegrations}
+            disabled={integrationBusy || integrationStatus === null}
+            style={{
+              padding: "7px 12px",
+              borderRadius: 8,
+              border: `1px solid ${(integrationStatus?.enabled ?? false) ? C.yellowBdr : C.greenBdr}`,
+              background: (integrationStatus?.enabled ?? false) ? C.yellowBg : C.greenBg,
+              color: (integrationStatus?.enabled ?? false) ? C.yellow : C.greenDark,
+              fontSize: 11,
+              fontWeight: 600,
+              cursor: (integrationBusy || integrationStatus === null) ? "default" : "pointer",
+              opacity: (integrationBusy || integrationStatus === null) ? 0.6 : 1,
+              transition: "filter 0.12s",
+            }}
+            onMouseEnter={e => e.currentTarget.style.filter = "brightness(0.9)"}
+            onMouseLeave={e => e.currentTarget.style.filter = "none"}
+          >
+            {integrationBusy
+              ? "处理中…"
+              : (integrationStatus?.enabled ?? false)
+              ? "关闭通知与 Hooks"
+              : "启用通知与 Hooks"}
+          </button>
+
+          <button
+            onClick={refreshIntegrationStatus}
+            disabled={integrationStatusLoading}
+            style={{
+              padding: "7px 12px",
+              borderRadius: 8,
+              border: `1px solid ${C.purpleBdr}`,
+              background: C.purpleBg,
+              color: C.purple,
+              fontSize: 11,
+              fontWeight: 500,
+              cursor: integrationStatusLoading ? "default" : "pointer",
+              opacity: integrationStatusLoading ? 0.6 : 1,
+              transition: "filter 0.12s",
+            }}
+            onMouseEnter={e => e.currentTarget.style.filter = "brightness(0.9)"}
+            onMouseLeave={e => e.currentTarget.style.filter = "none"}
+          >
+            {integrationStatusLoading ? "检查中…" : "重新校验"}
+          </button>
+
+          <button
+            onClick={handleTestNotification}
+            disabled={testingNotification || integrationStatus === null || !(integrationStatus?.enabled ?? false)}
+            style={{
+              padding: "7px 12px",
+              borderRadius: 8,
+              border: `1px solid ${C.accentBdr}`,
+              background: C.accentBg,
+              color: C.accentTxt,
+              fontSize: 11,
+              fontWeight: 500,
+              cursor: (testingNotification || integrationStatus === null || !(integrationStatus?.enabled ?? false)) ? "default" : "pointer",
+              opacity: (testingNotification || integrationStatus === null || !(integrationStatus?.enabled ?? false)) ? 0.6 : 1,
+              transition: "filter 0.12s",
+            }}
+            onMouseEnter={e => e.currentTarget.style.filter = "brightness(0.9)"}
+            onMouseLeave={e => e.currentTarget.style.filter = "none"}
+          >
+            {testingNotification ? "发送中…" : "测试通知"}
+          </button>
+        </div>
+
+        {integrationStatus?.issues?.length ? (
+          <div style={{ marginTop: 10, fontSize: 10, color: C.yellow, lineHeight: "1.6" }}>
+            {integrationStatus.issues.join("；")}
+          </div>
+        ) : null}
+
+        {integrationMessage ? (
+          <div style={{ marginTop: 10, fontSize: 10, color: C.textMuted, whiteSpace: "pre-wrap", lineHeight: "1.6" }}>
+            {integrationMessage}
+          </div>
+        ) : null}
+      </div>
 
       <ApiKeyRow
         provider="anthropic"
