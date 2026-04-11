@@ -448,12 +448,11 @@ export function SessionList() {
   const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
   const textShadow = isGlass ? "var(--ci-glass-text-shadow)" : "none";
 
-  if (!activeWorkspace) return null;
-
-  const accentColor = getWorkspaceColor(activeWorkspace.color);
+  const accentColor = activeWorkspace ? getWorkspaceColor(activeWorkspace.color) : "var(--ci-accent)";
   const wsSessions = useMemo(() => {
+    if (!activeWorkspace) return [];
     return orderWorkspaceSessions(sessions, activeWorkspace.id, sessionOrderByWorkspace);
-  }, [sessions, activeWorkspaceId, sessionOrderByWorkspace]);
+  }, [activeWorkspace, sessions, sessionOrderByWorkspace]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -461,6 +460,7 @@ export function SessionList() {
   );
 
   const handleDragEnd = (event: DragEndEvent) => {
+    if (!activeWorkspace) return;
     const { active, over } = event;
     if (!over || active.id === over.id) return;
 
@@ -472,6 +472,7 @@ export function SessionList() {
   };
 
   const handleNewSession = async () => {
+    if (!activeWorkspace) return;
     const id = addSession(activeWorkspace.id, activeWorkspace.path, undefined, { ...runner });
     setExpandedSession(id);
 
@@ -566,36 +567,53 @@ export function SessionList() {
         </button>
       </div>
 
-      {/* Session 列表 */}
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-        <SortableContext items={wsSessions.map((s) => s.id)} strategy={verticalListSortingStrategy}>
-          <AnimatePresence>
-            {wsSessions.map((session) => (
-              <SortableSessionCard key={session.id} id={session.id}>
-                <SessionCard
-                  session={session}
-                  isActive={session.id === activeSessionId}
-                  accentColor={accentColor}
-                  isGlass={isGlass}
-                  onClick={() => setActiveSession(session.id)}
-                  onExpand={() => {
-                    setActiveSession(session.id);
-                    setExpandedSession(session.id);
-                  }}
-                  onRemove={() => handleRemoveSession(session)}
-                  onRotateSuspend={() => {
-                    updateSession(session.id, {
-                      status: session.status === "waiting" ? "suspended" : "waiting",
-                    });
-                  }}
-                />
-              </SortableSessionCard>
-            ))}
-          </AnimatePresence>
-        </SortableContext>
-      </DndContext>
+      {activeWorkspace ? (
+        <>
+          {/* Session 列表 */}
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <SortableContext items={wsSessions.map((s) => s.id)} strategy={verticalListSortingStrategy}>
+              <AnimatePresence>
+                {wsSessions.map((session) => (
+                  <SortableSessionCard key={session.id} id={session.id}>
+                    <SessionCard
+                      session={session}
+                      isActive={session.id === activeSessionId}
+                      accentColor={accentColor}
+                      isGlass={isGlass}
+                      onClick={() => setActiveSession(session.id)}
+                      onExpand={() => {
+                        setActiveSession(session.id);
+                        setExpandedSession(session.id);
+                      }}
+                      onRemove={() => handleRemoveSession(session)}
+                      onRotateSuspend={() => {
+                        updateSession(session.id, {
+                          status: session.status === "waiting" ? "suspended" : "waiting",
+                        });
+                      }}
+                    />
+                  </SortableSessionCard>
+                ))}
+              </AnimatePresence>
+            </SortableContext>
+          </DndContext>
 
-      {wsSessions.length === 0 && (
+          {wsSessions.length === 0 && (
+            <div
+              style={{
+              textAlign: "center", padding: "22px 0 12px",
+              color: "var(--ci-text-dim)", fontSize: 12,
+              border: "1px dashed var(--ci-pill-border)",
+              borderRadius: 18,
+              background: "var(--ci-panel-grad)",
+              boxShadow: "var(--ci-inset-highlight), var(--ci-card-shadow)",
+              textShadow,
+            }}>
+              点击「+ 新建」开始新会话
+            </div>
+          )}
+        </>
+      ) : (
         <div
           style={{
           textAlign: "center", padding: "22px 0 12px",
@@ -606,7 +624,7 @@ export function SessionList() {
           boxShadow: "var(--ci-inset-highlight), var(--ci-card-shadow)",
           textShadow,
         }}>
-          点击「+ 新建」开始新会话
+          先创建一个 Workspace 再开始会话
         </div>
       )}
     </div>
