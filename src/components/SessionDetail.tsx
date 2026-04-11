@@ -9,6 +9,7 @@ import { PtyTerminal } from "./PtyTerminal";
 import { TrafficLights } from "./TrafficLights";
 import { startRunner } from "../harness/runnerRouter";
 import type { RunnerHandle } from "../harness/runnerRouter";
+import { beginLaunchMetric, clearLaunchMetric, markLaunchMetric } from "../utils/launchMetrics";
 
 // 弹簧参数
 const SPRING = {
@@ -239,6 +240,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
   const handlePtyReady = useCallback(() => {
     ptyReadyRef.current = true;
     setLaunchPrompt(null);
+    markLaunchMetric(sessionIdRef.current, "pty-ready-callback");
     if (isWindows) {
       clearPendingQueryTimer();
       pendingQueryTimerRef.current = window.setTimeout(() => {
@@ -257,6 +259,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     flushPendingQuery(isWindows ? 120 : 0);
     // 已是 waiting 则不重复通知
     if (s?.status === "waiting") return;
+    markLaunchMetric(sid, "pty-waiting");
     updateSession(sid, { status: "waiting" });
     // 发系统通知
     const taskName = s?.currentTask?.slice(0, 40) || "任务";
@@ -270,12 +273,14 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
 
   // PTY 状态回调：Claude 开始处理（UserPromptSubmit hook 触发）
   const handlePtyRunning = useCallback(() => {
+    markLaunchMetric(sessionIdRef.current, "pty-running");
     updateSession(sessionIdRef.current, { status: "running" });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [updateSession]);
 
   // PTY 状态回调：API 错误中断（StopFailure hook 触发）
   const handlePtyError = useCallback((error: string) => {
+    markLaunchMetric(sessionIdRef.current, "pty-error", { error });
     updateSession(sessionIdRef.current, { status: "error", currentTask: error });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [updateSession]);
@@ -321,7 +326,10 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
 
   // 首条 query 提交后才激活 PTY，避免 CLI 初始化阶段的输入竞争。
   useEffect(() => {
-    if (querySent && worktreeReady && !ptyEverActive) setPtyEverActive(true);
+    if (querySent && worktreeReady && !ptyEverActive) {
+      markLaunchMetric(sessionId, "pty-activate");
+      setPtyEverActive(true);
+    }
   }, [querySent, worktreeReady, ptyEverActive]);
 
   // 展开且未发送 query 时自动聚焦输入框
@@ -397,9 +405,11 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     if (isNativeMode) return;
     const u = listen<{ session_id: string }>("pty-exit", ({ payload }) => {
       if (payload.session_id !== sessionIdRef.current) return;
+      markLaunchMetric(payload.session_id, "pty-exit");
       setTimeout(() => {
         updateSession(sessionIdRef.current, { status: "done" });
         setQuerySent(false);
+        clearLaunchMetric(payload.session_id);
       }, 1200);
     });
     return () => { u.then((f: () => void) => f()); };
@@ -469,6 +479,11 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
   const handleSubmitQuery = useCallback((q: string) => {
     const trimmed = q.trim();
     if (!trimmed || !session) return;
+    beginLaunchMetric(session.id, "query-submit", {
+      runner: runner.type,
+      open: isOpen,
+      worktreeReady,
+    });
     const title = trimmed.length > 24 ? trimmed.slice(0, 24) + "…" : trimmed;
     lastQuerySentAtRef.current = Date.now();
     updateSession(session.id, { name: title, currentTask: trimmed, status: "running" });
@@ -476,6 +491,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
 
     // ── Native 模式 ──
     if (isNativeMode) {
+      markLaunchMetric(session.id, "native-runner-start");
       clearOutput(sessionIdRef.current);
       const activeApiKey = settings.apiKeys?.[settings.model.provider] || settings.model.apiKey || "";
       startRunner({
@@ -487,16 +503,20 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
         harness: settings.harness,
         onOutput: (line) => appendOutput(sessionIdRef.current, line),
         onDone: () => {
+          markLaunchMetric(sessionIdRef.current, "native-runner-done");
           updateSession(sessionIdRef.current, { status: "done", currentTask: "已完成" });
           setQuerySent(false);
         },
         onError: (msg) => {
+          markLaunchMetric(sessionIdRef.current, "native-runner-error", { error: msg });
           updateSession(sessionIdRef.current, { status: "error", currentTask: msg });
           setQuerySent(false);
         },
       }).then((handle) => {
+        markLaunchMetric(session.id, "native-runner-handle-ready");
         nativeRunnerRef.current = handle;
       }).catch((e) => {
+        markLaunchMetric(sessionIdRef.current, "native-runner-start-failed", { error: String(e) });
         updateSession(sessionIdRef.current, { status: "error", currentTask: String(e) });
         setQuerySent(false);
       });
@@ -505,16 +525,19 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
 
     // ── PTY 模式 ──
     if (ptyReadyRef.current) {
+      markLaunchMetric(session.id, "pty-query-buffered-ready");
       pendingQueryRef.current = trimmed;
       flushPendingQuery(isWindows ? 120 : 100);
     } else if (supportsPromptLaunch && !ptyEverActive) {
       // Claude / Codex 首条 query 直接作为位置参数启动，避免首屏黑屏只剩光标。
+      markLaunchMetric(session.id, "pty-initial-prompt-staged");
       setLaunchPrompt(trimmed);
     } else {
+      markLaunchMetric(session.id, "pty-query-buffered-pending");
       pendingQueryRef.current = trimmed;
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, updateSession, appendOutput, clearOutput, flushPendingQuery, isNativeMode, isWindows, ptyEverActive, runner, settings.apiKeys, settings.model, settings.harness, supportsPromptLaunch]);
+  }, [session, updateSession, appendOutput, clearOutput, flushPendingQuery, isNativeMode, isOpen, isWindows, ptyEverActive, runner, settings.apiKeys, settings.model, settings.harness, supportsPromptLaunch, worktreeReady]);
 
   const handleStopNative = useCallback(() => {
     nativeRunnerRef.current?.stop();

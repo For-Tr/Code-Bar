@@ -5,6 +5,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { useSettingsStore, isGlassTheme, type ThemeMode } from "../store/settingsStore";
+import { clearLaunchMetric, markLaunchMetric } from "../utils/launchMetrics";
 
 interface Props {
   sessionId: string;
@@ -131,7 +132,16 @@ export function PtyTerminal({
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const startedRef = useRef(false);
+  const startingRef = useRef(false);
+  const launchTokenRef = useRef(0);
+  const resizeFrameRef = useRef<number | null>(null);
+  const lastResizeRef = useRef({ width: 0, height: 0, cols: 0, rows: 0 });
+  const firstDataLoggedRef = useRef(false);
   const [exited, setExited] = useState(false);
+
+  const writeLaunchLine = (line: string) => {
+    termRef.current?.writeln(`\x1b[90m${line}\x1b[0m`);
+  };
 
   // 读取当前主题
   const theme = useSettingsStore((s) => s.settings.theme);
@@ -265,6 +275,10 @@ export function PtyTerminal({
         if (payload.session_id !== sessionId) return;
         const term = termRef.current;
         if (!term) return;
+        if (!firstDataLoggedRef.current) {
+          firstDataLoggedRef.current = true;
+          writeLaunchLine(markLaunchMetric(sessionId, "first-pty-data"));
+        }
         try {
           const bin = atob(payload.data);
           const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
@@ -281,6 +295,17 @@ export function PtyTerminal({
         termRef.current?.writeln("\x1b[90m[进程已退出]\x1b[0m");
         setExited(true);
         startedRef.current = false; // 允许重启
+        startingRef.current = false;
+        clearLaunchMetric(sessionId);
+      }
+    );
+
+    const u7 = listen<{ session_id: string; stage: string; elapsed_ms: number; detail?: string }>(
+      "pty-launch-stage",
+      ({ payload }) => {
+        if (payload.session_id !== sessionId) return;
+        const suffix = payload.detail ? ` ${payload.detail}` : "";
+        writeLaunchLine(`[rust-launch +${payload.elapsed_ms.toFixed(1)}ms] ${payload.stage}${suffix}`);
       }
     );
 
@@ -327,6 +352,7 @@ export function PtyTerminal({
       u4.then((f) => f());
       u5.then((f) => f());
       u6.then((f) => f());
+      u7.then((f) => f());
     };
   }, [sessionId]);
 
@@ -353,12 +379,18 @@ export function PtyTerminal({
   };
 
   useEffect(() => {
-    if (!active || startedRef.current) return;
-    startedRef.current = true;
+    if (!active || startedRef.current || startingRef.current) return;
+    startingRef.current = true;
     setExited(false);
+    firstDataLoggedRef.current = false;
+    const launchToken = launchTokenRef.current + 1;
+    launchTokenRef.current = launchToken;
+    let cancelled = false;
+    writeLaunchLine(markLaunchMetric(sessionId, "pty-start-requested", { active, workdir }));
 
     // 延迟 250ms：等 resize_popup_full 动画完成，容器达到目标尺寸
     const timer = setTimeout(() => {
+      if (cancelled || launchTokenRef.current !== launchToken) return;
       const fit = fitRef.current;
       const term = termRef.current;
       if (fit) fit.fit();
@@ -383,21 +415,46 @@ export function PtyTerminal({
         env: envRef.current ?? null,
       })
         .then(() => {
+          if (cancelled || launchTokenRef.current !== launchToken) {
+            startingRef.current = false;
+            invoke("stop_pty_session", { sessionId }).catch(() => {});
+            return;
+          }
+          startedRef.current = true;
+          startingRef.current = false;
+          writeLaunchLine(markLaunchMetric(sessionId, "pty-start-returned"));
           // spawn 返回 = CLI 进程已启动（resolve_command_path 保证是完整路径直接 spawn）
           onReadyRef.current?.();
         })
         .catch((e) => {
+          if (launchTokenRef.current === launchToken) {
+            startedRef.current = false;
+            startingRef.current = false;
+          }
+          writeLaunchLine(markLaunchMetric(sessionId, "pty-start-failed", { error: String(e) }));
           termRef.current?.writeln(`\x1b[31m启动失败: ${e}\x1b[0m`);
         });
     }, 250);
 
-    return () => clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      if (launchTokenRef.current === launchToken) {
+        startingRef.current = false;
+        if (!startedRef.current) {
+          writeLaunchLine(markLaunchMetric(sessionId, "pty-start-cancelled"));
+          invoke("stop_pty_session", { sessionId }).catch(() => {});
+        }
+      }
+    };
   }, [active, sessionId, workdir, command]);
 
   // ── 重新启动（退出后用户点击重启）───────────────────────
   const handleRestart = () => {
     setExited(false);
     startedRef.current = false;
+    startingRef.current = false;
+    firstDataLoggedRef.current = false;
     termRef.current?.clear();
 
     const fit = fitRef.current;
@@ -447,19 +504,47 @@ export function PtyTerminal({
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => {
-      const fit = fitRef.current;
-      const term = termRef.current;
-      if (!fit || !term) return;
-      fit.fit();
-      // 仅在面板可见时同步给 Rust，防止收起时 cols/rows 为 0 导致进程崩溃
-      if (!activeRef.current) return;
-      const cols = Math.max(term.cols, 20);
-      const rows = Math.max(term.rows, 5);
-      invoke("resize_pty", { sessionId, cols, rows }).catch(() => {});
+    const ro = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const width = Math.round(entry.contentRect.width);
+      const height = Math.round(entry.contentRect.height);
+      if (width === lastResizeRef.current.width && height === lastResizeRef.current.height) {
+        return;
+      }
+      lastResizeRef.current.width = width;
+      lastResizeRef.current.height = height;
+      if (resizeFrameRef.current !== null) {
+        cancelAnimationFrame(resizeFrameRef.current);
+      }
+      resizeFrameRef.current = requestAnimationFrame(() => {
+        resizeFrameRef.current = null;
+        if (!activeRef.current) return;
+        const fit = fitRef.current;
+        const term = termRef.current;
+        if (!fit || !term) return;
+        fit.fit();
+        const cols = Math.max(term.cols, 20);
+        const rows = Math.max(term.rows, 5);
+        if (
+          cols === lastResizeRef.current.cols
+          && rows === lastResizeRef.current.rows
+        ) {
+          return;
+        }
+        lastResizeRef.current.cols = cols;
+        lastResizeRef.current.rows = rows;
+        invoke("resize_pty", { sessionId, cols, rows }).catch(() => {});
+      });
     });
     ro.observe(el);
-    return () => ro.disconnect();
+    return () => {
+      if (resizeFrameRef.current !== null) {
+        cancelAnimationFrame(resizeFrameRef.current);
+        resizeFrameRef.current = null;
+      }
+      ro.disconnect();
+    };
   }, [sessionId]);
 
   const isGlass = isGlassTheme(theme);

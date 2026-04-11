@@ -1,4 +1,7 @@
-use std::io::{Read, Write};
+use std::{
+    io::{Read, Write},
+    time::Instant,
+};
 
 use tauri::{Emitter, Manager};
 
@@ -96,7 +99,21 @@ pub async fn start_pty_session(
     use base64::Engine;
     use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 
+    let launch_started = Instant::now();
     let expanded = expand_path(&workdir);
+    let emit_stage = |stage: &str, detail: Option<String>| {
+        let _ = app.emit(
+            "pty-launch-stage",
+            serde_json::json!({
+                "session_id": session_id,
+                "stage": stage,
+                "elapsed_ms": launch_started.elapsed().as_secs_f64() * 1000.0,
+                "detail": detail,
+            }),
+        );
+    };
+
+    emit_stage("enter", Some(format!("workdir={expanded} command={command}")));
     let runner_type = env
         .as_ref()
         .and_then(|pairs| {
@@ -136,8 +153,10 @@ pub async fn start_pty_session(
             pixel_height: 0,
         })
         .map_err(|e| format!("openpty 失败: {e}"))?;
+    emit_stage("openpty-ready", Some(format!("cols={cols} rows={rows}")));
 
     let resolved_command = resolve_command_path(&command);
+    emit_stage("command-resolved", Some(resolved_command.clone()));
     let (launch_command, launch_args) = resolve_windows_pty_command(&resolved_command, &args);
 
     let mut cmd = if cfg!(windows)
@@ -183,6 +202,7 @@ pub async fn start_pty_session(
     {
         let base_path = std::env::var("PATH").unwrap_or_default();
         let node_path = resolve_command_path("node");
+        emit_stage("node-resolved", Some(node_path.clone()));
         let node_dir = if std::path::Path::new(&node_path).parent().is_some() {
             std::path::Path::new(&node_path)
                 .parent()
@@ -199,6 +219,10 @@ pub async fn start_pty_session(
         };
         cmd.env("PATH", enriched_path);
     }
+    emit_stage(
+        "env-ready",
+        Some(format!("extra_env={}", env.as_ref().map(|pairs| pairs.len()).unwrap_or(0))),
+    );
 
     // 注入调用方传入的额外环境变量
     if let Some(extra_env) = env {
@@ -211,6 +235,10 @@ pub async fn start_pty_session(
         .slave
         .spawn_command(cmd)
         .map_err(|e| format!("spawn 失败: {e}"))?;
+    emit_stage(
+        "spawned",
+        Some(format!("launch_command={launch_command} argc={}", launch_args.len())),
+    );
 
     let mut master_reader = pair
         .master
@@ -244,11 +272,12 @@ pub async fn start_pty_session(
         meta_map.insert(
             session_id.clone(),
             PtySessionMeta {
-                runner_type,
+                runner_type: runner_type.clone(),
                 workdir: expanded.clone(),
             },
         );
     }
+    emit_stage("session-registered", Some(format!("runner_type={runner_type}")));
 
     // 读取线程：转发 PTY 输出并检测状态特征
     let app_r = app.clone();

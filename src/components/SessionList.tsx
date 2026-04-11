@@ -7,6 +7,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { ClaudeSession, SessionStatus, orderWorkspaceSessions, useSessionStore } from "../store/sessionStore";
 import { useWorkspaceStore, getWorkspaceColor } from "../store/workspaceStore";
 import { useSettingsStore, RUNNER_LABELS, sanitizeRunnerConfig, isGlassTheme } from "../store/settingsStore";
+import { beginLaunchMetric, markLaunchMetric } from "../utils/launchMetrics";
 
 // ── 状态配置（使用 CSS 变量）────────────────────────────────
 const STATUS_CONFIG: Record<SessionStatus, {
@@ -475,10 +476,12 @@ export function SessionList() {
   const handleNewSession = async () => {
     const id = addSession(activeWorkspace.id, activeWorkspace.path, undefined, { ...runner });
     setExpandedSession(id);
+    beginLaunchMetric(id, "session-created", { runner: runner.type, workspace: activeWorkspace.name });
     const sessionExists = () => useSessionStore.getState().sessions.some((session) => session.id === id);
 
     if ("__TAURI_INTERNALS__" in window) {
       try {
+        markLaunchMetric(id, "worktree-setup-start");
         const result = await invoke<{
           worktree_path: string;
           branch: string;
@@ -489,6 +492,10 @@ export function SessionList() {
         });
 
         if (result) {
+          markLaunchMetric(id, "worktree-setup-done", {
+            branch: result.branch,
+            worktree: result.worktree_path,
+          });
           if (sessionExists()) {
             useSessionStore.getState().updateSession(id, {
               workdir: result.worktree_path,
@@ -497,6 +504,7 @@ export function SessionList() {
               baseBranch: result.base_branch,
             });
           } else {
+            markLaunchMetric(id, "worktree-session-missing-cleanup");
             invoke("teardown_session_worktree", {
               workdir: activeWorkspace.path,
               worktreePath: result.worktree_path,
@@ -508,11 +516,13 @@ export function SessionList() {
           }
         }
       } catch (e) {
+        markLaunchMetric(id, "worktree-setup-failed", { error: String(e) });
         console.warn("[worktree] setup failed, fallback to workdir:", e);
       }
     }
     if (sessionExists()) {
       markWorktreeReady(id);
+      markLaunchMetric(id, "worktree-ready-marked");
     }
   };
 
