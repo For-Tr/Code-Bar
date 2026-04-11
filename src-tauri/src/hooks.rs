@@ -938,8 +938,8 @@ pub fn start_hook_socket_servers(app: tauri::AppHandle) {
 /// 发送系统通知（支持点击回调，委托给 notification 模块）
 ///
 /// macOS 下使用 mac-notification-sys 实现常驻通知 + 点击回调；
-/// 前端监听 "notification-clicked" 事件即可响应用户点击。
+/// 点击后统一走 focus_popup(session_id) 链路。
 #[tauri::command]
 pub fn send_notification(app: tauri::AppHandle, title: String, body: String) -> Result<(), String> {
-    crate::notification::send_notification_with_callback(app, title, body, None, Some(true))
+    crate::notification::send_notification_with_callback(app, title, body, None, Some(true), None)
 }

@@ -292,8 +292,8 @@ pub fn toggle_popup(app: &tauri::AppHandle) {
             app.state::<PopupVisible>().set(false);
             let _ = win.hide();
         } else {
-            popup_log!("[popup] showing");
-            show_popup(app, &win);
+            popup_log!("[popup] showing via focus_popup");
+            focus_popup(app.clone(), None);
         }
     } else {
         popup_log!("[popup] window not found, creating");
@@ -335,14 +335,19 @@ pub fn close_popup(app: tauri::AppHandle, window: tauri::WebviewWindow) {
     let _ = window.hide();
 }
 
-/// 从通知点击回调中激活并显示弹窗。
+#[derive(Clone, serde::Serialize)]
+struct PopupFocusedPayload {
+    session_id: Option<String>,
+}
+
+/// 激活并显示弹窗（统一入口）。
 ///
 /// 与 toggle_popup / show_popup 不同：
 /// - 不发射 "popup-shown"（那个事件会让前端 setExpandedSession(null) 收起 terminal）
-/// - 发射 "popup-focused"，让前端展开最近活跃的 session
+/// - 发射 "popup-focused"（携带可选 session_id）
 /// - 无论当前窗口是否可见，都强制置于前台
 #[tauri::command]
-pub fn focus_popup(app: tauri::AppHandle) {
+pub fn focus_popup(app: tauri::AppHandle, session_id: Option<String>) {
     if let Some(win) = app.get_webview_window("popup") {
         let _ = win.show();
 
@@ -359,13 +364,12 @@ pub fn focus_popup(app: tauri::AppHandle) {
         }
 
         app.state::<PopupVisible>().set(true);
-        // 发射 popup-focused（区别于 popup-shown），前端监听后展开最近 session
-        let _ = win.emit("popup-focused", ());
+        let _ = win.emit("popup-focused", PopupFocusedPayload { session_id });
         popup_log!("[popup] focused via notification click");
     } else {
         create_popup(&app);
         if let Some(win) = app.get_webview_window("popup") {
-            let _ = win.emit("popup-focused", ());
+            let _ = win.emit("popup-focused", PopupFocusedPayload { session_id });
         }
     }
 }

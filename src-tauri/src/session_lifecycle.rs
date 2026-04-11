@@ -198,12 +198,14 @@ pub fn emit_session_lifecycle(
             message,
             notification_type,
         } => {
+            let target_session_id = session_ids.first().cloned();
             let _ = crate::notification::send_notification_with_callback(
                 app.clone(),
                 title.clone(),
                 message.clone(),
                 None,
                 Some(true),
+                target_session_id,
             );
 
             for sid in session_ids {

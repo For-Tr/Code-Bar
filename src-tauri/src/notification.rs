@@ -6,22 +6,21 @@
 //
 // 本模块直接调用 mac-notification-sys，实现：
 //   1. 通知常驻等待用户交互（send_notification 会阻塞直到用户响应）
-//   2. 用户点击通知后，向前端发射 "notification-clicked" 事件
+//   2. 用户点击通知后，统一走 focus_popup(session_id) 链路
 //   3. 在独立线程中执行，不阻塞主线程
-//
-// 事件格式：
-//   "notification-clicked" -> { "title": "...", "body": "..." }
 
 #[cfg(target_os = "macos")]
 pub mod macos {
-    use tauri::Emitter;
+    use std::sync::OnceLock;
     use tauri_plugin_notification::NotificationExt;
+
+    static MAC_NOTIFICATION_APP_INIT: OnceLock<Result<(), String>> = OnceLock::new();
 
     /// 发送一条支持点击回调的原生 macOS 通知。
     ///
     /// - 在独立线程中调用 `mac_notification_sys::send_notification`，
     ///   该调用会**阻塞**直到用户对通知做出响应（点击 / 关闭 / 忽略）。
-    /// - 用户点击通知正文后，向前端发射 `"notification-clicked"` 事件。
+    /// - 用户点击通知正文后，统一走 `focus_popup(session_id)`。
     ///
     /// `subtitle` 可传 `None`；`sound` 传 `true` 时播放默认提示音。
     pub fn send_with_click_callback(
@@ -30,25 +29,18 @@ pub mod macos {
         body: String,
         subtitle: Option<String>,
         sound: bool,
+        session_id: Option<String>,
     ) {
-        if tauri::is_dev() {
-            let mut builder = app.notification().builder().title(&title).body(&body);
-            if sound {
-                builder = builder.sound("default");
-            }
-            if let Err(e) = builder.show() {
-                eprintln!("[notification] dev fallback send 失败: {e}");
-            }
-            return;
-        }
-
         std::thread::spawn(move || {
             use mac_notification_sys::{set_application, Notification, Sound};
 
-            // 必须在第一次调用时设置正确的 bundle id；错误值会导致 mac-notification-sys
-            // 后续无法纠正，开发态则改走上面的 tauri plugin fallback。
+            // set_application 只允许成功设置一次；后续重复调用会报错。
+            // 用 OnceLock 保证进程内只初始化一次，避免“有时成功有时失败”。
             let bundle_id = app.config().identifier.clone();
-            if let Err(e) = set_application(&bundle_id) {
+            let init_result = MAC_NOTIFICATION_APP_INIT.get_or_init(|| {
+                set_application(&bundle_id).map_err(|e| e.to_string())
+            });
+            if let Err(e) = init_result {
                 eprintln!(
                     "[notification] set_application({bundle_id}) 失败，降级到 tauri plugin: {e}"
                 );
@@ -83,25 +75,23 @@ pub mod macos {
             match response {
                 Ok(mac_notification_sys::NotificationResponse::Click) => {
                     eprintln!("[notification] user clicked notification: {title}");
-                    let _ = app.emit(
-                        "notification-clicked",
-                        serde_json::json!({
-                            "title": title,
-                            "body": body,
-                            "action": "click",
-                        }),
-                    );
+                    let sid = session_id.clone();
+                    let app_for_focus = app.clone();
+                    if let Err(err) = app.run_on_main_thread(move || {
+                        crate::window::focus_popup(app_for_focus, sid);
+                    }) {
+                        eprintln!("[notification] run_on_main_thread(focus_popup) 失败: {err}");
+                    }
                 }
                 Ok(mac_notification_sys::NotificationResponse::ActionButton(ref action)) => {
                     eprintln!("[notification] action button clicked: {action}");
-                    let _ = app.emit(
-                        "notification-clicked",
-                        serde_json::json!({
-                            "title": title,
-                            "body": body,
-                            "action": action,
-                        }),
-                    );
+                    let sid = session_id.clone();
+                    let app_for_focus = app.clone();
+                    if let Err(err) = app.run_on_main_thread(move || {
+                        crate::window::focus_popup(app_for_focus, sid);
+                    }) {
+                        eprintln!("[notification] run_on_main_thread(focus_popup) 失败: {err}");
+                    }
                 }
                 Ok(other) => {
                     eprintln!("[notification] notification dismissed/ignored: {other:?}");
@@ -118,12 +108,7 @@ pub mod macos {
 
 /// 发送系统通知（macOS：使用原生回调；其他平台：降级到 tauri-plugin-notification）
 ///
-/// 用户点击通知后，前端可监听 `"notification-clicked"` 事件：
-/// ```ts
-/// listen("notification-clicked", ({ payload }) => {
-///   console.log("用户点击了通知:", payload.title, payload.body);
-/// });
-/// ```
+/// 用户点击通知后，后端会统一调度 `focus_popup(session_id)`。
 #[tauri::command]
 pub fn send_notification_with_callback(
     app: tauri::AppHandle,
@@ -131,12 +116,13 @@ pub fn send_notification_with_callback(
     body: String,
     subtitle: Option<String>,
     sound: Option<bool>,
+    session_id: Option<String>,
 ) -> Result<(), String> {
     let play_sound = sound.unwrap_or(true);
 
     #[cfg(target_os = "macos")]
     {
-        macos::send_with_click_callback(app, title, body, subtitle, play_sound);
+        macos::send_with_click_callback(app, title, body, subtitle, play_sound, session_id);
         return Ok(());
     }
 

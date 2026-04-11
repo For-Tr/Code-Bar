@@ -391,19 +391,6 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     setInstalling(false);
   }, [recheckCli]);
 
-  const ptyConfigKey = `${runner.type}::${cliCommand}::${session?.workdir ?? ""}::${resumeSessionId}`;
-  const lastPtyConfigKeyRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    const prevKey = lastPtyConfigKeyRef.current;
-    lastPtyConfigKeyRef.current = ptyConfigKey;
-    clearPendingQueryTimer();
-    ptyReadyRef.current = false;
-    if (!ptyEverActive || prevKey === null || prevKey === ptyConfigKey) return;
-    setLaunchPrompt(null);
-    pendingQueryRef.current = null;
-  }, [clearPendingQueryTimer, ptyConfigKey, ptyEverActive]);
-
   // PTY 退出后标记 done
   useEffect(() => {
     if (isNativeMode) return;
@@ -417,20 +404,6 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     return () => { u.then((f: () => void) => f()); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isNativeMode]);
-
-  // 监听通知点击回调：用户点击系统通知后，激活并显示 popup 窗口
-  // notification-clicked 由 Rust 层 mac-notification-sys 在用户点击通知后发射
-  useEffect(() => {
-    const u = listen<{ title: string; body: string; action: string }>(
-      "notification-clicked",
-      () => {
-        // 先显示/激活窗口，再展开 terminal panel
-        invoke("focus_popup").catch(() => {});
-      }
-    );
-    return () => { u.then((f: () => void) => f()); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // ── 构建注入给 PTY 进程的环境变量 ──
   // 包含：CODE_BAR_* 上下文信息 + CLI 所需的 API Key / Base URL
@@ -611,11 +584,6 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
   const waitingForPtyLaunch = !isNativeMode && querySent && !ptyEverActive && !isResumeLaunch;
   const sessionOutput = session.output ?? [];
   const installCmd = CLI_INSTALL_CMD[runner.type];
-
-  // PTY key：runner/command 或 workdir 变化时重新挂载
-  // workdir 变化场景：新建 session 时 worktree 在后台创建完成，workdir 从原路径更新为 worktree 路径
-  // 由于 worktree 完成前 PTY 还未启动（querySent=false），重挂载无副作用
-  const ptyKey = `${sessionId}::${runner.type}::${cliCommand}::${session.workdir}::${resumeSessionId}`;
 
   // CLI 基础 args（不含 task，task 通过 write_pty 写入）
   const cliBaseArgs: string[] =
@@ -870,12 +838,11 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
             pointerEvents: querySent && ptyEverActive ? "auto" : "none",
           }}>
             <PtyTerminal
-              key={ptyKey}
               sessionId={sessionId}
               command={cliCommand}
               args={cliBaseArgs}
               workdir={session.workdir}
-              active={ptyEverActive}
+              active={isOpen && querySent && ptyEverActive}
               initialPrompt={launchPrompt}
               supportsPromptArg={supportsPromptLaunch}
               onReady={handlePtyReady}

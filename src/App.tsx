@@ -442,10 +442,13 @@ export default function App() {
   // ── 通知点击唤起弹窗时，展开最近活跃的 session ──
   useEffect(() => {
     if (!("__TAURI_INTERNALS__" in window)) return;
-    const unlisten = listen("popup-focused", () => {
-      // 取当前活跃 session，如没有则取最近的一个
+    const unlisten = listen<{ session_id?: string | null }>("popup-focused", ({ payload }) => {
+      const sid = payload?.session_id?.trim();
       const { activeSessionId: aid, sessions: ss } = useSessionStore.getState();
-      const target = aid ?? ss[ss.length - 1]?.id ?? null;
+      const target =
+        sid && ss.some((s) => s.id === sid)
+          ? sid
+          : (aid ?? ss[ss.length - 1]?.id ?? null);
       if (target) {
         setExpandedSession(target);
         refreshSessionDiff(target);
