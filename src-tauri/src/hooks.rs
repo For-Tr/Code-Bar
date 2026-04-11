@@ -3,6 +3,7 @@ use std::io::Read;
 use std::path::PathBuf;
 
 use serde_json::{Map, Value};
+use serde::Serialize;
 
 use crate::provider_sessions::emit_provider_session_bound;
 use crate::session_lifecycle::{
@@ -469,6 +470,95 @@ fn save_json_file(path: &PathBuf, json: &Value) -> Result<(), String> {
     fs::write(path, output).map_err(|e| format!("写入 {} 失败: {e}", path.display()))
 }
 
+fn strip_managed_hooks(root: &mut Value, source: HookSource) -> bool {
+    let Some(hooks_obj) = root.get_mut("hooks").and_then(|value| value.as_object_mut()) else {
+        return false;
+    };
+
+    let event_names: Vec<String> = hooks_obj.keys().cloned().collect();
+    let mut changed = false;
+    let mut empty_events = Vec::new();
+
+    for event_name in event_names {
+        let Some(event_value) = hooks_obj.get_mut(&event_name) else {
+            continue;
+        };
+        let Some(event_arr) = event_value.as_array_mut() else {
+            continue;
+        };
+
+        let before_group_len = event_arr.len();
+        event_arr.retain_mut(|group| {
+            let Some(group_obj) = group.as_object_mut() else {
+                changed = true;
+                return false;
+            };
+
+            let Some(hooks_value) = group_obj.get_mut("hooks") else {
+                changed = true;
+                return false;
+            };
+            let Some(hook_arr) = hooks_value.as_array_mut() else {
+                changed = true;
+                return false;
+            };
+
+            let before_hook_len = hook_arr.len();
+            hook_arr.retain(|hook| {
+                let command = hook.get("command").and_then(|v| v.as_str()).unwrap_or("");
+                !is_managed_command(command, source)
+            });
+            if hook_arr.len() != before_hook_len {
+                changed = true;
+            }
+
+            !hook_arr.is_empty()
+        });
+
+        if event_arr.len() != before_group_len {
+            changed = true;
+        }
+
+        if event_arr.is_empty() {
+            empty_events.push(event_name);
+        }
+    }
+
+    for event_name in empty_events {
+        hooks_obj.remove(&event_name);
+        changed = true;
+    }
+
+    changed
+}
+
+fn has_managed_hook_for_spec(root: &Value, spec: &HookCommandSpec) -> bool {
+    root.get("hooks")
+        .and_then(|value| value.as_object())
+        .and_then(|hooks_obj| hooks_obj.get(spec.event_name))
+        .and_then(|value| value.as_array())
+        .is_some_and(|groups| {
+            groups.iter().any(|group| {
+                group
+                    .get("hooks")
+                    .and_then(|value| value.as_array())
+                    .is_some_and(|hooks| {
+                        hooks.iter().any(|hook| {
+                            hook.get("command").and_then(|value| value.as_str())
+                                == Some(spec.command.as_str())
+                        })
+                    })
+            })
+        })
+}
+
+fn missing_managed_events(root: &Value, specs: &[HookCommandSpec]) -> Vec<String> {
+    specs.iter()
+        .filter(|spec| !has_managed_hook_for_spec(root, spec))
+        .map(|spec| spec.event_name.to_string())
+        .collect()
+}
+
 fn ensure_claude_hook_settings() -> Result<String, String> {
     let settings_path = resolve_provider_file_path("claude-code", "", "settings.json")
         .ok_or("无法解析 Claude Code 配置目录")?;
@@ -491,6 +581,20 @@ fn ensure_claude_hook_settings() -> Result<String, String> {
         settings_path.display(),
         changed.join(", ")
     ))
+}
+
+fn disable_claude_hook_settings() -> Result<String, String> {
+    let settings_path = resolve_provider_file_path("claude-code", "", "settings.json")
+        .ok_or("无法解析 Claude Code 配置目录")?;
+    let mut settings = load_json_file(&settings_path)?;
+    let changed = strip_managed_hooks(&mut settings, HookSource::ClaudeCode);
+
+    if !changed {
+        return Ok("Claude Code hooks 已关闭或未配置".to_string());
+    }
+
+    save_json_file(&settings_path, &settings)?;
+    Ok(format!("已关闭 Claude Code hooks: {}", settings_path.display()))
 }
 
 fn load_toml_file(path: &PathBuf) -> Result<toml::Table, String> {
@@ -618,6 +722,146 @@ fn ensure_codex_hook_settings() -> Result<String, String> {
     ensure_codex_notify_settings()
 }
 
+#[cfg(unix)]
+fn disable_codex_feature_flag() -> Result<String, String> {
+    let config_path = resolve_provider_file_path("codex", "", "config.toml")
+        .ok_or("无法解析 Codex 配置目录")?;
+    let mut config = load_toml_file(&config_path)?;
+
+    let Some(features) = config.get_mut("features").and_then(|value| value.as_table_mut()) else {
+        return Ok("Codex hooks feature 已关闭或未配置".to_string());
+    };
+
+    let already_disabled = features
+        .get("codex_hooks")
+        .and_then(|value| value.as_bool())
+        != Some(true);
+
+    if already_disabled {
+        return Ok("Codex hooks feature 已关闭或未配置".to_string());
+    }
+
+    features.insert("codex_hooks".to_string(), toml::Value::Boolean(false));
+    save_toml_file(&config_path, &config)?;
+    Ok(format!("已关闭 Codex hooks feature: {}", config_path.display()))
+}
+
+#[cfg(not(unix))]
+fn disable_codex_feature_flag() -> Result<String, String> {
+    Ok("Windows 平台无需关闭 Codex hooks feature".to_string())
+}
+
+#[cfg(unix)]
+fn disable_codex_hook_settings() -> Result<String, String> {
+    let hooks_path = resolve_provider_file_path("codex", "", "hooks.json")
+        .ok_or("无法解析 Codex 配置目录")?;
+    let mut hooks = load_json_file(&hooks_path)?;
+    let changed = strip_managed_hooks(&mut hooks, HookSource::Codex);
+
+    let hook_message = if changed {
+        save_json_file(&hooks_path, &hooks)?;
+        format!("已关闭 Codex hooks: {}", hooks_path.display())
+    } else {
+        "Codex hooks 已关闭或未配置".to_string()
+    };
+
+    let feature_message = disable_codex_feature_flag()?;
+    Ok(format!("{feature_message}\n{hook_message}"))
+}
+
+#[cfg(not(unix))]
+fn disable_codex_hook_settings() -> Result<String, String> {
+    let config_path = resolve_provider_file_path("codex", "", "config.toml")
+        .ok_or("无法解析 Codex 配置目录")?;
+    let mut config = load_toml_file(&config_path)?;
+
+    if config.remove("notify").is_none() {
+        return Ok("Codex Windows notify 已关闭或未配置".to_string());
+    }
+
+    save_toml_file(&config_path, &config)?;
+    Ok(format!("已关闭 Codex Windows notify: {}", config_path.display()))
+}
+
+pub fn disable_all_hooks() -> Result<String, String> {
+    let claude = disable_claude_hook_settings()?;
+    let codex = disable_codex_hook_settings()?;
+    Ok(format!("{claude}\n{codex}"))
+}
+
+#[derive(Debug, Serialize)]
+pub struct NotificationHookStatus {
+    enabled: bool,
+    claude_hooks_configured: bool,
+    codex_hooks_configured: bool,
+    codex_feature_enabled: bool,
+    claude_listener_ready: bool,
+    codex_listener_ready: bool,
+    healthy: bool,
+    issues: Vec<String>,
+}
+
+fn claude_hooks_configured() -> Result<bool, String> {
+    let settings_path = resolve_provider_file_path("claude-code", "", "settings.json")
+        .ok_or("无法解析 Claude Code 配置目录")?;
+    let settings = load_json_file(&settings_path)?;
+    let specs = hook_specs(HookSource::ClaudeCode)?;
+    Ok(missing_managed_events(&settings, &specs).is_empty())
+}
+
+fn codex_hooks_configured() -> Result<bool, String> {
+    #[cfg(unix)]
+    {
+        let hooks_path = resolve_provider_file_path("codex", "", "hooks.json")
+            .ok_or("无法解析 Codex 配置目录")?;
+        let hooks = load_json_file(&hooks_path)?;
+        let specs = hook_specs(HookSource::Codex)?;
+        return Ok(missing_managed_events(&hooks, &specs).is_empty());
+    }
+
+    #[cfg(not(unix))]
+    {
+        let config_path = resolve_provider_file_path("codex", "", "config.toml")
+            .ok_or("无法解析 Codex 配置目录")?;
+        let config = load_toml_file(&config_path)?;
+        return Ok(matches!(config.get("notify"), Some(toml::Value::Array(values)) if !values.is_empty()));
+    }
+}
+
+fn codex_feature_enabled() -> Result<bool, String> {
+    #[cfg(unix)]
+    {
+        let config_path = resolve_provider_file_path("codex", "", "config.toml")
+            .ok_or("无法解析 Codex 配置目录")?;
+        let config = load_toml_file(&config_path)?;
+        let enabled = config
+            .get("features")
+            .and_then(|value| value.as_table())
+            .and_then(|table| table.get("codex_hooks"))
+            .and_then(|value| value.as_bool())
+            == Some(true);
+        return Ok(enabled);
+    }
+
+    #[cfg(not(unix))]
+    {
+        Ok(true)
+    }
+}
+
+fn hook_listener_ready(source: HookSource) -> bool {
+    #[cfg(unix)]
+    {
+        std::path::Path::new(&source.socket_path()).exists()
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = source;
+        true
+    }
+}
+
 #[tauri::command]
 pub fn setup_claude_hooks() -> Result<String, String> {
     ensure_claude_hook_settings()
@@ -664,6 +908,77 @@ pub fn setup_all_hooks() -> Result<String, String> {
 
     #[allow(unreachable_code)]
     Ok(claude)
+}
+
+pub fn reconcile_integrations_on_startup(app: &tauri::AppHandle) -> Result<String, String> {
+    if crate::integration_control::notifications_and_hooks_enabled(app) {
+        let configured = setup_all_hooks()?;
+        return Ok(format!("通知与 Hooks 已启用\n{configured}"));
+    }
+
+    let disabled = disable_all_hooks()?;
+    Ok(format!("通知与 Hooks 已关闭\n{disabled}"))
+}
+
+#[tauri::command]
+pub fn set_notifications_and_hooks_enabled(
+    app: tauri::AppHandle,
+    enabled: bool,
+) -> Result<String, String> {
+    let result = if enabled {
+        setup_all_hooks()?
+    } else {
+        disable_all_hooks()?
+    };
+
+    crate::integration_control::save_preferences(&app, enabled)?;
+    Ok(result)
+}
+
+#[tauri::command]
+pub fn get_notifications_and_hooks_status(
+    app: tauri::AppHandle,
+) -> Result<NotificationHookStatus, String> {
+    let enabled = crate::integration_control::notifications_and_hooks_enabled(&app);
+    let claude_hooks_configured = claude_hooks_configured()?;
+    let codex_hooks_configured = codex_hooks_configured()?;
+    let codex_feature_enabled = codex_feature_enabled()?;
+    let claude_listener_ready = hook_listener_ready(HookSource::ClaudeCode);
+    let codex_listener_ready = hook_listener_ready(HookSource::Codex);
+
+    let mut issues = Vec::new();
+    if enabled && !claude_hooks_configured {
+        issues.push("Claude Code hooks 未配置完成".to_string());
+    }
+    if enabled && !codex_hooks_configured {
+        issues.push("Codex hooks 未配置完成".to_string());
+    }
+    if enabled && !codex_feature_enabled {
+        issues.push("Codex hooks feature 未启用".to_string());
+    }
+    if enabled && !claude_listener_ready {
+        issues.push("Claude Code hook listener 未就绪".to_string());
+    }
+    if enabled && !codex_listener_ready {
+        issues.push("Codex hook listener 未就绪".to_string());
+    }
+
+    let healthy = if enabled {
+        issues.is_empty()
+    } else {
+        true
+    };
+
+    Ok(NotificationHookStatus {
+        enabled,
+        claude_hooks_configured,
+        codex_hooks_configured,
+        codex_feature_enabled,
+        claude_listener_ready,
+        codex_listener_ready,
+        healthy,
+        issues,
+    })
 }
 
 /// 将目录写入 Claude settings.json 的 trustedDirectories
@@ -740,6 +1055,14 @@ fn codex_notify_message(json: &Value) -> Option<(String, String, String)> {
 }
 
 fn dispatch_hook_event(app: &tauri::AppHandle, source: HookSource, json: &Value) {
+    if !crate::integration_control::notifications_and_hooks_enabled(app) {
+        eprintln!(
+            "[hooks:{}] ignored because notifications and hooks are disabled",
+            source.label()
+        );
+        return;
+    }
+
     let event_name = json
         .get("hook_event_name")
         .and_then(|v| v.as_str())

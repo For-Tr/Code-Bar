@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   useSettingsStore,
   RUNNER_LABELS,
@@ -107,6 +107,30 @@ function SectionDivider({ label }: { label: string }) {
   );
 }
 
+function StatusPill({
+  ok,
+  label,
+}: {
+  ok: boolean;
+  label: string;
+}) {
+  return (
+    <span
+      style={{
+        fontSize: 10,
+        padding: "2px 7px",
+        borderRadius: 99,
+        background: ok ? C.greenBg : C.yellowBg,
+        border: `1px solid ${ok ? C.greenBdr : C.yellowBdr}`,
+        color: ok ? C.greenDark : C.yellow,
+        fontWeight: 600,
+      }}
+    >
+      {label}
+    </span>
+  );
+}
+
 // ── 卡片式单选 ─────────────────────────────────────────────────
 
 function CardSelect<T extends string>({
@@ -170,26 +194,30 @@ function CardSelect<T extends string>({
 // ── Toggle ────────────────────────────────────────────────────
 
 function Toggle({
-  value, onChange, label, desc,
+  value, onChange, label, desc, disabled = false, showDivider = true, labelStyle,
 }: {
-  value: boolean; onChange: (v: boolean) => void; label: string; desc?: string;
+  value: boolean; onChange: (v: boolean) => void; label: string; desc?: string; disabled?: boolean; showDivider?: boolean; labelStyle?: React.CSSProperties;
 }) {
   return (
     <div
-      onClick={() => onChange(!value)}
+      onClick={() => {
+        if (disabled) return;
+        onChange(!value);
+      }}
       style={{
         display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "9px 0", cursor: "pointer",
-        borderBottom: `1px solid ${C.border}`,
+        padding: "9px 0", cursor: disabled ? "default" : "pointer",
+        borderBottom: showDivider ? `1px solid ${C.border}` : "none",
+        opacity: disabled ? 0.56 : 1,
       }}
     >
       <div>
-        <div style={{ fontSize: 12, color: C.text }}>{label}</div>
+        <div style={{ fontSize: 12, color: C.text, ...labelStyle }}>{label}</div>
         {desc && <div style={{ fontSize: 11, color: C.textDim, marginTop: 2 }}>{desc}</div>}
       </div>
       <div style={{
         width: 36, height: 20, borderRadius: 99, flexShrink: 0,
-        background: value ? C.green : "rgba(120,120,128,0.2)",
+        background: value ? C.accent : "rgba(120,120,128,0.2)",
         display: "flex", alignItems: "center",
         padding: "0 2px",
         transition: "background 0.22s",
@@ -545,6 +573,58 @@ function ApiKeysTab() {
   const { settings, saveProviderApiKey, patchRunner } = useSettingsStore();
   const [detecting, setDetecting] = useState(false);
   const [detectResult, setDetectResult] = useState<string>("");
+  const [integrationBusy, setIntegrationBusy] = useState(false);
+  const [integrationStatusLoading, setIntegrationStatusLoading] = useState(false);
+  const [integrationMessage, setIntegrationMessage] = useState("");
+  const [testingNotification, setTestingNotification] = useState(false);
+  const [integrationStatus, setIntegrationStatus] = useState<{
+    enabled: boolean;
+    claude_hooks_configured: boolean;
+    codex_hooks_configured: boolean;
+    codex_feature_enabled: boolean;
+    claude_listener_ready: boolean;
+    codex_listener_ready: boolean;
+    healthy: boolean;
+    issues: string[];
+  } | null>(null);
+
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+
+    let cancelled = false;
+    const run = async () => {
+      setIntegrationStatusLoading(true);
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const status = await invoke<{
+          enabled: boolean;
+          claude_hooks_configured: boolean;
+          codex_hooks_configured: boolean;
+          codex_feature_enabled: boolean;
+          claude_listener_ready: boolean;
+          codex_listener_ready: boolean;
+          healthy: boolean;
+          issues: string[];
+        }>("get_notifications_and_hooks_status");
+        if (!cancelled) {
+          setIntegrationStatus(status);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setIntegrationMessage(`状态检查失败: ${e}`);
+        }
+      } finally {
+        if (!cancelled) {
+          setIntegrationStatusLoading(false);
+        }
+      }
+    };
+
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleAutoDetect = async () => {
     if (detecting) return;
@@ -602,6 +682,69 @@ function ApiKeysTab() {
     }
   };
 
+  const refreshIntegrationStatus = async () => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+
+    setIntegrationStatusLoading(true);
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const status = await invoke<{
+        enabled: boolean;
+        claude_hooks_configured: boolean;
+        codex_hooks_configured: boolean;
+        codex_feature_enabled: boolean;
+        claude_listener_ready: boolean;
+        codex_listener_ready: boolean;
+        healthy: boolean;
+        issues: string[];
+      }>("get_notifications_and_hooks_status");
+      setIntegrationStatus(status);
+    } catch (e) {
+      setIntegrationMessage(`状态检查失败: ${e}`);
+    } finally {
+      setIntegrationStatusLoading(false);
+    }
+  };
+
+  const handleToggleIntegrations = async () => {
+    if (integrationBusy || !("__TAURI_INTERNALS__" in window)) return;
+
+    const nextEnabled = !(integrationStatus?.enabled ?? true);
+    setIntegrationBusy(true);
+    setIntegrationMessage("");
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const result = await invoke<string>("set_notifications_and_hooks_enabled", {
+        enabled: nextEnabled,
+      });
+      setIntegrationMessage(result);
+      await refreshIntegrationStatus();
+    } catch (e) {
+      setIntegrationMessage(`切换失败: ${e}`);
+    } finally {
+      setIntegrationBusy(false);
+    }
+  };
+
+  const handleTestNotification = async () => {
+    if (testingNotification || !("__TAURI_INTERNALS__" in window)) return;
+
+    setTestingNotification(true);
+    setIntegrationMessage("");
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("send_notification", {
+        title: "Code Bar",
+        body: "通知与 Hooks 当前可用，这条测试通知由设置页发出。",
+      });
+      setIntegrationMessage("测试通知已发送。若未看到弹窗，请检查系统通知权限。");
+    } catch (e) {
+      setIntegrationMessage(`通知发送失败: ${e}`);
+    } finally {
+      setTestingNotification(false);
+    }
+  };
+
   return (
     <div>
       <div style={{
@@ -651,52 +794,6 @@ function ApiKeysTab() {
         >
           🐞 诊断 PATH
         </button>
-        <button
-          onClick={async () => {
-            const { invoke } = await import("@tauri-apps/api/core");
-            try {
-              const result = await invoke<string>("setup_all_hooks");
-              alert(result);
-            } catch (e) {
-              alert(`配置失败: ${e}`);
-            }
-          }}
-          style={{
-            padding: "7px 12px", borderRadius: 8,
-            border: `1px solid ${C.purpleBdr}`,
-            background: C.purpleBg, color: C.purple,
-            fontSize: 11, fontWeight: 500, cursor: "pointer",
-            transition: "filter 0.12s",
-          }}
-          onMouseEnter={e => e.currentTarget.style.filter = "brightness(0.9)"}
-          onMouseLeave={e => e.currentTarget.style.filter = "none"}
-        >
-          🔔 启用 Claude / Codex Hooks
-        </button>
-        <button
-          onClick={async () => {
-            const { invoke } = await import("@tauri-apps/api/core");
-            try {
-              await invoke("send_notification", {
-                title: "Code Bar",
-                body: "🔔 通知权限正常，任务完成时会弹出此提示",
-              });
-            } catch (e) {
-              alert(`通知发送失败: ${e}\n\n请在「系统设置 → 通知 → Code Bar」中开启通知权限`);
-            }
-          }}
-          style={{
-            padding: "7px 12px", borderRadius: 8,
-            border: `1px solid ${C.greenBdr}`,
-            background: C.greenBg, color: C.greenDark,
-            fontSize: 11, fontWeight: 500, cursor: "pointer",
-            transition: "filter 0.12s",
-          }}
-          onMouseEnter={e => e.currentTarget.style.filter = "brightness(0.9)"}
-          onMouseLeave={e => e.currentTarget.style.filter = "none"}
-        >
-          🔔 测试通知
-        </button>
         {detectResult && (
           <span style={{ fontSize: 10, color: C.textMuted }}>{detectResult}</span>
         )}
@@ -704,6 +801,132 @@ function ApiKeysTab() {
       <HintText>
         自动从 Claude 配置目录、系统环境变量（ANTHROPIC_API_KEY 等）及 Shell 配置文件中检测 API Key 和 Base URL
       </HintText>
+
+      <SectionDivider label="通知与 Hooks" />
+      <div
+        style={{
+          marginBottom: 14,
+          padding: "12px 14px",
+          background: C.surfaceHi,
+          border: `1px solid ${C.border}`,
+          borderRadius: 12,
+        }}
+      >
+        <div style={{ fontSize: 12, color: C.text, fontWeight: 600, marginBottom: 4 }}>
+          Provider Hooks 与系统通知
+        </div>
+        <div style={{ fontSize: 11, color: C.textMuted, lineHeight: "1.6", marginBottom: 10 }}>
+          这里统一管理 Claude / Codex provider hooks 和系统通知。关闭后不再自动同步 provider 生命周期，也不会再发送 Code Bar 通知。
+        </div>
+
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+          <StatusPill
+            ok={integrationStatus?.enabled ?? false}
+            label={(integrationStatus?.enabled ?? false) ? "已启用" : "已关闭"}
+          />
+          <StatusPill
+            ok={integrationStatus?.claude_hooks_configured ?? false}
+            label="Claude Hooks"
+          />
+          <StatusPill
+            ok={integrationStatus?.codex_hooks_configured ?? false}
+            label="Codex Hooks"
+          />
+          <StatusPill
+            ok={integrationStatus?.codex_feature_enabled ?? false}
+            label="Codex Feature"
+          />
+          <StatusPill
+            ok={Boolean(integrationStatus?.claude_listener_ready && integrationStatus?.codex_listener_ready)}
+            label="Listener"
+          />
+          <StatusPill
+            ok={integrationStatus?.healthy ?? false}
+            label="健康检查"
+          />
+        </div>
+
+        <div style={{ display: "flex", gap: 7, alignItems: "center", flexWrap: "wrap" }}>
+          <button
+            onClick={handleToggleIntegrations}
+            disabled={integrationBusy || integrationStatus === null}
+            style={{
+              padding: "7px 12px",
+              borderRadius: 8,
+              border: `1px solid ${(integrationStatus?.enabled ?? false) ? C.yellowBdr : C.greenBdr}`,
+              background: (integrationStatus?.enabled ?? false) ? C.yellowBg : C.greenBg,
+              color: (integrationStatus?.enabled ?? false) ? C.yellow : C.greenDark,
+              fontSize: 11,
+              fontWeight: 600,
+              cursor: (integrationBusy || integrationStatus === null) ? "default" : "pointer",
+              opacity: (integrationBusy || integrationStatus === null) ? 0.6 : 1,
+              transition: "filter 0.12s",
+            }}
+            onMouseEnter={e => e.currentTarget.style.filter = "brightness(0.9)"}
+            onMouseLeave={e => e.currentTarget.style.filter = "none"}
+          >
+            {integrationBusy
+              ? "处理中…"
+              : (integrationStatus?.enabled ?? false)
+              ? "关闭通知与 Hooks"
+              : "启用通知与 Hooks"}
+          </button>
+
+          <button
+            onClick={refreshIntegrationStatus}
+            disabled={integrationStatusLoading}
+            style={{
+              padding: "7px 12px",
+              borderRadius: 8,
+              border: `1px solid ${C.purpleBdr}`,
+              background: C.purpleBg,
+              color: C.purple,
+              fontSize: 11,
+              fontWeight: 500,
+              cursor: integrationStatusLoading ? "default" : "pointer",
+              opacity: integrationStatusLoading ? 0.6 : 1,
+              transition: "filter 0.12s",
+            }}
+            onMouseEnter={e => e.currentTarget.style.filter = "brightness(0.9)"}
+            onMouseLeave={e => e.currentTarget.style.filter = "none"}
+          >
+            {integrationStatusLoading ? "检查中…" : "重新校验"}
+          </button>
+
+          <button
+            onClick={handleTestNotification}
+            disabled={testingNotification || integrationStatus === null || !(integrationStatus?.enabled ?? false)}
+            style={{
+              padding: "7px 12px",
+              borderRadius: 8,
+              border: `1px solid ${C.accentBdr}`,
+              background: C.accentBg,
+              color: C.accentTxt,
+              fontSize: 11,
+              fontWeight: 500,
+              cursor: (testingNotification || integrationStatus === null || !(integrationStatus?.enabled ?? false)) ? "default" : "pointer",
+              opacity: (testingNotification || integrationStatus === null || !(integrationStatus?.enabled ?? false)) ? 0.6 : 1,
+              transition: "filter 0.12s",
+            }}
+            onMouseEnter={e => e.currentTarget.style.filter = "brightness(0.9)"}
+            onMouseLeave={e => e.currentTarget.style.filter = "none"}
+          >
+            {testingNotification ? "发送中…" : "测试通知"}
+          </button>
+        </div>
+
+        {integrationStatus?.issues?.length ? (
+          <div style={{ marginTop: 10, fontSize: 10, color: C.yellow, lineHeight: "1.6" }}>
+            {integrationStatus.issues.join("；")}
+          </div>
+        ) : null}
+
+        {integrationMessage ? (
+          <div style={{ marginTop: 10, fontSize: 10, color: C.textMuted, whiteSpace: "pre-wrap", lineHeight: "1.6" }}>
+            {integrationMessage}
+          </div>
+        ) : null}
+      </div>
 
       <ApiKeyRow
         provider="anthropic"
@@ -863,17 +1086,60 @@ function AppearanceTab() {
 
   type ThemeOption = ThemeMode;
 
-  const themeOptions: { value: ThemeOption; label: string; hint: string; icon: string }[] = [
-    { value: "light",  label: "浅色",   hint: "始终使用浅色主题",     icon: "☀️" },
-    { value: "dark",   label: "深色",   hint: "始终使用深色主题",     icon: "🌙" },
-    { value: "glass",  label: "原生 Glass",  hint: "使用 Tauri 原生 glass 材质，不再叠前端磨砂", icon: "🫧" },
-    { value: "system", label: "跟随系统", hint: "与 macOS 外观设置保持一致", icon: "💻" },
+  const themeOptions: {
+    value: ThemeOption;
+    label: string;
+    icon: string;
+    shell: string;
+    card: string;
+    accent: string;
+    textColor: string;
+  }[] = [
+    {
+      value: "light",
+      label: "浅色",
+      icon: "☀",
+      shell: "linear-gradient(180deg, #f7f9fc 0%, #eef2f8 100%)",
+      card: "rgba(255,255,255,0.76)",
+      accent: "#0f7cff",
+      textColor: "#223246",
+    },
+    {
+      value: "dark",
+      label: "深色",
+      icon: "◐",
+      shell: "linear-gradient(180deg, #17191f 0%, #101217 100%)",
+      card: "rgba(43,48,60,0.78)",
+      accent: "#5ea1ff",
+      textColor: "rgba(245,247,255,0.92)",
+    },
+    {
+      value: "glass",
+      label: "原生 Glass",
+      icon: "◎",
+      shell: "linear-gradient(135deg, rgba(244,248,255,0.72) 0%, rgba(210,228,255,0.38) 100%)",
+      card: "rgba(255,255,255,0.34)",
+      accent: "#3291ff",
+      textColor: "#173556",
+    },
+    {
+      value: "system",
+      label: "跟随系统",
+      icon: "⌘",
+      shell: "linear-gradient(135deg, #f6f7fb 0%, #d9dde7 48%, #1e2330 100%)",
+      card: "rgba(255,255,255,0.62)",
+      accent: "#4f7bff",
+      textColor: "#243347",
+    },
   ];
 
   return (
     <div>
-      <SectionDivider label="外观模式" />
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+        gap: 12,
+      }}>
         {themeOptions.map((opt) => {
           const active = settings.theme === opt.value;
           return (
@@ -881,90 +1147,214 @@ function AppearanceTab() {
               key={opt.value}
               onClick={() => patchSettings({ theme: opt.value })}
               style={{
-                display: "flex", alignItems: "center", gap: 12,
-                padding: "11px 14px",
-                background: active ? C.surfaceHi : C.surface,
-                border: `1.5px solid ${active ? C.accent : C.border}`,
-                borderRadius: 12,
+                display: "flex",
+                flexDirection: "column",
+                gap: 12,
+                padding: 12,
+                background: active ? "linear-gradient(180deg, var(--ci-surface-hi), var(--ci-surface))" : C.surface,
+                border: `1px solid ${active ? C.accentBdr : C.border}`,
+                borderRadius: 18,
                 cursor: "pointer",
                 textAlign: "left",
-                transition: "all 0.15s",
+                transition: "transform 0.16s, border-color 0.16s, box-shadow 0.16s, background 0.16s",
                 boxShadow: active
-                  ? `0 0 0 3px ${C.accentBg}, 0 1px 4px rgba(0,0,0,0.06)`
+                  ? `0 0 0 3px ${C.accentBg}, var(--ci-card-shadow-strong)`
                   : "none",
+                transform: active ? "translateY(-1px)" : "translateY(0)",
               }}
             >
-              {/* 图标 */}
-              <span style={{ fontSize: 22, lineHeight: 1, flexShrink: 0 }}>{opt.icon}</span>
-
-              {/* 文字 */}
-              <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{
+                position: "relative",
+                height: 118,
+                borderRadius: 14,
+                background: opt.shell,
+                overflow: "hidden",
+                padding: 12,
+                boxSizing: "border-box",
+              }}>
                 <div style={{
-                  fontSize: 13, fontWeight: active ? 600 : 500,
-                  color: active ? C.accent : C.text,
-                  marginBottom: 2,
-                }}>
-                  {opt.label}
+                  position: "absolute",
+                  inset: 0,
+                  background: "linear-gradient(180deg, rgba(255,255,255,0.18), transparent 48%)",
+                  opacity: 0.55,
+                  pointerEvents: "none",
+                }} />
+                <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 8, height: "100%" }}>
+                  <div style={{
+                    borderRadius: 12,
+                    background: opt.card,
+                    boxShadow: "0 10px 24px rgba(15,23,42,0.08)",
+                    backdropFilter: "blur(18px)",
+                    WebkitBackdropFilter: "blur(18px)",
+                  }} />
+                  <div style={{ display: "grid", gap: 8 }}>
+                    <div style={{
+                      borderRadius: 12,
+                      background: opt.card,
+                      backdropFilter: "blur(18px)",
+                      WebkitBackdropFilter: "blur(18px)",
+                    }} />
+                    <div style={{
+                      borderRadius: 12,
+                      background: `linear-gradient(135deg, ${opt.accent}, rgba(255,255,255,0.2))`,
+                      boxShadow: "0 8px 18px rgba(15,23,42,0.10)",
+                    }} />
+                  </div>
                 </div>
-                <div style={{ fontSize: 11, color: C.textDim }}>
-                  {opt.hint}
+                <div style={{
+                  position: "absolute",
+                  top: 12,
+                  right: 12,
+                  width: 30,
+                  height: 30,
+                  borderRadius: 10,
+                  background: "rgba(255,255,255,0.24)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: opt.textColor,
+                  fontSize: 14,
+                  fontWeight: 700,
+                }}>
+                  {opt.icon}
                 </div>
               </div>
 
-              {/* 选中指示器 */}
-              <div style={{
-                width: 18, height: 18, borderRadius: "50%", flexShrink: 0,
-                border: `2px solid ${active ? C.accent : C.borderMed}`,
-                background: active ? C.accent : "transparent",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                transition: "all 0.15s",
-              }}>
-                {active && (
-                  <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#fff" }} />
-                )}
+              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: C.textDim, marginBottom: 4 }}>
+                    {active ? "Current" : "Mode"}
+                  </div>
+                  <div style={{
+                    fontSize: 14, fontWeight: active ? 700 : 600,
+                    color: active ? C.accent : C.text,
+                  }}>
+                    {opt.label}
+                  </div>
+                </div>
+                <div style={{
+                  minWidth: 20,
+                  height: 20,
+                  padding: active ? "0 8px" : 0,
+                  borderRadius: 999,
+                  border: `1px solid ${active ? C.accentBdr : "transparent"}`,
+                  background: active ? C.accentBg : "transparent",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: active ? C.accent : C.textDim,
+                  fontSize: 11,
+                  fontWeight: 700,
+                }}>
+                  {active ? "已选" : "○"}
+                </div>
               </div>
             </button>
           );
         })}
       </div>
+    </div>
+  );
+}
 
-      {/* 预览说明 */}
-      <div style={{
-        marginTop: 16, padding: "10px 12px",
-        background: C.accentBg, border: `1px solid ${C.accentBdr}`,
-        borderRadius: 10,
-      }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: C.accent, marginBottom: 3 }}>
-          ✦ 实时生效
-        </div>
-        <div style={{ fontSize: 11, color: C.textMuted, lineHeight: "1.6" }}>
-          主题切换会立即生效，无需重启应用。选择「跟随系统」后，
-          当 macOS 切换深色/浅色模式时界面会自动跟随变化。
-        </div>
+function SystemTab() {
+  const [integrationBusy, setIntegrationBusy] = useState(false);
+  const [integrationStatus, setIntegrationStatus] = useState<{
+    enabled: boolean;
+  } | null>(null);
+
+  const refreshIntegrationStatus = async () => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const status = await invoke<{
+        enabled: boolean;
+      }>("get_notifications_and_hooks_status");
+      setIntegrationStatus({ enabled: status.enabled });
+    } catch {}
+  };
+
+  useEffect(() => {
+    void refreshIntegrationStatus();
+  }, []);
+
+  const handleToggleIntegrations = async () => {
+    if (integrationBusy || !("__TAURI_INTERNALS__" in window)) return;
+
+    const nextEnabled = !(integrationStatus?.enabled ?? true);
+    setIntegrationBusy(true);
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke<string>("set_notifications_and_hooks_enabled", {
+        enabled: nextEnabled,
+      });
+      await refreshIntegrationStatus();
+    } catch {
+    } finally {
+      setIntegrationBusy(false);
+    }
+  };
+
+  return (
+    <div>
+      <div
+        style={{
+          padding: "0 14px",
+          background: "var(--ci-surface-hi)",
+          borderRadius: 14,
+        }}
+      >
+        <Toggle
+          value={integrationStatus?.enabled ?? false}
+          onChange={() => {
+            void handleToggleIntegrations();
+          }}
+          label="通知"
+          disabled={integrationBusy || integrationStatus === null}
+          showDivider={false}
+          labelStyle={{ fontSize: 14, fontWeight: 600 }}
+        />
       </div>
     </div>
   );
 }
 
 // ── 主 Settings Panel ─────────────────────────────────────────
+type VisibleSettingsTab = "system" | "appearance";
 
-type SettingsTab = "runner" | "model" | "apikeys" | "harness" | "appearance";
+const SETTINGS_NAV_ITEMS: {
+  value: VisibleSettingsTab;
+  label: string;
+  icon: string;
+}[] = [
+  {
+    value: "appearance",
+    label: "外观设置",
+    icon: "◐",
+  },
+  {
+    value: "system",
+    label: "系统设置",
+    icon: "⚙",
+  },
+];
+
+const LEGACY_SETTINGS_TABS = [RunnerTab, ModelTab, ApiKeysTab, HarnessTab];
+void LEGACY_SETTINGS_TABS;
+
+function resolveVisibleSettingsTab(tab: string): VisibleSettingsTab {
+  return tab === "appearance" ? "appearance" : "system";
+}
 
 export default function Settings() {
-  const { settingsOpen, activeTab, setTab, closeSettings } = useSettingsStore();
+  const { settingsOpen, closeSettings, activeTab, setTab } = useSettingsStore();
   const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
   const textShadow = isGlass ? "var(--ci-glass-text-shadow)" : "none";
   const strongTextShadow = isGlass ? "var(--ci-glass-text-shadow-strong)" : "none";
+  const visibleTab = resolveVisibleSettingsTab(activeTab);
 
   if (!settingsOpen) return null;
-
-  const tabs: { id: SettingsTab; label: string }[] = [
-    { id: "runner",     label: "Runner" },
-    { id: "model",      label: "模型" },
-    { id: "apikeys",    label: "API Keys" },
-    { id: "harness",    label: "Harness" },
-    { id: "appearance", label: "外观" },
-  ];
 
   return (
     <div style={{
@@ -974,7 +1364,7 @@ export default function Settings() {
       WebkitBackdropFilter: isGlass ? "none" : "blur(28px) saturate(1.3)",
       borderRadius: 16,
       display: "flex",
-      padding: isGlass ? 0 : 10,
+      padding: isGlass ? 0 : 14,
       boxSizing: "border-box",
       textShadow,
     }}>
@@ -986,23 +1376,33 @@ export default function Settings() {
         flexDirection: "column",
         overflow: "hidden",
         background: isGlass ? "transparent" : "var(--ci-overlay-bg)",
-        border: `1px solid ${isGlass ? "var(--ci-window-edge)" : C.border}`,
-        borderRadius: isGlass ? 0 : 16,
-        boxShadow: isGlass ? "var(--ci-inset-highlight)" : "var(--ci-inset-highlight), var(--ci-card-shadow-strong)",
+        border: "none",
+        borderRadius: isGlass ? 0 : 24,
+        boxShadow: isGlass ? "var(--ci-inset-highlight)" : "var(--ci-card-shadow-strong)",
       }}>
-        {/* Header */}
-        <div style={{
+        <div
+          data-tauri-drag-region
+          style={{
           display: "flex", alignItems: "center", justifyContent: "space-between",
-          padding: "12px 14px 11px",
-          borderBottom: `1px solid ${C.border}`,
+          padding: "16px 18px 14px",
           flexShrink: 0,
           background: isGlass ? "var(--ci-toolbar-bg)" : "transparent",
+          cursor: "grab",
+          userSelect: "none",
+          WebkitUserSelect: "none",
         }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: C.text, letterSpacing: -0.2, textShadow: strongTextShadow }}>设置</span>
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: C.textDim, marginBottom: 3 }}>
+              Preferences
+            </div>
+            <span style={{ fontSize: 18, fontWeight: 700, color: C.text, letterSpacing: -0.3, textShadow: strongTextShadow }}>
+              设置
+            </span>
+          </div>
           <button
             onClick={closeSettings}
             style={{
-              width: 24, height: 24, borderRadius: 7,
+              width: 28, height: 28, borderRadius: 9,
               background: "var(--ci-close-bg)",
               border: `0.5px solid var(--ci-close-border)`,
               color: C.textMuted, cursor: "pointer", fontSize: 11,
@@ -1017,68 +1417,74 @@ export default function Settings() {
               e.currentTarget.style.background = "var(--ci-close-bg)";
               e.currentTarget.style.color = C.textMuted;
             }}
+            onMouseDown={e => e.stopPropagation()}
           >
             ✕
           </button>
         </div>
 
-        {/* Tab bar（分段控件风格）*/}
         <div style={{
-          display: "flex", gap: 0,
-          padding: "8px 12px",
-          borderBottom: `1px solid ${C.border}`,
-          flexShrink: 0,
-          background: isGlass ? "var(--ci-toolbar-bg)" : "transparent",
-        }}>
-          <div style={{
-            display: "flex",
-            background: "var(--ci-pill-bg)",
-            border: `1px solid var(--ci-pill-border)`,
-            borderRadius: 9, padding: 2, gap: 0,
-            width: "100%",
-            boxShadow: "var(--ci-inset-highlight)",
-          }}>
-            {tabs.map((t) => {
-              const active = activeTab === t.id;
-              return (
-                <button
-                  key={t.id}
-                  onClick={() => setTab(t.id as SettingsTab)}
-                  style={{
-                    flex: 1,
-                    padding: "5px 0",
-                    borderRadius: 7,
-                    border: "none",
-                    background: active ? "var(--ci-surface-hi)" : "transparent",
-                    color: active ? C.text : C.textMuted,
-                    fontSize: 11, fontWeight: active ? 600 : 400,
-                    cursor: "pointer",
-                    transition: isGlass ? "color 0.18s, border-color 0.18s" : "all 0.18s",
-                    boxShadow: active
-                      ? (isGlass ? "var(--ci-inset-highlight)" : "0 1px 3px rgba(0,0,0,0.12), 0 0.5px 1px rgba(0,0,0,0.08)")
-                      : "none",
-                    textShadow: active ? strongTextShadow : textShadow,
-                  }}
-                >
-                  {t.label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Content */}
-        <div style={{
-          flex: 1, overflowY: "auto",
-          padding: "12px 14px 16px",
-          scrollbarWidth: "none",
+          flex: 1,
+          minHeight: 0,
+          padding: "0px 18px 18px",
           background: isGlass ? "var(--ci-bg-grad)" : "transparent",
         }}>
-          {activeTab === "runner"     && <RunnerTab />}
-          {activeTab === "model"      && <ModelTab />}
-          {activeTab === "apikeys"    && <ApiKeysTab />}
-          {activeTab === "harness"    && <HarnessTab />}
-          {activeTab === "appearance" && <AppearanceTab />}
+          <div style={{
+            minHeight: 0,
+            height: "100%",
+            borderRadius: 22,
+            background: "transparent",
+            boxShadow: "none",
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
+          }}>
+            <div style={{
+              display: "flex",
+              alignItems: "flex-end",
+              gap: 20,
+              flexWrap: "wrap",
+              padding: "0 18px",
+              background: "transparent",
+              flexShrink: 0,
+            }}>
+              {SETTINGS_NAV_ITEMS.map((item) => {
+                const active = visibleTab === item.value;
+                return (
+                  <button
+                    key={item.value}
+                    onClick={() => setTab(item.value)}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      padding: "14px 0 12px",
+                      marginBottom: -1,
+                      border: "none",
+                      borderBottom: `2px solid ${active ? C.accent : "transparent"}`,
+                      background: "transparent",
+                      color: active ? C.text : C.textMuted,
+                      cursor: "pointer",
+                      fontSize: 13,
+                      fontWeight: 700,
+                      transition: "border-color 0.16s, color 0.16s",
+                    }}
+                  >
+                    {item.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div style={{
+              flex: 1,
+              minHeight: 0,
+              overflowY: "auto",
+              scrollbarWidth: "none",
+              padding: "18px",
+            }}>
+              {visibleTab === "appearance" ? <AppearanceTab /> : <SystemTab />}
+            </div>
+          </div>
         </div>
       </div>
     </div>

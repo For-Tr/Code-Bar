@@ -148,7 +148,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
   const session = useSessionStore((s) => s.sessions.find((x) => x.id === sessionId));
   const worktreeReady = useSessionStore((s) => s.worktreeReadyIds.has(sessionId));
   const { updateSession, appendOutput, clearOutput } = useSessionStore();
-  const { settings, patchRunner, openSettings, getRunnerConfigForType } = useSettingsStore();
+  const { settings, patchRunner, getRunnerConfigForType } = useSettingsStore();
   const isGlass = isGlassTheme(settings.theme);
   const textShadow = isGlass ? "var(--ci-glass-text-shadow)" : "none";
   const workspaces = useWorkspaceStore((s) => s.workspaces);
@@ -683,25 +683,19 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
           {installing ? `正在安装 ${runnerBadge}…` : session.name}
         </span>
 
-        {/* Runner 快速切换 badge */}
-        <button
+        {/* Runner 标识 */}
+        <span
           data-tauri-drag-region
-          onClick={() => openSettings("runner")}
-          onMouseDown={(e) => e.stopPropagation()}
-          title="切换 Runner"
           style={{
             fontSize: 10, padding: "2px 8px", borderRadius: 99,
             background: runnerChipBackground,
             border: runnerChipBorder,
             color: runnerChipText, fontFamily: "monospace",
-            cursor: "pointer",
-            transition: "background 0.15s",
+            cursor: "default",
           }}
-          onMouseEnter={e => (e.currentTarget.style.background = runnerChipHoverBackground)}
-          onMouseLeave={e => (e.currentTarget.style.background = runnerChipBackground)}
         >
           {runnerBadge}
-        </button>
+        </span>
 
         {isNativeMode && isRunning && (
           <button
