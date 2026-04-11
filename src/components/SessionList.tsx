@@ -475,6 +475,7 @@ export function SessionList() {
   const handleNewSession = async () => {
     const id = addSession(activeWorkspace.id, activeWorkspace.path, undefined, { ...runner });
     setExpandedSession(id);
+    const sessionExists = () => useSessionStore.getState().sessions.some((session) => session.id === id);
 
     if ("__TAURI_INTERNALS__" in window) {
       try {
@@ -488,18 +489,31 @@ export function SessionList() {
         });
 
         if (result) {
-          useSessionStore.getState().updateSession(id, {
-            workdir: result.worktree_path,
-            worktreePath: result.worktree_path,
-            branchName: result.branch,
-            baseBranch: result.base_branch,
-          });
+          if (sessionExists()) {
+            useSessionStore.getState().updateSession(id, {
+              workdir: result.worktree_path,
+              worktreePath: result.worktree_path,
+              branchName: result.branch,
+              baseBranch: result.base_branch,
+            });
+          } else {
+            invoke("teardown_session_worktree", {
+              workdir: activeWorkspace.path,
+              worktreePath: result.worktree_path,
+              branch: result.branch,
+            }).catch((e) => {
+              console.warn("[worktree] teardown after removed session failed:", e);
+            });
+            return;
+          }
         }
       } catch (e) {
         console.warn("[worktree] setup failed, fallback to workdir:", e);
       }
     }
-    markWorktreeReady(id);
+    if (sessionExists()) {
+      markWorktreeReady(id);
+    }
   };
 
   const handleRemoveSession = async (session: ClaudeSession) => {

@@ -167,10 +167,14 @@ export const useSessionStore = create<SessionStore>()(
 
       removeSession: (id) =>
         set((state) => {
+          const removedSession = state.sessions.find((s) => s.id === id);
           const sessions = state.sessions.filter((s) => s.id !== id);
+          const nextSessionInWorkspace = removedSession
+            ? sessions.find((s) => s.workspaceId === removedSession.workspaceId)
+            : undefined;
           const activeSessionId =
             state.activeSessionId === id
-              ? (sessions[0]?.id ?? null)
+              ? (nextSessionInWorkspace?.id ?? sessions[0]?.id ?? null)
               : state.activeSessionId;
           const expandedSessionId =
             state.expandedSessionId === id

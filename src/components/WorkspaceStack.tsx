@@ -445,7 +445,7 @@ function WorkspaceStackCollapsed({
 // ── 主组件：WorkspaceStack ────────────────────────────────────
 export function WorkspaceStack() {
   const { workspaces, activeWorkspaceId, bringToFront, removeWorkspace } = useWorkspaceStore();
-  const { removeSessionsByWorkspace } = useSessionStore();
+  const { sessions, removeSessionsByWorkspace } = useSessionStore();
   const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
   const sorted = useWorkspacesSorted();
 
@@ -498,9 +498,34 @@ export function WorkspaceStack() {
     );
   }
 
-  const handleRemove = (id: string) => {
+  const handleRemove = async (id: string) => {
+    const workspace = workspaces.find((ws) => ws.id === id);
+    const sessionsToRemove = sessions.filter((session) => session.workspaceId === id);
     removeSessionsByWorkspace(id);
     removeWorkspace(id);
+
+    if (!("__TAURI_INTERNALS__" in window)) return;
+
+    await Promise.allSettled(
+      sessionsToRemove.flatMap((session) => [
+        invoke("stop_pty_session", { sessionId: session.id }),
+        invoke("stop_runner", { sessionId: session.id }),
+      ])
+    );
+
+    if (!workspace) return;
+
+    await Promise.allSettled(
+      sessionsToRemove
+        .filter((session) => session.worktreePath && session.branchName)
+        .map((session) =>
+          invoke("teardown_session_worktree", {
+            workdir: workspace.path,
+            worktreePath: session.worktreePath,
+            branch: session.branchName,
+          })
+        )
+    );
   };
 
   return (
@@ -592,7 +617,7 @@ export function WorkspaceStack() {
                   bringToFront(ws.id);
                   setExpanded(false);
                 }}
-                onRemove={() => handleRemove(ws.id)}
+                onRemove={() => { void handleRemove(ws.id); }}
               />
             ))}
           </motion.div>
