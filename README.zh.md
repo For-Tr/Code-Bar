@@ -2,7 +2,7 @@
 
 <div align="center">
 
-一个基于 Tauri + React 的 macOS / Windows 菜单栏 / 系统托盘应用，统一管理多种 AI 编程工具（Claude Code、Codex、自定义 CLI、内置 Harness）的会话，提供 Git worktree 隔离、PTY 终端集成、会话状态持久化等开发增强功能。
+一个基于 Tauri + React 的 macOS / Windows 桌面应用，并提供菜单栏 / 系统托盘入口，统一管理多种 AI 编程工具（Claude Code、Codex、自定义 CLI、内置 Harness）的会话，提供 Git worktree 隔离、PTY 终端集成、会话状态持久化等开发增强功能。
 
 <p>
   <a href="https://github.com/For-Tr/Code-Bar/releases/latest/download/code-bar-windows-x64.msi">Windows x64 MSI</a> |
@@ -42,7 +42,7 @@
 - **🪟 Windows 适配** - 支持 Windows CLI 路径检测、`.cmd` / `.bat` shim 处理、PowerShell hook bridge 以及原生目录选择
 - **📊 Git Diff 查看** - 实时 diff 展示（diff2html 渲染），可配置自动刷新间隔
 - **🔧 内置 Harness** - 无需外部 CLI，直接调用 LLM API 执行任务
-- **🎨 自适应主题** - 浅色 / 深色 / 跟随系统，Framer Motion 流畅动画，菜单栏 / 托盘常驻
+- **🎨 自适应主题** - 浅色 / 深色 / 跟随系统，Framer Motion 流畅动画，并提供菜单栏 / 托盘入口
 - **📍 位置记忆** - 浮窗位置与大小跨重启自动恢复
 - **🔔 通知回调** - macOS 原生通知支持点击聚焦，Windows 使用桌面通知降级方案
 - **⚙️ 丰富设置** - Runner、模型、API Key、工具权限、外观，全部可自定义
@@ -51,7 +51,7 @@
 
 ### 支持平台
 
-- **macOS** - 菜单栏模式，原生通知点击回调
+- **macOS** - 标准应用激活行为 + 菜单栏图标，原生通知点击回调
 - **Windows** - 托盘模式，基于 PowerShell / 本地回环 TCP 的 hook 与通知桥接
 
 ### 环境要求
@@ -77,12 +77,14 @@ pnpm install
 ### 开发
 
 ```bash
-# 启动前端开发服务器
-pnpm dev
-
-# 在另一个终端运行 Tauri
+# 启动完整的 Tauri 开发环境
 pnpm tauri dev
+
+# 仅启动前端开发服务器
+pnpm dev
 ```
+
+当多个 worktree 同时执行 `pnpm tauri dev` 时，Code Bar 会自动选择空闲的 Vite/HMR 端口，并同步更新 Tauri 的 `devUrl`。
 
 ### 构建
 
@@ -208,15 +210,15 @@ code-bar/
 
 应用配置文件位于 `src-tauri/tauri.conf.json`：
 
-- **窗口**: 初始 360×220 像素，透明背景，始终置顶，不显示在 Dock/任务栏
+- **窗口**: 初始 360×220 像素，透明背景，按常规窗口层级显示，Windows 下不显示在任务栏
 - **展开**: 打开 PTY 终端时自动扩展至约 700×600
 - **位置记忆**: 下次启动时自动恢复上次的窗口位置和尺寸
-- **行为**: macOS 使用 `Accessory` 激活策略常驻菜单栏，Windows 常驻系统托盘
+- **行为**: macOS 使用 `Regular` 激活策略，保留菜单栏图标并采用标准应用切换行为，Windows 仍常驻系统托盘
 - **Bundle ID**: `com.xiangbingzhou.code-bar`
 
 ## 🪟 平台说明
 
-- **macOS**: 使用原生菜单栏行为、Unix Domain Socket hook bridge，以及支持点击回调的通知
+- **macOS**: 提供菜单栏图标和标准应用激活行为、Unix Domain Socket hook bridge，以及支持点击回调的通知
 - **Windows**: 使用托盘模式、位于 `~/.codebar/hooks` 的 PowerShell hook bridge、本地回环 TCP 事件转发，以及 `.cmd` / `.bat` PTY 兼容处理
 - **Windows 上的 Codex**: 由于 Codex 官方当前声明 Windows hooks 已禁用，Code Bar 会改为配置 `~/.codex/config.toml` 的 `notify`，而不是 `~/.codex/hooks.json`
 
