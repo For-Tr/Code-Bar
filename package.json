@@ -7,9 +7,10 @@
     "dev": "vite",
     "dev:worktree": "node scripts/tauri-dev-worktree.mjs",
     "tauri:dev:worktree": "node scripts/tauri-dev-worktree.mjs",
+    "tauri": "node scripts/tauri-dev-worktree.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri:raw": "tauri"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
