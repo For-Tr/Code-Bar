@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
+import { mirroredPersistStorage } from "./persistStorage";
 
 export const WORKSPACE_COLORS = [
   { id: "blue",   hex: "#3b82f6", label: "蓝" },
@@ -105,7 +106,10 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           ),
         })),
     }),
-    { name: "code-bar-workspaces" }
+    {
+      name: "code-bar-workspaces",
+      storage: createJSONStorage(() => mirroredPersistStorage),
+    }
   )
 );
 

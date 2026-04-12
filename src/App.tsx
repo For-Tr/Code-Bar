@@ -11,7 +11,7 @@ import { DiffViewer } from "./components/DiffViewer";
 import { StatusBar } from "./components/StatusBar";
 import { SessionDetail } from "./components/SessionDetail";
 import Settings from "./components/Settings";
-import { useSessionStore, DiffFile } from "./store/sessionStore";
+import { useSessionStore, DiffFile, type ClaudeSession } from "./store/sessionStore";
 import {
   useSettingsStore,
   isGlassTheme,
@@ -486,6 +486,38 @@ export default function App() {
         })
         .catch(() => {});
     });
+  }, []);
+
+  // ── 启动时补回仍在磁盘上的丢失 session（以 worktree/Claude 历史为准）──
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+
+    let cancelled = false;
+
+    (async () => {
+      const workspaces = useWorkspaceStore.getState().workspaces;
+      const knownIds = new Set(useSessionStore.getState().sessions.map((s) => s.id));
+      const recovered: ClaudeSession[] = [];
+
+      for (const workspace of workspaces) {
+        const items = await invoke<ClaudeSession[]>("recover_workspace_sessions", {
+          workspaceId: workspace.id,
+          workspacePath: workspace.path,
+          existingSessionIds: [...knownIds],
+        }).catch(() => []);
+
+        items.forEach((session) => knownIds.add(session.id));
+        recovered.push(...items);
+      }
+
+      if (!cancelled && recovered.length > 0) {
+        useSessionStore.getState().mergeRecoveredSessions(recovered);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // ── 监听 Rust 侧事件 ──────────────────────────────────────

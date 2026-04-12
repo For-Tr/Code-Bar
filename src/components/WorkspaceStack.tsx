@@ -9,7 +9,7 @@ import {
   type Workspace,
   type WorkspaceColorId,
 } from "../store/workspaceStore";
-import { useSessionStore } from "../store/sessionStore";
+import { useSessionStore, type ClaudeSession } from "../store/sessionStore";
 import { useSettingsStore, isGlassTheme } from "../store/settingsStore";
 
 // ── 常量 ─────────────────────────────────────────────────────
@@ -498,9 +498,40 @@ export function WorkspaceStack() {
     );
   }
 
-  const handleRemove = (id: string) => {
+  const handleRemove = async (id: string) => {
+    const sessionsToRemove = useSessionStore
+      .getState()
+      .sessions
+      .filter((session) => session.workspaceId === id);
+    const workspace = workspaces.find((item) => item.id === id);
+
+    if ("__TAURI_INTERNALS__" in window) {
+      await invoke("mark_deleted_items", {
+        sessionIds: sessionsToRemove.map((session) => session.id),
+        workspaceIds: [id],
+      }).catch((e) => {
+        console.warn("[ui-state] mark deleted workspace failed:", e);
+      });
+    }
+
     removeSessionsByWorkspace(id);
     removeWorkspace(id);
+
+    if (!("__TAURI_INTERNALS__" in window) || !workspace?.path) {
+      return;
+    }
+
+    sessionsToRemove.forEach((session: ClaudeSession) => {
+      if (!session.worktreePath || !session.branchName) return;
+
+      invoke("teardown_session_worktree", {
+        workdir: workspace.path,
+        worktreePath: session.worktreePath,
+        branch: session.branchName,
+      }).catch((e) => {
+        console.warn("[worktree] workspace teardown failed:", e);
+      });
+    });
   };
 
   return (
