@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
+import { mirroredPersistStorage } from "./persistStorage";
 
 export type RunnerType =
   | "claude-code"
@@ -172,6 +173,7 @@ export const useSettingsStore = create<SettingsStore>()(
     }),
     {
       name: "code-bar-settings",
+      storage: createJSONStorage(() => mirroredPersistStorage),
       partialize: (s) => ({
         settings: {
           ...s.settings,

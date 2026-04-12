@@ -497,6 +497,17 @@ export function SessionList() {
     setExpandedSession(id);
 
     if ("__TAURI_INTERNALS__" in window) {
+      await invoke("clear_deleted_items", {
+        sessionIds: [id],
+        workspaceIds: [],
+        sessionRefs: [{ sessionId: id, workspaceId: activeWorkspace.id }],
+        workspaceRefs: [],
+      }).catch((e) => {
+        console.warn("[ui-state] clear deleted session failed:", e);
+      });
+    }
+
+    if ("__TAURI_INTERNALS__" in window) {
       try {
         const result = await invoke<{
           worktree_path: string;
@@ -522,7 +533,18 @@ export function SessionList() {
     markWorktreeReady(id);
   };
 
-  const handleRemoveSession = (session: ClaudeSession) => {
+  const handleRemoveSession = async (session: ClaudeSession) => {
+    if ("__TAURI_INTERNALS__" in window) {
+      await invoke("mark_deleted_items", {
+        sessionIds: [session.id],
+        workspaceIds: [],
+        sessionRefs: [{ sessionId: session.id, workspaceId: session.workspaceId }],
+        workspaceRefs: [],
+      }).catch((e) => {
+        console.warn("[ui-state] mark deleted session failed:", e);
+      });
+    }
+
     removeSession(session.id);
 
     const workspacePath = activeWorkspace?.path;

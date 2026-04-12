@@ -323,11 +323,6 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     }
   }, [isOpen]);
 
-  // 首条 query 提交后才激活 PTY，避免 CLI 初始化阶段的输入竞争。
-  useEffect(() => {
-    if (querySent && worktreeReady && !ptyEverActive) setPtyEverActive(true);
-  }, [querySent, worktreeReady, ptyEverActive]);
-
   // 展开且未发送 query 时自动聚焦输入框
   useEffect(() => {
     if (isOpen && !querySent) {
@@ -354,6 +349,13 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     ? (ptyEverActive ? launchResumeSessionId : boundResumeSessionId)
     : "";
   const isResumeLaunch = resumeSessionId.length > 0;
+
+  // 首条 query 提交后激活 PTY；resume 场景不依赖 worktreeReady，避免白屏。
+  useEffect(() => {
+    if (querySent && (worktreeReady || isResumeLaunch) && !ptyEverActive) {
+      setPtyEverActive(true);
+    }
+  }, [querySent, worktreeReady, isResumeLaunch, ptyEverActive]);
 
   useEffect(() => {
     if (!supportsPromptLaunch) {
