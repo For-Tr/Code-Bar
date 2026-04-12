@@ -42,10 +42,20 @@ function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
     }
   };
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     const trimmed = path.trim();
     if (!trimmed) { setError("请选择工作目录"); return; }
-    addWorkspace(trimmed, name.trim() || undefined, color);
+    const workspaceId = addWorkspace(trimmed, name.trim() || undefined, color);
+    if ("__TAURI_INTERNALS__" in window) {
+      await invoke("clear_deleted_items", {
+        sessionIds: [],
+        workspaceIds: [],
+        sessionRefs: [],
+        workspaceRefs: [{ workspaceId, path: trimmed }],
+      }).catch((e) => {
+        console.warn("[ui-state] clear deleted workspace failed:", e);
+      });
+    }
     invoke("trust_workspace", { path: trimmed }).catch(() => {});
     onDone();
   };
@@ -188,15 +198,16 @@ function WorkspaceCardExpanded({
   const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
   const textShadow = isGlass ? "var(--ci-glass-text-shadow)" : "none";
   const color = getWorkspaceColor(ws.color);
-  const sessionCount = useSessionStore((s) =>
-    s.sessions.filter((sess) => sess.workspaceId === ws.id).length
-  );
-  const waitingCount = useSessionStore((s) =>
-    s.sessions.filter((sess) => sess.workspaceId === ws.id && sess.status === "waiting").length
-  );
-  const runningCount = useSessionStore((s) =>
-    s.sessions.filter((sess) => sess.workspaceId === ws.id && sess.status === "running").length
-  );
+  const { sessionCount, waitingCount, runningCount } = useSessionStore((s) => s.sessions.reduce(
+    (counts, sess) => {
+      if (sess.workspaceId !== ws.id) return counts;
+      counts.sessionCount += 1;
+      if (sess.status === "waiting") counts.waitingCount += 1;
+      if (sess.status === "running") counts.runningCount += 1;
+      return counts;
+    },
+    { sessionCount: 0, waitingCount: 0, runningCount: 0 }
+  ));
 
   return (
     <motion.div
@@ -507,8 +518,13 @@ export function WorkspaceStack() {
 
     if ("__TAURI_INTERNALS__" in window) {
       await invoke("mark_deleted_items", {
-        sessionIds: sessionsToRemove.map((session) => session.id),
-        workspaceIds: [id],
+        sessionIds: [],
+        workspaceIds: [],
+        sessionRefs: sessionsToRemove.map((session) => ({
+          sessionId: session.id,
+          workspaceId: session.workspaceId,
+        })),
+        workspaceRefs: workspace ? [{ workspaceId: id, path: workspace.path }] : [{ workspaceId: id }],
       }).catch((e) => {
         console.warn("[ui-state] mark deleted workspace failed:", e);
       });

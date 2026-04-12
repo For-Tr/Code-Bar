@@ -8,9 +8,28 @@ const PERSIST_KEYS = [
 
 type PersistKey = typeof PERSIST_KEYS[number];
 
+interface DeletedSessionRef {
+  sessionId: string;
+  workspaceId?: string | null;
+}
+
+interface DeletedWorkspaceRef {
+  workspaceId: string;
+  path?: string | null;
+}
+
 interface DeletedUiState {
   sessionIds?: string[];
   workspaceIds?: string[];
+  sessions?: DeletedSessionRef[];
+  workspaces?: DeletedWorkspaceRef[];
+}
+
+interface DeletedMatchers {
+  legacySessionIds: Set<string>;
+  legacyWorkspaceIds: Set<string>;
+  sessionRefs: DeletedSessionRef[];
+  workspaceRefs: DeletedWorkspaceRef[];
 }
 
 interface PersistedSessionLike {
@@ -30,6 +49,7 @@ interface PersistedSessionsState {
 
 interface PersistedWorkspaceLike {
   id: string;
+  path?: string;
   order?: number;
 }
 
@@ -79,10 +99,96 @@ function uniqueStrings(values: string[]): string[] {
   return next;
 }
 
+function normalizePath(path: string | null | undefined): string {
+  return (path ?? "").trim().replace(/\/+$/, "");
+}
+
+function normalizeDeletedSessionRef(ref: DeletedSessionRef | null | undefined): DeletedSessionRef | null {
+  const sessionId = ref?.sessionId?.trim() ?? "";
+  if (!sessionId) return null;
+
+  const workspaceId = ref?.workspaceId?.trim() ?? "";
+  return workspaceId ? { sessionId, workspaceId } : { sessionId };
+}
+
+function normalizeDeletedWorkspaceRef(ref: DeletedWorkspaceRef | null | undefined): DeletedWorkspaceRef | null {
+  const workspaceId = ref?.workspaceId?.trim() ?? "";
+  if (!workspaceId) return null;
+
+  const path = normalizePath(ref?.path);
+  return path ? { workspaceId, path } : { workspaceId };
+}
+
+function uniqueByKey<T>(values: T[], keyOf: (value: T) => string): T[] {
+  const seen = new Set<string>();
+  const next: T[] = [];
+
+  values.forEach((value) => {
+    const key = keyOf(value);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    next.push(value);
+  });
+
+  return next;
+}
+
+function buildDeletedMatchers(state: DeletedUiState): DeletedMatchers {
+  const legacySessionIds = new Set(uniqueStrings((state.sessionIds ?? []).map((id) => id.trim())));
+  const legacyWorkspaceIds = new Set(uniqueStrings((state.workspaceIds ?? []).map((id) => id.trim())));
+  const sessionRefs = uniqueByKey(
+    (state.sessions ?? [])
+      .map((ref) => normalizeDeletedSessionRef(ref))
+      .filter((ref): ref is DeletedSessionRef => !!ref),
+    (ref) => `${ref.sessionId}::${ref.workspaceId ?? ""}`
+  );
+  const workspaceRefs = uniqueByKey(
+    (state.workspaces ?? [])
+      .map((ref) => normalizeDeletedWorkspaceRef(ref))
+      .filter((ref): ref is DeletedWorkspaceRef => !!ref),
+    (ref) => `${ref.workspaceId}::${normalizePath(ref.path)}`
+  );
+
+  return {
+    legacySessionIds,
+    legacyWorkspaceIds,
+    sessionRefs,
+    workspaceRefs,
+  };
+}
+
+function matchesDeletedSession(
+  deleted: DeletedMatchers,
+  session: PersistedSessionLike
+): boolean {
+  if (!session?.id) return false;
+  if (deleted.legacySessionIds.has(session.id)) return true;
+  if (deleted.legacyWorkspaceIds.has(session.workspaceId)) return true;
+
+  return deleted.sessionRefs.some((ref) => {
+    if (ref.sessionId !== session.id) return false;
+    return !ref.workspaceId || ref.workspaceId === session.workspaceId;
+  });
+}
+
+function matchesDeletedWorkspace(
+  deleted: DeletedMatchers,
+  workspace: PersistedWorkspaceLike
+): boolean {
+  if (!workspace?.id) return false;
+  if (deleted.legacyWorkspaceIds.has(workspace.id)) return true;
+
+  return deleted.workspaceRefs.some((ref) => {
+    if (ref.workspaceId !== workspace.id) return false;
+    const deletedPath = normalizePath(ref.path);
+    return !deletedPath || deletedPath === normalizePath(workspace.path);
+  });
+}
+
 function mergeSessionValue(
   fileValue: string | null,
   localValue: string | null,
-  deleted: { sessionIds: Set<string>; workspaceIds: Set<string> }
+  deletedState: DeletedUiState
 ): string | null {
   const fileState = parseJson<PersistedSessionsState>(fileValue);
   const localState = parseJson<PersistedSessionsState>(localValue);
@@ -90,10 +196,9 @@ function mergeSessionValue(
     return localValue ?? fileValue ?? null;
   }
 
+  const deleted = buildDeletedMatchers(deletedState);
   const shouldKeepSession = (session: PersistedSessionLike) =>
-    !!session?.id
-    && !deleted.sessionIds.has(session.id)
-    && !deleted.workspaceIds.has(session.workspaceId);
+    !!session?.id && !matchesDeletedSession(deleted, session);
 
   const localSessions = (localState?.state?.sessions ?? []).filter(shouldKeepSession);
   const fileSessions = (fileState?.state?.sessions ?? []).filter(shouldKeepSession);
@@ -148,7 +253,7 @@ function mergeSessionValue(
 function mergeWorkspaceValue(
   fileValue: string | null,
   localValue: string | null,
-  deletedWorkspaceIds: Set<string>
+  deletedState: DeletedUiState
 ): string | null {
   const fileState = parseJson<PersistedWorkspacesState>(fileValue);
   const localState = parseJson<PersistedWorkspacesState>(localValue);
@@ -156,8 +261,9 @@ function mergeWorkspaceValue(
     return localValue ?? fileValue ?? null;
   }
 
+  const deleted = buildDeletedMatchers(deletedState);
   const shouldKeepWorkspace = (workspace: PersistedWorkspaceLike) =>
-    !!workspace?.id && !deletedWorkspaceIds.has(workspace.id);
+    !!workspace?.id && !matchesDeletedWorkspace(deleted, workspace);
 
   const sortByOrder = <T extends { order?: number }>(items: T[]) =>
     [...items].sort((a, b) => (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER));
@@ -198,17 +304,11 @@ function mergePersistedValue(
   localValue: string | null,
   deletedState: DeletedUiState
 ): string | null {
-  const deletedSessionIds = new Set(deletedState.sessionIds ?? []);
-  const deletedWorkspaceIds = new Set(deletedState.workspaceIds ?? []);
-
   switch (key) {
     case "code-bar-sessions":
-      return mergeSessionValue(fileValue, localValue, {
-        sessionIds: deletedSessionIds,
-        workspaceIds: deletedWorkspaceIds,
-      });
+      return mergeSessionValue(fileValue, localValue, deletedState);
     case "code-bar-workspaces":
-      return mergeWorkspaceValue(fileValue, localValue, deletedWorkspaceIds);
+      return mergeWorkspaceValue(fileValue, localValue, deletedState);
     case "code-bar-settings":
       return localValue ?? fileValue ?? null;
     default:

@@ -9,7 +9,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
-use crate::util::{background_command, expand_path, home_dir};
+use crate::util::{background_command, home_dir, normalize_expanded_path};
 
 const UI_STATE_DIR: &str = "ui-state";
 const DELETED_UI_STATE_KEY: &str = "code-bar-deleted-items";
@@ -50,11 +50,178 @@ struct ClaudeSessionHint {
     modified_at_ms: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "camelCase")]
+pub struct DeletedSessionRef {
+    session_id: String,
+    #[serde(default)]
+    workspace_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "camelCase")]
+pub struct DeletedWorkspaceRef {
+    workspace_id: String,
+    #[serde(default)]
+    path: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeletedUiState {
+    #[serde(default)]
     session_ids: Vec<String>,
+    #[serde(default)]
     workspace_ids: Vec<String>,
+    #[serde(default)]
+    sessions: Vec<DeletedSessionRef>,
+    #[serde(default)]
+    workspaces: Vec<DeletedWorkspaceRef>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteSessionInput {
+    session_id: String,
+    #[serde(default)]
+    workspace_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteWorkspaceInput {
+    workspace_id: String,
+    #[serde(default)]
+    path: Option<String>,
+}
+
+fn normalize_optional_string(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn normalize_path(value: Option<String>) -> Option<String> {
+    normalize_optional_string(value).map(|path| normalize_expanded_path(&path))
+}
+
+impl DeletedSessionRef {
+    fn normalized(self) -> Option<Self> {
+        let session_id = self.session_id.trim().to_string();
+        if session_id.is_empty() {
+            return None;
+        }
+
+        Some(Self {
+            session_id,
+            workspace_id: normalize_optional_string(self.workspace_id),
+        })
+    }
+
+    fn matches(&self, session_id: &str, workspace_id: Option<&str>) -> bool {
+        if self.session_id != session_id.trim() {
+            return false;
+        }
+
+        match self.workspace_id.as_deref() {
+            Some(expected) => workspace_id.map(str::trim) == Some(expected),
+            None => true,
+        }
+    }
+}
+
+impl DeletedWorkspaceRef {
+    fn normalized(self) -> Option<Self> {
+        let workspace_id = self.workspace_id.trim().to_string();
+        if workspace_id.is_empty() {
+            return None;
+        }
+
+        Some(Self {
+            workspace_id,
+            path: normalize_path(self.path),
+        })
+    }
+
+    fn matches(&self, workspace_id: &str, path: Option<&str>) -> bool {
+        if self.workspace_id != workspace_id.trim() {
+            return false;
+        }
+
+        match self.path.as_deref() {
+            Some(expected) => path.map(|value| value.trim_end_matches('/')) == Some(expected),
+            None => true,
+        }
+    }
+}
+
+fn unique_session_refs(values: Vec<DeletedSessionRef>) -> Vec<DeletedSessionRef> {
+    let mut seen = HashSet::new();
+    let mut next = Vec::new();
+
+    for value in values.into_iter().filter_map(DeletedSessionRef::normalized) {
+        let key = (
+            value.session_id.clone(),
+            value.workspace_id.clone().unwrap_or_default(),
+        );
+        if seen.insert(key) {
+            next.push(value);
+        }
+    }
+
+    next.sort_by(|a, b| {
+        a.session_id
+            .cmp(&b.session_id)
+            .then_with(|| a.workspace_id.cmp(&b.workspace_id))
+    });
+    next
+}
+
+fn unique_workspace_refs(values: Vec<DeletedWorkspaceRef>) -> Vec<DeletedWorkspaceRef> {
+    let mut seen = HashSet::new();
+    let mut next = Vec::new();
+
+    for value in values.into_iter().filter_map(DeletedWorkspaceRef::normalized) {
+        let key = (
+            value.workspace_id.clone(),
+            value.path.clone().unwrap_or_default(),
+        );
+        if seen.insert(key) {
+            next.push(value);
+        }
+    }
+
+    next.sort_by(|a, b| {
+        a.workspace_id
+            .cmp(&b.workspace_id)
+            .then_with(|| a.path.cmp(&b.path))
+    });
+    next
+}
+
+fn normalize_deleted_ui_state(mut state: DeletedUiState) -> DeletedUiState {
+    state.session_ids = state
+        .session_ids
+        .into_iter()
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty())
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    state.workspace_ids = state
+        .workspace_ids
+        .into_iter()
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty())
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    state.session_ids
+        .sort_by_key(|id| id.parse::<u64>().unwrap_or(u64::MAX));
+    state.workspace_ids.sort();
+    state.sessions = unique_session_refs(state.sessions);
+    state.workspaces = unique_workspace_refs(state.workspaces);
+    state
 }
 
 fn ui_state_file(app: &tauri::AppHandle, key: &str) -> Result<PathBuf, String> {
@@ -111,12 +278,13 @@ fn read_deleted_ui_state(app: &tauri::AppHandle) -> Result<DeletedUiState, Strin
     };
 
     serde_json::from_str::<DeletedUiState>(&content)
+        .map(normalize_deleted_ui_state)
         .map_err(|e| format!("解析已删除 UI 状态失败: {e}"))
 }
 
 fn write_deleted_ui_state(app: &tauri::AppHandle, state: &DeletedUiState) -> Result<(), String> {
-    let payload =
-        serde_json::to_string(state).map_err(|e| format!("序列化已删除 UI 状态失败: {e}"))?;
+    let payload = serde_json::to_string(&normalize_deleted_ui_state(state.clone()))
+        .map_err(|e| format!("序列化已删除 UI 状态失败: {e}"))?;
     write_ui_state(app, DELETED_UI_STATE_KEY, &payload)
 }
 
@@ -322,29 +490,49 @@ pub fn mark_deleted_items(
     app: tauri::AppHandle,
     session_ids: Vec<String>,
     workspace_ids: Vec<String>,
+    session_refs: Vec<DeleteSessionInput>,
+    workspace_refs: Vec<DeleteWorkspaceInput>,
 ) -> Result<(), String> {
     let mut state = read_deleted_ui_state(&app)?;
     let mut next_session_ids = state.session_ids.into_iter().collect::<HashSet<_>>();
     let mut next_workspace_ids = state.workspace_ids.into_iter().collect::<HashSet<_>>();
+    let mut next_session_refs = state.sessions;
+    let mut next_workspace_refs = state.workspaces;
 
     session_ids
         .into_iter()
-        .filter(|id| !id.trim().is_empty())
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty())
         .for_each(|id| {
             next_session_ids.insert(id);
         });
     workspace_ids
         .into_iter()
-        .filter(|id| !id.trim().is_empty())
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty())
         .for_each(|id| {
             next_workspace_ids.insert(id);
         });
 
+    next_session_refs.extend(session_refs.into_iter().filter_map(|item| {
+        DeletedSessionRef {
+            session_id: item.session_id,
+            workspace_id: item.workspace_id,
+        }
+        .normalized()
+    }));
+    next_workspace_refs.extend(workspace_refs.into_iter().filter_map(|item| {
+        DeletedWorkspaceRef {
+            workspace_id: item.workspace_id,
+            path: item.path,
+        }
+        .normalized()
+    }));
+
     state.session_ids = next_session_ids.into_iter().collect();
     state.workspace_ids = next_workspace_ids.into_iter().collect();
-    state.session_ids.sort_by_key(|id| id.parse::<u64>().unwrap_or(u64::MAX));
-    state.workspace_ids.sort();
-
+    state.sessions = unique_session_refs(next_session_refs);
+    state.workspaces = unique_workspace_refs(next_workspace_refs);
     write_deleted_ui_state(&app, &state)
 }
 
@@ -353,15 +541,53 @@ pub fn clear_deleted_items(
     app: tauri::AppHandle,
     session_ids: Vec<String>,
     workspace_ids: Vec<String>,
+    session_refs: Vec<DeleteSessionInput>,
+    workspace_refs: Vec<DeleteWorkspaceInput>,
 ) -> Result<(), String> {
     let mut state = read_deleted_ui_state(&app)?;
     let removed_session_ids = session_ids.into_iter().collect::<HashSet<_>>();
     let removed_workspace_ids = workspace_ids.into_iter().collect::<HashSet<_>>();
+    let removed_session_refs = session_refs
+        .into_iter()
+        .filter_map(|item| {
+            DeletedSessionRef {
+                session_id: item.session_id,
+                workspace_id: item.workspace_id,
+            }
+            .normalized()
+        })
+        .collect::<Vec<_>>();
+    let removed_workspace_refs = workspace_refs
+        .into_iter()
+        .filter_map(|item| {
+            DeletedWorkspaceRef {
+                workspace_id: item.workspace_id,
+                path: item.path,
+            }
+            .normalized()
+        })
+        .collect::<Vec<_>>();
 
-    state.session_ids.retain(|id| !removed_session_ids.contains(id));
-    state.workspace_ids.retain(|id| !removed_workspace_ids.contains(id));
+    state.session_ids
+        .retain(|id| !removed_session_ids.contains(id));
+    state.workspace_ids
+        .retain(|id| !removed_workspace_ids.contains(id));
+    state.sessions.retain(|entry| {
+        !removed_session_refs
+            .iter()
+            .any(|removed| removed.matches(&entry.session_id, entry.workspace_id.as_deref()))
+    });
+    state.workspaces.retain(|entry| {
+        !removed_workspace_refs
+            .iter()
+            .any(|removed| removed.matches(&entry.workspace_id, entry.path.as_deref()))
+    });
 
-    if state.session_ids.is_empty() && state.workspace_ids.is_empty() {
+    if state.session_ids.is_empty()
+        && state.workspace_ids.is_empty()
+        && state.sessions.is_empty()
+        && state.workspaces.is_empty()
+    {
         remove_ui_state_file(&app, DELETED_UI_STATE_KEY)
     } else {
         write_deleted_ui_state(&app, &state)
@@ -375,7 +601,8 @@ pub fn recover_workspace_sessions(
     workspace_path: String,
     existing_session_ids: Vec<String>,
 ) -> Result<Vec<RecoveredSession>, String> {
-    let repo_root = PathBuf::from(expand_path(&workspace_path));
+    let normalized_workspace_path = normalize_path(Some(workspace_path)).unwrap_or_default();
+    let repo_root = PathBuf::from(&normalized_workspace_path);
     let Some(parent) = repo_root.parent() else {
         return Ok(vec![]);
     };
@@ -385,11 +612,8 @@ pub fn recover_workspace_sessions(
         return Ok(vec![]);
     }
 
+    let deleted_state = read_deleted_ui_state(&app)?;
     let existing = existing_session_ids.into_iter().collect::<HashSet<_>>();
-    let deleted = read_deleted_ui_state(&app)?
-        .session_ids
-        .into_iter()
-        .collect::<HashSet<_>>();
     let base_branch = default_base_branch(&repo_root);
     let mut recovered = Vec::new();
 
@@ -408,7 +632,22 @@ pub fn recover_workspace_sessions(
         let Some(session_id) = numeric_session_id(dir_name) else {
             continue;
         };
-        if existing.contains(&session_id) || deleted.contains(&session_id) {
+        if existing.contains(&session_id) || deleted_state.session_ids.contains(&session_id) {
+            continue;
+        }
+        if deleted_state
+            .sessions
+            .iter()
+            .any(|entry| entry.matches(&session_id, Some(&workspace_id)))
+        {
+            continue;
+        }
+        if deleted_state.workspace_ids.contains(&workspace_id)
+            || deleted_state
+                .workspaces
+                .iter()
+                .any(|entry| entry.matches(&workspace_id, Some(&normalized_workspace_path)))
+        {
             continue;
         }
 

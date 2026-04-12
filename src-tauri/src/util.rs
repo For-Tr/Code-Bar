@@ -169,6 +169,10 @@ pub fn resolve_path_from_workdir(workdir: &str, path: &str) -> PathBuf {
     PathBuf::from(expand_path(workdir)).join(expanded_path)
 }
 
+pub fn normalize_expanded_path(path: &str) -> String {
+    expand_path(path).trim_end_matches('/').to_string()
+}
+
 fn provider_storage_spec(
     runner_type: &str,
 ) -> Option<(&'static str, &'static str, &'static [&'static str])> {

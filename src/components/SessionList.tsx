@@ -480,6 +480,8 @@ export function SessionList() {
       await invoke("clear_deleted_items", {
         sessionIds: [id],
         workspaceIds: [],
+        sessionRefs: [{ sessionId: id, workspaceId: activeWorkspace.id }],
+        workspaceRefs: [],
       }).catch((e) => {
         console.warn("[ui-state] clear deleted session failed:", e);
       });
@@ -514,8 +516,10 @@ export function SessionList() {
   const handleRemoveSession = async (session: ClaudeSession) => {
     if ("__TAURI_INTERNALS__" in window) {
       await invoke("mark_deleted_items", {
-        sessionIds: [session.id],
+        sessionIds: [],
         workspaceIds: [],
+        sessionRefs: [{ sessionId: session.id, workspaceId: session.workspaceId }],
+        workspaceRefs: [],
       }).catch((e) => {
         console.warn("[ui-state] mark deleted session failed:", e);
       });

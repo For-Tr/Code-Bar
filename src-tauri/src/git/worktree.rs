@@ -1,6 +1,6 @@
 use std::{fs, path::Path};
 
-use crate::util::{background_command, expand_path};
+use crate::util::{background_command, expand_path, normalize_expanded_path};
 
 // ── 辅助函数 ──────────────────────────────────────────────────────
 
@@ -321,7 +321,7 @@ pub async fn prune_orphan_worktrees(
         // 规范化已知路径集合
         let known: std::collections::HashSet<String> = known_worktree_paths
             .iter()
-            .map(|p| expand_path(p).trim_end_matches('/').to_string())
+            .map(|p| normalize_expanded_path(p))
             .collect();
 
         let mut pruned = vec![];
@@ -332,7 +332,7 @@ pub async fn prune_orphan_worktrees(
                 continue;
             }
 
-            let canonical = path.to_string_lossy().trim_end_matches('/').to_string();
+            let canonical = normalize_expanded_path(path.to_string_lossy().as_ref());
             if known.contains(&canonical) {
                 continue;
             }
