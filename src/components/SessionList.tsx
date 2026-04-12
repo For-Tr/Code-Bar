@@ -123,16 +123,16 @@ function SessionCard({
       style={{
         display: "flex", alignItems: "center", gap: 10,
         padding: "11px 12px",
-        borderRadius: 18,
+        borderRadius: 12,
         background: isActive
-          ? "var(--ci-card-grad)"
+          ? "var(--ci-accent-bg)"
           : isWaiting
           ? "var(--ci-yellow-bg)"
           : isSuspended
           ? "var(--ci-btn-ghost-bg)"
           : isError
           ? "var(--ci-deleted-bg)"
-          : "var(--ci-panel-grad)",
+          : "transparent",
         border: isActive
           ? `1px solid ${accentColor}45`
           : isWaiting
@@ -141,25 +141,15 @@ function SessionCard({
           ? "1px solid var(--ci-border-med)"
           : isError
           ? "1px solid var(--ci-border-med)"
-          : "1px solid var(--ci-pill-border)",
+          : "1px solid var(--ci-toolbar-border)",
         cursor: "pointer",
         position: "relative",
         overflow: "hidden",
         transition: isGlass ? "border-color 0.15s, color 0.15s" : "background 0.15s, border-color 0.15s",
-        boxShadow: isActive
-          ? "var(--ci-inset-highlight), var(--ci-card-shadow-strong)"
-          : "var(--ci-inset-highlight), var(--ci-card-shadow)",
-        backdropFilter: isGlass ? "none" : "blur(18px) saturate(1.14)",
+        boxShadow: "none",
         textShadow,
       }}
     >
-      <div style={{
-        position: "absolute",
-        inset: 0,
-        background: "linear-gradient(180deg, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0) 40%)",
-        pointerEvents: "none",
-        opacity: isGlass ? 0 : isError || isWaiting ? 0.3 : 0.55,
-      }} />
       {/* 左侧状态色条 */}
       {cfg.leftAccent && (
         <div style={{
@@ -208,7 +198,7 @@ function SessionCard({
           {/* 状态 badge：idle 时不显示 */}
           {session.status !== "idle" && (
             <span style={{
-              fontSize: 9.5, padding: "1px 6px", borderRadius: 99,
+              fontSize: 9, padding: "1px 6px", borderRadius: 99,
               background: cfg.badgeBg,
               border: `1px solid ${cfg.badgeBorder}`,
               color: cfg.badgeText,
@@ -271,7 +261,7 @@ function SessionCard({
             display: "flex", alignItems: "center", gap: 4,
           }}>
             <span style={{
-              fontSize: 9, padding: "1px 6px", borderRadius: 99,
+              fontSize: 8.5, padding: "1px 6px", borderRadius: 99,
               background: "var(--ci-purple-bg)",
               border: "1px solid var(--ci-purple-bdr)",
               color: "var(--ci-purple)",
@@ -548,20 +538,18 @@ export function SessionList() {
       {/* 区域头 */}
       <div style={{
         display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "10px 2px 10px",
-        borderTop: "1px solid var(--ci-toolbar-border)",
-        marginTop: 8,
+        padding: "8px 0 8px",
+        marginTop: 4,
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <div style={{
             width: 7, height: 7, borderRadius: "50%",
             background: accentColor, flexShrink: 0,
-            boxShadow: `0 1px 3px ${accentColor}60`,
           }} />
           <span style={{
             fontSize: 11, color: "var(--ci-text-dim)",
-            fontWeight: 600,
-            letterSpacing: "0.03em",
+            fontWeight: 700,
+            letterSpacing: "0.08em",
             textTransform: "uppercase",
           }}>
             会话
@@ -571,26 +559,30 @@ export function SessionList() {
         <button
           onClick={handleNewSession}
           style={{
-            background: "linear-gradient(180deg, rgba(112,186,255,0.96) 0%, rgba(63,145,255,0.84) 100%)",
-            border: "1px solid rgba(255,255,255,0.42)",
-            borderRadius: 999, padding: "6px 12px",
+            background: "none",
+            border: "none",
+            borderRadius: 0,
+            padding: "6px 2px",
             color: "var(--ci-accent)",
-            fontSize: 12, cursor: "pointer",
-            display: "flex", alignItems: "center", gap: 3,
+            fontSize: 12,
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
             fontWeight: 600,
-            transition: "background 0.12s, border-color 0.12s",
-            boxShadow: "inset 0 1px 0 rgba(255,255,255,0.46), var(--ci-primary-shadow)",
+            transition: "color 0.12s, opacity 0.12s",
           }}
           onMouseEnter={e => {
-            if (isGlass) return;
-            e.currentTarget.style.filter = "brightness(0.9)";
+            e.currentTarget.style.color = "var(--ci-accent)";
+            e.currentTarget.style.opacity = "0.78";
           }}
           onMouseLeave={e => {
-            e.currentTarget.style.filter = "none";
+            e.currentTarget.style.color = "var(--ci-accent)";
+            e.currentTarget.style.opacity = "1";
           }}
         >
-          <span style={{ fontSize: 14, lineHeight: 1, color: "#fff" }}>+</span>
-          <span style={{ color: "#fff" }}>新建</span>
+          <span style={{ fontSize: 13, lineHeight: 1 }}>+</span>
+          <span>新建</span>
         </button>
       </div>
 
@@ -626,12 +618,8 @@ export function SessionList() {
       {wsSessions.length === 0 && (
         <div
           style={{
-          textAlign: "center", padding: "22px 0 12px",
+          textAlign: "center", padding: "12px 0 6px",
           color: "var(--ci-text-dim)", fontSize: 12,
-          border: "1px dashed var(--ci-pill-border)",
-          borderRadius: 18,
-          background: "var(--ci-panel-grad)",
-          boxShadow: "var(--ci-inset-highlight), var(--ci-card-shadow)",
           textShadow,
         }}>
           点击「+ 新建」开始新会话
