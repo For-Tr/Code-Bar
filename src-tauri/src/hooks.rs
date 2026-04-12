@@ -239,11 +239,29 @@ fn hook_specs(source: HookSource) -> Result<Vec<HookCommandSpec>, String> {
 }
 
 #[cfg(unix)]
-fn managed_legacy_commands(source: HookSource) -> &'static [&'static str] {
+fn managed_legacy_commands(source: HookSource) -> Vec<String> {
+    let mut commands = Vec::new();
     match source {
-        HookSource::ClaudeCode => &["nc -U /tmp/code-bar-hook.sock"],
-        HookSource::Codex => &[],
+        HookSource::ClaudeCode => {
+            commands.push("nc -U /tmp/code-bar-hook.sock".to_string());
+            commands.push("/tmp/code-bar-hook-claude.sock".to_string());
+            commands.push(
+                crate::util::codebar_runtime_dir()
+                    .join("code-bar-hook-claude.sock")
+                    .to_string_lossy()
+                    .to_string(),
+            );
+        }
+        HookSource::Codex => {
+            commands.push(
+                crate::util::codebar_runtime_dir()
+                    .join("code-bar-hook-codex.sock")
+                    .to_string_lossy()
+                    .to_string(),
+            );
+        }
     }
+    commands
 }
 
 fn is_managed_command(command: &str, source: HookSource) -> bool {

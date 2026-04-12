@@ -76,8 +76,18 @@ pub fn codebar_tmp_dir() -> PathBuf {
 
 #[cfg(unix)]
 pub fn hook_socket_path(file_name: &str) -> String {
+    let scoped_name = if cfg!(debug_assertions) {
+        if let Some(stripped) = file_name.strip_suffix(".sock") {
+            format!("{stripped}-dev.sock")
+        } else {
+            format!("{file_name}-dev")
+        }
+    } else {
+        file_name.to_string()
+    };
+
     codebar_runtime_dir()
-        .join(file_name)
+        .join(scoped_name)
         .to_string_lossy()
         .to_string()
 }

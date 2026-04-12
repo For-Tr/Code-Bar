@@ -12,7 +12,6 @@
 #[cfg(target_os = "macos")]
 pub mod macos {
     use std::sync::OnceLock;
-    use tauri_plugin_notification::NotificationExt;
 
     static MAC_NOTIFICATION_APP_INIT: OnceLock<Result<(), String>> = OnceLock::new();
 
@@ -41,17 +40,12 @@ pub mod macos {
                 set_application(&bundle_id).map_err(|e| e.to_string())
             });
             if let Err(e) = init_result {
+                // dev 场景下临时 identifier 可能未注册到 LaunchServices，
+                // set_application 会失败。此时继续使用 mac_notification_sys
+                // 发送通知（系统会回退到默认 app），仍可保留点击回调能力。
                 eprintln!(
-                    "[notification] set_application({bundle_id}) 失败，降级到 tauri plugin: {e}"
+                    "[notification] set_application({bundle_id}) 失败，继续使用默认 app 发送通知: {e}"
                 );
-                let mut builder = app.notification().builder().title(&title).body(&body);
-                if sound {
-                    builder = builder.sound("default");
-                }
-                if let Err(show_err) = builder.show() {
-                    eprintln!("[notification] fallback send 失败: {show_err}");
-                }
-                return;
             }
 
             // 使用 Notification builder API：

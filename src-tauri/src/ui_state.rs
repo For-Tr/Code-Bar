@@ -9,6 +9,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
+use crate::runtime_scope::{session_worktree_root_dir, ui_state_namespace_dir};
 use crate::util::{background_command, home_dir, normalize_expanded_path};
 
 const UI_STATE_DIR: &str = "ui-state";
@@ -279,7 +280,13 @@ fn ui_state_file(app: &tauri::AppHandle, key: &str) -> Result<PathBuf, String> {
 
     app.path()
         .app_data_dir()
-        .map(|dir| dir.join(UI_STATE_DIR).join(format!("{sanitized}.json")))
+        .map(|dir| {
+            let mut state_dir = dir.join(UI_STATE_DIR);
+            if let Some(namespace) = ui_state_namespace_dir() {
+                state_dir = state_dir.join(namespace);
+            }
+            state_dir.join(format!("{sanitized}.json"))
+        })
         .map_err(|e| format!("无法解析 UI 状态目录: {e}"))
 }
 
@@ -521,8 +528,10 @@ fn latest_claude_hint(session_id: &str) -> Option<RecoveryHint> {
                 }
             }
 
+            // 有些 Claude 会话在未成功发起首条 query 前也会落盘 session 文件。
+            // 这种场景下仍然应该可恢复，任务标题退化为通用文案。
             if first_task.is_empty() {
-                continue;
+                first_task = "继续会话".to_string();
             }
 
             select_newer_hint(
@@ -910,7 +919,7 @@ pub fn recover_workspace_sessions(
             continue;
         };
 
-        let worktree_root = parent.join(".code-bar-worktrees");
+        let worktree_root = parent.join(session_worktree_root_dir());
         if !worktree_root.exists() {
             continue;
         }

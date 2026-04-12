@@ -7,6 +7,7 @@ mod keystore;
 mod notification;
 mod provider_sessions;
 mod pty;
+mod runtime_scope;
 mod runner;
 mod session_lifecycle;
 mod state;

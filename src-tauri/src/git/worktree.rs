@@ -1,9 +1,9 @@
 use std::{fs, path::Path};
 
+use crate::runtime_scope::session_worktree_root_dir;
 use crate::util::{background_command, expand_path, normalize_expanded_path};
 
 // ── 辅助函数 ──────────────────────────────────────────────────────
-
 /// 从 worktree 目录的 HEAD 文件读取分支名
 pub fn read_worktree_branch(worktree_path: &Path) -> Option<String> {
     // worktree 中的 HEAD 格式：ref: refs/heads/<branch>
@@ -218,14 +218,16 @@ pub async fn setup_session_worktree(
             return Ok(None); // detached HEAD，跳过
         }
 
-        // 计算 worktree 路径（放在 repo 同级的 .code-bar-worktrees/）
+        // 计算 worktree 路径（放在 repo 同级的 session worktree 根目录）
         let repo_parent = Path::new(&expanded_workdir)
             .parent()
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|| expanded_workdir.clone());
         let worktree_path = format!(
-            "{}/.code-bar-worktrees/session-{}",
-            repo_parent, session_id_clone
+            "{}/{}/session-{}",
+            repo_parent,
+            session_worktree_root_dir(),
+            session_id_clone
         );
         let branch = format!("ci/session-{}", session_id_clone);
 
@@ -311,7 +313,7 @@ pub async fn prune_orphan_worktrees(
             .parent()
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|| expanded_workdir.clone());
-        let wt_base = format!("{}/.code-bar-worktrees", repo_parent);
+        let wt_base = format!("{}/{}", repo_parent, session_worktree_root_dir());
         let wt_base_path = Path::new(&wt_base);
 
         if !wt_base_path.exists() {

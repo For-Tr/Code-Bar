@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -222,16 +222,20 @@ function WorkspaceCardExpanded({
   const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
   const textShadow = isGlass ? "var(--ci-glass-text-shadow)" : "none";
   const color = getWorkspaceColor(ws.color);
-  const { sessionCount, waitingCount, runningCount } = useSessionStore((s) => s.sessions.reduce(
-    (counts, sess) => {
-      if (sess.workspaceId !== ws.id) return counts;
-      counts.sessionCount += 1;
-      if (sess.status === "waiting") counts.waitingCount += 1;
-      if (sess.status === "running") counts.runningCount += 1;
-      return counts;
-    },
-    { sessionCount: 0, waitingCount: 0, runningCount: 0 }
-  ));
+  const sessions = useSessionStore((s) => (Array.isArray(s.sessions) ? s.sessions : []));
+  const { sessionCount, waitingCount, runningCount } = useMemo(() => {
+    return sessions.reduce(
+      (counts, sess) => {
+        if (!sess || typeof sess !== "object") return counts;
+        if (sess.workspaceId !== ws.id) return counts;
+        counts.sessionCount += 1;
+        if (sess.status === "waiting") counts.waitingCount += 1;
+        if (sess.status === "running") counts.runningCount += 1;
+        return counts;
+      },
+      { sessionCount: 0, waitingCount: 0, runningCount: 0 }
+    );
+  }, [sessions, ws.id]);
 
   return (
     <div
@@ -489,6 +493,40 @@ export function WorkspaceStack() {
   const suppressHoverExpandRef = useRef(false);
   const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const collapsedHeight = CARD_H + Math.min(sorted.length - 1, 3) * CARD_PEEK;
+
+  useEffect(() => {
+    const handlePointerMove = (event: PointerEvent) => {
+      lastPointerRef.current = { x: event.clientX, y: event.clientY };
+      if (!suppressHoverExpandRef.current || expanded) return;
+      const root = rootRef.current;
+      if (!root) return;
+      const rect = root.getBoundingClientRect();
+      const inside =
+        event.clientX >= rect.left &&
+        event.clientX <= rect.right &&
+        event.clientY >= rect.top &&
+        event.clientY <= rect.bottom;
+      if (!inside) {
+        suppressHoverExpandRef.current = false;
+      }
+    };
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!expanded || !target) return;
+      if (rootRef.current?.contains(target)) return;
+      suppressHoverExpandRef.current = false;
+      setExpanded(false);
+    };
+
+    document.addEventListener("pointermove", handlePointerMove, true);
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => {
+      document.removeEventListener("pointermove", handlePointerMove, true);
+      document.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [expanded]);
 
   // 没有 workspace 时只渲染添加表单
   if (workspaces.length === 0) {
@@ -575,41 +613,6 @@ export function WorkspaceStack() {
       });
     });
   };
-  const collapsedHeight = CARD_H + Math.min(sorted.length - 1, 3) * CARD_PEEK;
-
-  useEffect(() => {
-    const handlePointerMove = (event: PointerEvent) => {
-      lastPointerRef.current = { x: event.clientX, y: event.clientY };
-      if (!suppressHoverExpandRef.current || expanded) return;
-      const root = rootRef.current;
-      if (!root) return;
-      const rect = root.getBoundingClientRect();
-      const inside =
-        event.clientX >= rect.left &&
-        event.clientX <= rect.right &&
-        event.clientY >= rect.top &&
-        event.clientY <= rect.bottom;
-      if (!inside) {
-        suppressHoverExpandRef.current = false;
-      }
-    };
-
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target as Node | null;
-      if (!expanded || !target) return;
-      if (rootRef.current?.contains(target)) return;
-      suppressHoverExpandRef.current = false;
-      setExpanded(false);
-    };
-
-    document.addEventListener("pointermove", handlePointerMove, true);
-    document.addEventListener("pointerdown", handlePointerDown);
-    return () => {
-      document.removeEventListener("pointermove", handlePointerMove, true);
-      document.removeEventListener("pointerdown", handlePointerDown);
-    };
-  }, [expanded]);
-
   return (
     <div ref={rootRef} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       {/* ── 标题栏 ── */}
