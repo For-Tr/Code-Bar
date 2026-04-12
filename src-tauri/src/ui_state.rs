@@ -44,7 +44,8 @@ pub struct RecoveredSession {
 }
 
 #[derive(Debug, Clone)]
-struct ClaudeSessionHint {
+struct RecoveryHint {
+    runner_type: String,
     provider_session_id: String,
     current_task: String,
     modified_at_ms: u64,
@@ -350,10 +351,39 @@ fn normalize_task_title(task: &str, session_id: &str) -> String {
     }
 }
 
-fn latest_claude_hint(session_id: &str) -> Option<ClaudeSessionHint> {
+fn select_newer_hint(current: &mut Option<RecoveryHint>, candidate: RecoveryHint) {
+    if current
+        .as_ref()
+        .map(|existing| existing.modified_at_ms < candidate.modified_at_ms)
+        .unwrap_or(true)
+    {
+        *current = Some(candidate);
+    }
+}
+
+fn extract_claude_first_task(json: &serde_json::Value) -> Option<String> {
+    let is_user = json.get("type").and_then(|v| v.as_str()) == Some("user");
+    let role = json
+        .get("message")
+        .and_then(|message| message.get("role"))
+        .and_then(|value| value.as_str());
+    if !is_user || role != Some("user") {
+        return None;
+    }
+
+    let content = json.get("message")?.get("content")?;
+    let text = content.as_str()?.trim();
+    if text.is_empty() {
+        None
+    } else {
+        Some(text.to_string())
+    }
+}
+
+fn latest_claude_hint(session_id: &str) -> Option<RecoveryHint> {
     let projects_dir = home_dir()?.join(".claude").join("projects");
     let suffix = format!("session-{session_id}");
-    let mut best: Option<ClaudeSessionHint> = None;
+    let mut best: Option<RecoveryHint> = None;
 
     let Ok(project_entries) = fs::read_dir(&projects_dir) else {
         return None;
@@ -400,28 +430,9 @@ fn latest_claude_hint(session_id: &str) -> Option<ClaudeSessionHint> {
                 let Ok(json) = serde_json::from_str::<serde_json::Value>(&line) else {
                     continue;
                 };
-
-                let is_user = json.get("type").and_then(|v| v.as_str()) == Some("user");
-                let role = json
-                    .get("message")
-                    .and_then(|message| message.get("role"))
-                    .and_then(|value| value.as_str());
-                if !is_user || role != Some("user") {
-                    continue;
-                }
-
-                let Some(content) = json
-                    .get("message")
-                    .and_then(|message| message.get("content"))
-                else {
-                    continue;
-                };
-
-                if let Some(text) = content.as_str() {
-                    let trimmed = text.trim();
-                    if !trimmed.is_empty() && first_task.is_empty() {
-                        first_task = trimmed.to_string();
-                    }
+                if let Some(task) = extract_claude_first_task(&json) {
+                    first_task = task;
+                    break;
                 }
             }
 
@@ -429,23 +440,163 @@ fn latest_claude_hint(session_id: &str) -> Option<ClaudeSessionHint> {
                 continue;
             }
 
-            let modified_at_ms = modified_millis(&file_path);
-            let candidate = ClaudeSessionHint {
-                provider_session_id,
-                current_task: first_task,
-                modified_at_ms,
-            };
-
-            if best
-                .as_ref()
-                .map(|current| current.modified_at_ms < candidate.modified_at_ms)
-                .unwrap_or(true)
-            {
-                best = Some(candidate);
-            }
+            select_newer_hint(
+                &mut best,
+                RecoveryHint {
+                    runner_type: "claude-code".to_string(),
+                    provider_session_id,
+                    current_task: first_task,
+                    modified_at_ms: modified_millis(&file_path),
+                },
+            );
         }
     }
 
+    best
+}
+
+fn is_codex_wrapper_text(text: &str) -> bool {
+    matches!(
+        text.trim(),
+        value if value.starts_with("<environment_context>") || value.starts_with("<turn_aborted>")
+    )
+}
+
+fn extract_codex_first_task(json: &serde_json::Value) -> Option<String> {
+    let payload = json.get("payload")?;
+    if json.get("type").and_then(|value| value.as_str()) == Some("event_msg")
+        && payload.get("type").and_then(|value| value.as_str()) == Some("user_message")
+    {
+        return payload
+            .get("message")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|text| !text.is_empty() && !is_codex_wrapper_text(text))
+            .map(ToString::to_string);
+    }
+
+    if json.get("type").and_then(|value| value.as_str()) == Some("response_item") {
+        let message = payload.get("type").and_then(|value| value.as_str()) == Some("message");
+        let role = payload.get("role").and_then(|value| value.as_str()) == Some("user");
+        if !message || !role {
+            return None;
+        }
+        let text = payload
+            .get("content")
+            .and_then(|value| value.as_array())
+            .and_then(|items| {
+                items.iter().find_map(|item| {
+                    if item.get("type").and_then(|value| value.as_str()) != Some("input_text") {
+                        return None;
+                    }
+                    let text = item.get("text").and_then(|value| value.as_str())?.trim();
+                    if text.is_empty() || is_codex_wrapper_text(text) {
+                        return None;
+                    }
+                    Some(text.to_string())
+                })
+            });
+        if text.is_some() {
+            return text;
+        }
+    }
+
+    None
+}
+
+fn latest_codex_hint(worktree_path: &Path) -> Option<RecoveryHint> {
+    let sessions_dir = home_dir()?.join(".codex").join("sessions");
+    let target_workdir = normalize_expanded_path(&worktree_path.to_string_lossy());
+    let mut best: Option<RecoveryHint> = None;
+    let mut stack = vec![sessions_dir];
+
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
+        };
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
+                continue;
+            }
+
+            let Ok(handle) = fs::File::open(&path) else {
+                continue;
+            };
+            let reader = BufReader::new(handle);
+            let mut provider_session_id = String::new();
+            let mut cwd = String::new();
+            let mut first_task = String::new();
+
+            for line in reader.lines().map_while(Result::ok) {
+                let Ok(json) = serde_json::from_str::<serde_json::Value>(&line) else {
+                    continue;
+                };
+
+                if provider_session_id.is_empty() {
+                    provider_session_id = json
+                        .get("payload")
+                        .and_then(|payload| payload.get("id"))
+                        .and_then(|value| value.as_str())
+                        .unwrap_or_default()
+                        .trim()
+                        .to_string();
+                }
+
+                if cwd.is_empty() {
+                    cwd = json
+                        .get("payload")
+                        .and_then(|payload| payload.get("cwd"))
+                        .and_then(|value| value.as_str())
+                        .unwrap_or_default()
+                        .trim()
+                        .to_string();
+                }
+
+                if first_task.is_empty() {
+                    if let Some(task) = extract_codex_first_task(&json) {
+                        first_task = task;
+                    }
+                }
+
+                if !provider_session_id.is_empty() && !cwd.is_empty() && !first_task.is_empty() {
+                    break;
+                }
+            }
+
+            if provider_session_id.is_empty() || cwd.is_empty() || first_task.is_empty() {
+                continue;
+            }
+
+            if normalize_expanded_path(&cwd) != target_workdir {
+                continue;
+            }
+
+            select_newer_hint(
+                &mut best,
+                RecoveryHint {
+                    runner_type: "codex".to_string(),
+                    provider_session_id,
+                    current_task: first_task,
+                    modified_at_ms: modified_millis(&path),
+                },
+            );
+        }
+    }
+
+    best
+}
+
+fn latest_recovery_hint(session_id: &str, worktree_path: &Path) -> Option<RecoveryHint> {
+    let mut best = latest_claude_hint(session_id);
+    if let Some(codex_hint) = latest_codex_hint(worktree_path) {
+        select_newer_hint(&mut best, codex_hint);
+    }
     best
 }
 
@@ -651,14 +802,14 @@ pub fn recover_workspace_sessions(
             continue;
         }
 
-        let Some(claude_hint) = latest_claude_hint(&session_id) else {
+        let Some(hint) = latest_recovery_hint(&session_id, &worktree_path) else {
             continue;
         };
 
         let branch_name =
             current_branch(&worktree_path).or_else(|| Some(format!("ci/session-{session_id}")));
         let workdir = worktree_path.to_string_lossy().to_string();
-        let current_task = claude_hint.current_task.clone();
+        let current_task = hint.current_task.clone();
 
         recovered.push(RecoveredSession {
             id: session_id.clone(),
@@ -671,7 +822,7 @@ pub fn recover_workspace_sessions(
             diff_files: vec![],
             output: vec![],
             runner: RecoveredRunnerConfig {
-                r#type: "claude-code".to_string(),
+                r#type: hint.runner_type,
                 cli_path: String::new(),
                 cli_args: String::new(),
                 api_base_url: String::new(),
@@ -680,7 +831,7 @@ pub fn recover_workspace_sessions(
             branch_name,
             base_branch: base_branch.clone(),
             worktree_path: Some(workdir),
-            provider_session_id: Some(claude_hint.provider_session_id),
+            provider_session_id: Some(hint.provider_session_id),
         });
     }
 

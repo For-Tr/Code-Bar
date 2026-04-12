@@ -61,6 +61,8 @@ interface PersistedWorkspacesState {
   version?: number;
 }
 
+let cachedHomeDir = "";
+
 function isTauriRuntime(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
@@ -99,8 +101,20 @@ function uniqueStrings(values: string[]): string[] {
   return next;
 }
 
+function expandHomePath(path: string): string {
+  if (!path.startsWith("~")) return path;
+  if (!cachedHomeDir) return path;
+  if (path === "~") return cachedHomeDir;
+  if (path.startsWith("~/") || path.startsWith("~\\")) {
+    return `${cachedHomeDir}/${path.slice(2)}`;
+  }
+  return path;
+}
+
 function normalizePath(path: string | null | undefined): string {
-  return (path ?? "").trim().replace(/\/+$/, "");
+  const trimmed = (path ?? "").trim();
+  if (!trimmed) return "";
+  return expandHomePath(trimmed).replace(/[\\/]+$/, "");
 }
 
 function normalizeDeletedSessionRef(ref: DeletedSessionRef | null | undefined): DeletedSessionRef | null {
@@ -318,6 +332,15 @@ function mergePersistedValue(
 
 export async function bootstrapPersistState(): Promise<void> {
   if (typeof window === "undefined" || !("localStorage" in window)) return;
+
+  if (isTauriRuntime()) {
+    try {
+      const { homeDir } = await import("@tauri-apps/api/path");
+      cachedHomeDir = (await homeDir()).replace(/[\\/]+$/, "");
+    } catch {
+      cachedHomeDir = "";
+    }
+  }
 
   const fromFile = await invokeSafe<Record<string, string | null>>("load_ui_states", {
     keys: [...PERSIST_KEYS],

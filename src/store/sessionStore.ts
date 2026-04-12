@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import type { RunnerConfig } from "./settingsStore";
 import { mirroredPersistStorage } from "./persistStorage";
+import { useSettingsStore, type RunnerConfig } from "./settingsStore";
 
 // ── 类型定义 ────────────────────────────────────────────────
 
@@ -124,6 +124,21 @@ export function orderWorkspaceSessions(
   });
 }
 
+function resolveRunnerField(current: string | undefined, fallback: string | undefined): string | undefined {
+  return current && current.trim() ? current : fallback;
+}
+
+function hydrateRunnerConfig(runner: RunnerConfig): RunnerConfig {
+  const resolved = useSettingsStore.getState().getRunnerConfigForType(runner.type);
+  return {
+    type: runner.type,
+    cliPath: resolveRunnerField(runner.cliPath, resolved.cliPath),
+    cliArgs: resolveRunnerField(runner.cliArgs, resolved.cliArgs),
+    apiBaseUrl: resolveRunnerField(runner.apiBaseUrl, resolved.apiBaseUrl),
+    apiKeyOverride: resolveRunnerField(runner.apiKeyOverride, resolved.apiKeyOverride),
+  };
+}
+
 function makeSession(
   overrides: Partial<Omit<ClaudeSession, "runner">> & { workspaceId: string; workdir: string; runner: RunnerConfig }
 ): ClaudeSession {
@@ -137,6 +152,7 @@ function makeSession(
     diffFiles: [],
     output: [],
     ...overrides,
+    runner: hydrateRunnerConfig(overrides.runner),
   };
 }
 
@@ -269,7 +285,7 @@ export const useSessionStore = create<SessionStore>()(
 
             sessions.push({
               ...recovered,
-              runner: { ...recovered.runner },
+              runner: hydrateRunnerConfig(recovered.runner),
               diffFiles: [...recovered.diffFiles],
               output: [...recovered.output],
             });

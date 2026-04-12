@@ -488,7 +488,7 @@ export default function App() {
     });
   }, []);
 
-  // ── 启动时补回仍在磁盘上的丢失 session（以 worktree/Claude 历史为准）──
+  // ── 启动时补回仍在磁盘上的丢失 session（以 worktree/provider 历史为准）──
   useEffect(() => {
     if (!("__TAURI_INTERNALS__" in window)) return;
 
