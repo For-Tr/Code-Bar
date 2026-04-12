@@ -76,8 +76,18 @@ pub fn codebar_tmp_dir() -> PathBuf {
 
 #[cfg(unix)]
 pub fn hook_socket_path(file_name: &str) -> String {
+    let scoped_name = if cfg!(debug_assertions) {
+        if let Some(stripped) = file_name.strip_suffix(".sock") {
+            format!("{stripped}-dev.sock")
+        } else {
+            format!("{file_name}-dev")
+        }
+    } else {
+        file_name.to_string()
+    };
+
     codebar_runtime_dir()
-        .join(file_name)
+        .join(scoped_name)
         .to_string_lossy()
         .to_string()
 }
@@ -167,6 +177,10 @@ pub fn resolve_path_from_workdir(workdir: &str, path: &str) -> PathBuf {
         return expanded_path;
     }
     PathBuf::from(expand_path(workdir)).join(expanded_path)
+}
+
+pub fn normalize_expanded_path(path: &str) -> String {
+    expand_path(path).trim_end_matches('/').to_string()
 }
 
 fn provider_storage_spec(

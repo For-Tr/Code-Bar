@@ -1,6 +1,7 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
-import type { RunnerConfig } from "./settingsStore";
+import { createJSONStorage, persist } from "zustand/middleware";
+import { mirroredPersistStorage } from "./persistStorage";
+import { useSettingsStore, type RunnerConfig } from "./settingsStore";
 
 // ── 类型定义 ────────────────────────────────────────────────
 
@@ -66,6 +67,7 @@ interface SessionStore {
   setExpandedSession: (id: string | null) => void;
   removeSessionsByWorkspace: (workspaceId: string) => void;
   markWorktreeReady: (id: string) => void;
+  mergeRecoveredSessions: (sessions: ClaudeSession[]) => void;
   reorderWorkspaceSessions: (workspaceId: string, orderedSessionIds: string[]) => void;
   reorderWorkspaceSessionsByVisibleMove: (workspaceId: string, activeId: string, overId: string) => void;
 }
@@ -122,6 +124,21 @@ export function orderWorkspaceSessions(
   });
 }
 
+function resolveRunnerField(current: string | undefined, fallback: string | undefined): string | undefined {
+  return current && current.trim() ? current : fallback;
+}
+
+function hydrateRunnerConfig(runner: RunnerConfig): RunnerConfig {
+  const resolved = useSettingsStore.getState().getRunnerConfigForType(runner.type);
+  return {
+    type: runner.type,
+    cliPath: resolveRunnerField(runner.cliPath, resolved.cliPath),
+    cliArgs: resolveRunnerField(runner.cliArgs, resolved.cliArgs),
+    apiBaseUrl: resolveRunnerField(runner.apiBaseUrl, resolved.apiBaseUrl),
+    apiKeyOverride: resolveRunnerField(runner.apiKeyOverride, resolved.apiKeyOverride),
+  };
+}
+
 function makeSession(
   overrides: Partial<Omit<ClaudeSession, "runner">> & { workspaceId: string; workdir: string; runner: RunnerConfig }
 ): ClaudeSession {
@@ -135,6 +152,7 @@ function makeSession(
     diffFiles: [],
     output: [],
     ...overrides,
+    runner: hydrateRunnerConfig(overrides.runner),
   };
 }
 
@@ -252,6 +270,51 @@ export const useSessionStore = create<SessionStore>()(
           return { worktreeReadyIds };
         }),
 
+      mergeRecoveredSessions: (recoveredSessions) =>
+        set((state) => {
+          if (recoveredSessions.length === 0) return {};
+
+          const existingIds = new Set(state.sessions.map((s) => s.id));
+          const sessions = [...state.sessions];
+          const worktreeReadyIds = new Set(state.worktreeReadyIds);
+          const sessionOrderByWorkspace = { ...state.sessionOrderByWorkspace };
+          let added = false;
+
+          for (const recovered of recoveredSessions) {
+            if (existingIds.has(recovered.id)) continue;
+
+            sessions.push({
+              ...recovered,
+              runner: hydrateRunnerConfig(recovered.runner),
+              diffFiles: [...recovered.diffFiles],
+              output: [...recovered.output],
+            });
+            existingIds.add(recovered.id);
+            added = true;
+
+            if (recovered.worktreePath) {
+              worktreeReadyIds.add(recovered.id);
+            }
+
+            const workspaceId = recovered.workspaceId;
+            const nextOrder = [...(sessionOrderByWorkspace[workspaceId] ?? []), recovered.id];
+            sessionOrderByWorkspace[workspaceId] = buildWorkspaceManualOrder(
+              sessions,
+              workspaceId,
+              nextOrder
+            );
+          }
+
+          if (!added) return {};
+
+          return {
+            sessions,
+            worktreeReadyIds,
+            sessionOrderByWorkspace,
+            activeSessionId: state.activeSessionId ?? recoveredSessions[0]?.id ?? null,
+          };
+        }),
+
       reorderWorkspaceSessions: (workspaceId, orderedSessionIds) =>
         set((state) => {
           const manualOrder = buildWorkspaceManualOrder(
@@ -313,6 +376,7 @@ export const useSessionStore = create<SessionStore>()(
     }),
     {
       name: "code-bar-sessions",
+      storage: createJSONStorage(() => mirroredPersistStorage),
       // expandedSessionId 和 worktreeReadyIds 不持久化
       partialize: (state) => ({
         sessions: state.sessions.map((s) => ({

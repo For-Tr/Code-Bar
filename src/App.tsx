@@ -11,7 +11,7 @@ import { DiffViewer } from "./components/DiffViewer";
 import { StatusBar } from "./components/StatusBar";
 import { SessionDetail } from "./components/SessionDetail";
 import Settings from "./components/Settings";
-import { useSessionStore, DiffFile } from "./store/sessionStore";
+import { useSessionStore, DiffFile, type ClaudeSession } from "./store/sessionStore";
 import {
   useSettingsStore,
   isGlassTheme,
@@ -488,6 +488,33 @@ export default function App() {
     });
   }, []);
 
+  // ── 启动时补回仍在磁盘上的丢失 session（以 worktree/provider 历史为准）──
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+
+    let cancelled = false;
+
+    (async () => {
+      const workspaces = useWorkspaceStore.getState().workspaces;
+      const knownIds = new Set(useSessionStore.getState().sessions.map((s) => s.id));
+      const recovered = await invoke<ClaudeSession[]>("recover_workspace_sessions", {
+        workspaces: workspaces.map((workspace) => ({
+          workspaceId: workspace.id,
+          workspacePath: workspace.path,
+        })),
+        existingSessionIds: [...knownIds],
+      }).catch(() => []);
+
+      if (!cancelled && recovered.length > 0) {
+        useSessionStore.getState().mergeRecoveredSessions(recovered);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // ── 监听 Rust 侧事件 ──────────────────────────────────────
   useEffect(() => {
     // 非 Tauri 环境（纯浏览器 dev）下 listen 会因为缺少 __TAURI_INTERNALS__ 而报错，跳过
@@ -555,9 +582,10 @@ export default function App() {
       "provider-session-bound",
       ({ payload }) => {
         if (!payload.session_id || !payload.provider_session_id) return;
-        const existing = useSessionStore
+        const session = useSessionStore
           .getState()
-          .sessions.find((x) => x.id === payload.session_id)?.providerSessionId?.trim();
+          .sessions.find((x) => x.id === payload.session_id);
+        const existing = session?.providerSessionId?.trim();
         // 避免被“新建但空壳”的 provider 会话覆盖已有可恢复会话 ID
         if (existing && existing !== payload.provider_session_id) {
           return;
@@ -565,6 +593,14 @@ export default function App() {
         updateSession(payload.session_id, {
           providerSessionId: payload.provider_session_id,
         });
+        void invoke("save_recovery_binding", {
+          input: {
+            sessionId: payload.session_id,
+            runnerType: payload.runner_type,
+            providerSessionId: payload.provider_session_id,
+            worktreePath: session?.worktreePath ?? null,
+          },
+        }).catch(() => {});
       }
     );
 

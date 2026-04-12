@@ -2,9 +2,16 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import "./index.css";
+import { bootstrapPersistState } from "./store/persistStorage";
 
-ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-);
+async function main() {
+  await bootstrapPersistState();
+
+  ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>
+  );
+}
+
+void main();

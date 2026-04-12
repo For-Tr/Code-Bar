@@ -7,9 +7,11 @@ mod keystore;
 mod notification;
 mod provider_sessions;
 mod pty;
+mod runtime_scope;
 mod runner;
 mod session_lifecycle;
 mod state;
+mod ui_state;
 mod util;
 mod window;
 
@@ -241,6 +243,14 @@ pub fn run() {
             hooks::trust_workspace,
             // 支持点击回调的原生通知（macOS 常驻等待 + click callback）
             notification::send_notification_with_callback,
+            ui_state::load_ui_states,
+            ui_state::load_deleted_ui_state,
+            ui_state::mark_deleted_items,
+            ui_state::clear_deleted_items,
+            ui_state::save_ui_state,
+            ui_state::remove_ui_state,
+            ui_state::recover_workspace_sessions,
+            ui_state::save_recovery_binding,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
