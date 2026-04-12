@@ -14,9 +14,10 @@ interface Props {
   active: boolean;     // 是否可见/激活
   initialPrompt?: string | null;
   supportsPromptArg?: boolean;
+  hooksPreferred?: boolean;
   onReady?: () => void; // PTY 进程启动成功后回调（用于透传初始 query）
-  onWaiting?: () => void; // CLI 完成任务、等待下一条 query 时回调
-  onRunning?: () => void; // CLI 开始处理 query 时回调
+  onWaiting?: (source?: string) => void; // CLI 完成任务、等待下一条 query 时回调
+  onRunning?: (source?: string) => void; // CLI 开始处理 query 时回调
   onError?: (error: string) => void; // API 错误中断回调
   onNotification?: (title: string, message: string, notification_type: string) => void; // CLI hook 通知回调
   // 额外注入的环境变量，透传给 start_pty_session（如 CODE_BAR_* context 信息）
@@ -121,6 +122,7 @@ export function PtyTerminal({
   initialPrompt,
   supportsPromptArg = false,
   onReady,
+  hooksPreferred = true,
   onWaiting,
   onRunning,
   onError,
@@ -292,21 +294,23 @@ export function PtyTerminal({
       }
     );
 
-    // CLI 完成任务，等待下一条 query（检测到 "? for shortcuts"）
-    const u3 = listen<{ session_id: string }>(
+    // CLI 完成任务，等待下一条 query（hooks 主导；PTY 文本识别仅兜底）
+    const u3 = listen<{ session_id: string; source?: string }>(
       "pty-waiting",
       ({ payload }) => {
         if (payload.session_id !== sessionId) return;
-        onWaitingRef.current?.();
+        if (hooksPreferred && payload.source === "pty-fallback") return;
+        onWaitingRef.current?.(payload.source);
       }
     );
 
-    // CLI 开始处理 query（检测到 "esc to interrupt"）
-    const u4 = listen<{ session_id: string }>(
+    // CLI 开始处理 query（hooks 主导；PTY 文本识别仅兜底）
+    const u4 = listen<{ session_id: string; source?: string }>(
       "pty-running",
       ({ payload }) => {
         if (payload.session_id !== sessionId) return;
-        onRunningRef.current?.();
+        if (hooksPreferred && payload.source === "pty-fallback") return;
+        onRunningRef.current?.(payload.source);
       }
     );
 
@@ -336,7 +340,7 @@ export function PtyTerminal({
       u5.then((f) => f());
       u6.then((f) => f());
     };
-  }, [sessionId]);
+  }, [hooksPreferred, sessionId]);
 
   // ── 启动 PTY 进程（仅第一次，之后常驻直到 exit）────────
   // 用 ref 保存最新的 args/onReady/env，避免加入依赖导致每次渲染重启

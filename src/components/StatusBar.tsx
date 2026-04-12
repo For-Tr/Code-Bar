@@ -1,5 +1,6 @@
 import { ClaudeSession, SessionStatus } from "../store/sessionStore";
 import { useSettingsStore, isGlassTheme } from "../store/settingsStore";
+import { useWorkspaceStore, workspaceTargetLabel } from "../store/workspaceStore";
 
 const STATUS_LABEL: Record<SessionStatus, string> = {
   idle:    "空闲",
@@ -23,6 +24,12 @@ const STATUS_COLOR: Record<SessionStatus, string> = {
 export function StatusBar({ session }: { session?: ClaudeSession }) {
   const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
   const textShadow = isGlass ? "var(--ci-glass-text-shadow)" : "none";
+  const workspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === session?.workspaceId));
+  const terminalHostLabel = session?.terminalHost === "external"
+    ? "外部终端"
+    : session?.terminalHost === "headless"
+    ? "仅管理"
+    : "内置终端";
 
   return (
     <div style={{
@@ -59,6 +66,12 @@ export function StatusBar({ session }: { session?: ClaudeSession }) {
               flexShrink: 0, fontWeight: 500,
             }}>
               · {STATUS_LABEL[session.status]}
+            </span>
+            <span style={{ fontSize: 10, color: "var(--ci-text-dim)", flexShrink: 0 }}>
+              · {workspace ? workspaceTargetLabel(workspace) : "本地"}
+            </span>
+            <span style={{ fontSize: 10, color: "var(--ci-text-dim)", flexShrink: 0 }}>
+              · {terminalHostLabel}
             </span>
           </>
         )}

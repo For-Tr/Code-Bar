@@ -464,6 +464,7 @@ export default function App() {
     if (!("__TAURI_INTERNALS__" in window)) return;
     const { workspaces } = useWorkspaceStore.getState();
     workspaces.forEach((ws) => {
+      if (ws.target.kind !== "local") return;
       invoke("trust_workspace", { path: ws.path }).catch(() => {});
     });
   }, []);

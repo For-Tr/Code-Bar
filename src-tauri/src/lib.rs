@@ -192,6 +192,7 @@ pub fn run() {
             window::resize_popup,
             window::resize_popup_full,
             window::pick_folder,
+            window::open_external_terminal,
             window::save_popup_bounds,
             window::load_popup_bounds,
             window::restore_popup_bounds,

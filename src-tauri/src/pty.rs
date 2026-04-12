@@ -291,7 +291,10 @@ pub async fn start_pty_session(
                         } else {
                             "pty-running"
                         };
-                        let _ = app_r.emit(event, serde_json::json!({ "session_id": sid_r }));
+                        let _ = app_r.emit(
+                            event,
+                            serde_json::json!({ "session_id": sid_r, "source": "pty-fallback" }),
+                        );
                     }
                 }
             }

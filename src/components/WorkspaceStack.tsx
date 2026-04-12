@@ -6,8 +6,11 @@ import {
   useWorkspacesSorted,
   WORKSPACE_COLORS,
   getWorkspaceColor,
+  workspaceDisplayPath,
+  workspaceTargetLabel,
   type Workspace,
   type WorkspaceColorId,
+  type TerminalHost,
 } from "../store/workspaceStore";
 import { useSessionStore } from "../store/sessionStore";
 import { useSettingsStore, isGlassTheme } from "../store/settingsStore";
@@ -18,6 +21,23 @@ const CARD_PEEK = 5;
 const CARD_OFFSET_X = 3;
 const SPRING = { type: "spring" as const, stiffness: 380, damping: 30 };
 
+const TERMINAL_HOST_OPTIONS: Array<{ value: TerminalHost; label: string; description: string }> = [
+  { value: "embedded", label: "内置终端", description: "默认在 Code Bar 内打开 PTY" },
+  { value: "external", label: "外部终端", description: "使用外部 Terminal 承载会话" },
+  { value: "headless", label: "仅管理", description: "只管理会话与通知，需要时手动打开终端" },
+];
+
+function terminalHostLabel(host: TerminalHost): string {
+  switch (host) {
+    case "external":
+      return "外部终端";
+    case "headless":
+      return "仅管理";
+    default:
+      return "内置终端";
+  }
+}
+
 // ── 新建 Workspace 内联表单 ───────────────────────────────────
 function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
   const { addWorkspace } = useWorkspaceStore();
@@ -26,6 +46,7 @@ function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
   const [name, setName] = useState("");
   const [path, setPath] = useState("");
   const [color, setColor] = useState<WorkspaceColorId>("blue");
+  const [defaultTerminalHost, setDefaultTerminalHost] = useState<TerminalHost>("embedded");
   const [picking, setPicking] = useState(false);
   const [error, setError] = useState("");
 
@@ -45,7 +66,11 @@ function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
   const handleCreate = () => {
     const trimmed = path.trim();
     if (!trimmed) { setError("请选择工作目录"); return; }
-    addWorkspace(trimmed, name.trim() || undefined, color);
+    addWorkspace(trimmed, name.trim() || undefined, color, {
+      target: { kind: "local", path: trimmed },
+      defaultTerminalHost,
+      externalTerminalApp: "system",
+    });
     invoke("trust_workspace", { path: trimmed }).catch(() => {});
     onDone();
   };
@@ -139,6 +164,43 @@ function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
                   transition: "transform 0.12s, outline 0.12s, box-shadow 0.12s",
                 }} />
             ))}
+          </div>
+        </div>
+
+        <div>
+          <div style={{ fontSize: 11, color: "var(--ci-text-muted)", marginBottom: 6, fontWeight: 500 }}>默认承载方式</div>
+          <div style={{ display: "grid", gap: 6 }}>
+            {TERMINAL_HOST_OPTIONS.map((option) => {
+              const active = defaultTerminalHost === option.value;
+              return (
+                <button
+                  key={option.value}
+                  onClick={() => setDefaultTerminalHost(option.value)}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 10,
+                    width: "100%",
+                    padding: "9px 10px",
+                    borderRadius: 10,
+                    border: active ? "1px solid var(--ci-accent-bdr)" : "1px solid var(--ci-border)",
+                    background: active ? "var(--ci-accent-bg)" : "var(--ci-surface-hi)",
+                    color: active ? "var(--ci-accent)" : "var(--ci-text)",
+                    cursor: "pointer",
+                    textAlign: "left",
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600 }}>{option.label}</div>
+                    <div style={{ fontSize: 10, color: active ? "var(--ci-accent)" : "var(--ci-text-dim)", marginTop: 2 }}>{option.description}</div>
+                  </div>
+                  <span style={{ fontSize: 10, color: active ? "var(--ci-accent)" : "var(--ci-text-dim)", fontWeight: 700 }}>
+                    {active ? "已选" : "○"}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -248,12 +310,28 @@ function WorkspaceCardExpanded({
           marginTop: 1,
           fontFamily: "-apple-system, monospace",
         }}>
-          {ws.path}
+          {workspaceDisplayPath(ws)}
         </div>
       </div>
 
       {/* 会话数 badge */}
       <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+        <span style={{
+          fontSize: 10, padding: "1px 6px", borderRadius: 99,
+          background: "var(--ci-surface)",
+          color: "var(--ci-text-muted)",
+          fontWeight: 600,
+        }}>
+          {workspaceTargetLabel(ws)}
+        </span>
+        <span style={{
+          fontSize: 10, padding: "1px 6px", borderRadius: 99,
+          background: "var(--ci-surface)",
+          color: "var(--ci-text-muted)",
+          fontWeight: 600,
+        }}>
+          {terminalHostLabel(ws.defaultTerminalHost)}
+        </span>
         {waitingCount > 0 && (
           <span style={{
             fontSize: 10, padding: "1px 6px", borderRadius: 99,

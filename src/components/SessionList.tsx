@@ -5,7 +5,7 @@ import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, us
 import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { ClaudeSession, SessionStatus, orderWorkspaceSessions, useSessionStore } from "../store/sessionStore";
-import { useWorkspaceStore, getWorkspaceColor } from "../store/workspaceStore";
+import { useWorkspaceStore, getWorkspaceColor, workspaceTargetLabel } from "../store/workspaceStore";
 import { useSettingsStore, RUNNER_LABELS, sanitizeRunnerConfig, isGlassTheme } from "../store/settingsStore";
 
 // ── 状态配置（使用 CSS 变量）────────────────────────────────
@@ -104,6 +104,12 @@ function SessionCard({
   onRotateSuspend: () => void;
 }) {
   const runnerLabel = RUNNER_LABELS[session.runner.type];
+  const workspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === session.workspaceId));
+  const terminalHostLabel = session.terminalHost === "external"
+    ? "外部终端"
+    : session.terminalHost === "headless"
+    ? "仅管理"
+    : "内置终端";
   const cfg = STATUS_CONFIG[session.status];
   const isWaiting = session.status === "waiting";
   const isSuspended = session.status === "suspended";
@@ -204,6 +210,24 @@ function SessionCard({
             flexShrink: 0, fontWeight: 600,
           }}>
             {runnerLabel}
+          </span>
+          <span style={{
+            fontSize: 9.5, padding: "1px 6px", borderRadius: 99,
+            background: "var(--ci-surface)",
+            border: "1px solid var(--ci-border)",
+            color: "var(--ci-text-dim)",
+            flexShrink: 0, fontWeight: 600,
+          }}>
+            {terminalHostLabel}
+          </span>
+          <span style={{
+            fontSize: 9.5, padding: "1px 6px", borderRadius: 99,
+            background: "var(--ci-surface)",
+            border: "1px solid var(--ci-border)",
+            color: "var(--ci-text-dim)",
+            flexShrink: 0, fontWeight: 600,
+          }}>
+            {workspace ? workspaceTargetLabel(workspace) : "本地"}
           </span>
           {/* 状态 badge：idle 时不显示 */}
           {session.status !== "idle" && (
@@ -473,7 +497,13 @@ export function SessionList() {
 
   const handleNewSession = async () => {
     if (!activeWorkspace) return;
-    const id = addSession(activeWorkspace.id, activeWorkspace.path, undefined, { ...runner });
+    const id = addSession(
+      activeWorkspace.id,
+      activeWorkspace.path,
+      undefined,
+      { ...runner },
+      activeWorkspace.defaultTerminalHost
+    );
     setExpandedSession(id);
 
     if ("__TAURI_INTERNALS__" in window) {
@@ -505,7 +535,7 @@ export function SessionList() {
   const handleRemoveSession = (session: ClaudeSession) => {
     removeSession(session.id);
 
-    if ("__TAURI_INTERNALS__" in window && session.worktreePath && session.branchName) {
+    if ("__TAURI_INTERNALS__" in window && activeWorkspace && session.worktreePath && session.branchName) {
       invoke("teardown_session_worktree", {
         workdir: activeWorkspace.path,
         worktreePath: session.worktreePath,

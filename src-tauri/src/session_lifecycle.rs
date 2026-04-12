@@ -177,12 +177,18 @@ pub fn emit_session_lifecycle(
     match signal {
         SessionLifecycleSignal::Running => {
             for sid in session_ids {
-                let _ = app.emit("pty-running", serde_json::json!({ "session_id": sid }));
+                let _ = app.emit(
+                    "pty-running",
+                    serde_json::json!({ "session_id": sid, "source": "hooks" }),
+                );
             }
         }
         SessionLifecycleSignal::Waiting => {
             for sid in session_ids {
-                let _ = app.emit("pty-waiting", serde_json::json!({ "session_id": sid }));
+                let _ = app.emit(
+                    "pty-waiting",
+                    serde_json::json!({ "session_id": sid, "source": "hooks" }),
+                );
             }
         }
         SessionLifecycleSignal::Error { message } => {

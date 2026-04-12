@@ -659,6 +659,138 @@ pub fn resize_popup(app: tauri::AppHandle, window: tauri::WebviewWindow, height:
 
 /// 调用平台原生文件夹选择对话框
 #[tauri::command]
+pub fn open_external_terminal(
+    terminal_app: Option<String>,
+    cwd: String,
+    command: String,
+    args: Vec<String>,
+    env: Option<Vec<(String, String)>>,
+) -> Result<(), String> {
+    fn shell_quote(value: &str) -> String {
+        if value.is_empty() {
+            return "''".to_string();
+        }
+        format!("'{}'", value.replace('\'', r#"'"'"'"#))
+    }
+
+    fn build_env_exports(env: &[(String, String)]) -> String {
+        env.iter()
+            .map(|(key, value)| format!("export {}={}", key, shell_quote(value)))
+            .collect::<Vec<_>>()
+            .join(" && ")
+    }
+
+    let expanded_cwd = crate::util::expand_path(&cwd);
+    let app_hint = terminal_app
+        .unwrap_or_else(|| "system".to_string())
+        .trim()
+        .to_ascii_lowercase();
+
+    #[cfg(target_os = "macos")]
+    {
+        let env_prefix = env
+            .as_ref()
+            .filter(|pairs| !pairs.is_empty())
+            .map(|pairs| build_env_exports(pairs))
+            .filter(|text| !text.is_empty());
+        let inline = if command.trim().is_empty() {
+            match env_prefix {
+                Some(prefix) => format!("{} && cd {}", prefix, shell_quote(&expanded_cwd)),
+                None => format!("cd {}", shell_quote(&expanded_cwd)),
+            }
+        } else {
+            let parts = std::iter::once(command.as_str())
+                .chain(args.iter().map(String::as_str))
+                .map(shell_quote)
+                .collect::<Vec<_>>()
+                .join(" ");
+            match env_prefix {
+                Some(prefix) => format!("{} && cd {} && exec {}", prefix, shell_quote(&expanded_cwd), parts),
+                None => format!("cd {} && exec {}", shell_quote(&expanded_cwd), parts),
+            }
+        };
+        let inline = inline.replace('"', "\\\"");
+        let _ = app_hint;
+        let app_name = "Terminal";
+        let script = format!(
+            r#"tell application "{app_name}"
+    activate
+    do script "{inline}"
+end tell"#
+        );
+
+        let out = background_command("osascript")
+            .arg("-e")
+            .arg(script)
+            .output()
+            .map_err(|e| format!("打开外部终端失败: {e}"))?;
+
+        if out.status.success() {
+            return Ok(());
+        }
+
+        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+    }
+
+    #[cfg(windows)]
+    {
+        fn cmd_quote(value: &str) -> String {
+            format!("\"{}\"", value.replace('"', "\\\""))
+        }
+
+        let env_prefix = env
+            .as_ref()
+            .filter(|pairs| !pairs.is_empty())
+            .map(|pairs| {
+                pairs
+                    .iter()
+                    .map(|(key, value)| format!("set {}={}", key, value))
+                    .collect::<Vec<_>>()
+                    .join(" && ")
+            })
+            .filter(|text| !text.is_empty());
+        let inline = if command.trim().is_empty() {
+            match env_prefix {
+                Some(prefix) => format!("{} && cd /d {}", prefix, cmd_quote(&expanded_cwd)),
+                None => format!("cd /d {}", cmd_quote(&expanded_cwd)),
+            }
+        } else {
+            let parts = std::iter::once(command.as_str())
+                .chain(args.iter().map(String::as_str))
+                .map(cmd_quote)
+                .collect::<Vec<_>>()
+                .join(" ");
+            match env_prefix {
+                Some(prefix) => format!("{} && cd /d {} && {}", prefix, cmd_quote(&expanded_cwd), parts),
+                None => format!("cd /d {} && {}", cmd_quote(&expanded_cwd), parts),
+            }
+        };
+        let target = match app_hint.as_str() {
+            "windows-terminal" => vec!["wt.exe", "cmd", "/k", &inline],
+            _ => vec!["cmd.exe", "/c", "start", "", "cmd.exe", "/k", &inline],
+        };
+        let out = background_command(target[0])
+            .args(&target[1..])
+            .output()
+            .map_err(|e| format!("打开外部终端失败: {e}"))?;
+        if out.status.success() {
+            return Ok(());
+        }
+        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+    }
+
+    #[cfg(all(not(target_os = "macos"), not(windows)))]
+    {
+        let _ = app_hint;
+        let _ = expanded_cwd;
+        let _ = command;
+        let _ = args;
+        let _ = env;
+        Err("当前平台暂不支持打开外部终端".to_string())
+    }
+}
+
+#[tauri::command]
 pub fn pick_folder() -> String {
     #[cfg(target_os = "macos")]
     {

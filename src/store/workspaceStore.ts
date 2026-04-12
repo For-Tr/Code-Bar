@@ -18,6 +18,25 @@ export function getWorkspaceColor(id: WorkspaceColorId): string {
   return WORKSPACE_COLORS.find((c) => c.id === id)?.hex ?? "#6b7280";
 }
 
+export type TerminalHost = "embedded" | "external" | "headless";
+export type ExternalTerminalApp = "system" | "ghostty" | "wezterm" | "iterm" | "terminal" | "windows-terminal";
+
+export interface LocalWorkspaceTarget {
+  kind: "local";
+  path: string;
+}
+
+export interface SshWorkspaceTarget {
+  kind: "ssh";
+  host: string;
+  port?: number;
+  user?: string;
+  remotePath: string;
+  sshProfileId?: string;
+}
+
+export type WorkspaceTarget = LocalWorkspaceTarget | SshWorkspaceTarget;
+
 export interface Workspace {
   id: string;
   name: string;
@@ -25,23 +44,44 @@ export interface Workspace {
   color: WorkspaceColorId;
   createdAt: number;
   order: number;
+  target: WorkspaceTarget;
+  defaultTerminalHost: TerminalHost;
+  externalTerminalApp?: ExternalTerminalApp;
 }
 
 interface WorkspaceStore {
   workspaces: Workspace[];
   activeWorkspaceId: string | null;
-  addWorkspace: (path: string, name?: string, color?: WorkspaceColorId) => string;
+  addWorkspace: (path: string, name?: string, color?: WorkspaceColorId, options?: {
+    target?: WorkspaceTarget;
+    defaultTerminalHost?: TerminalHost;
+    externalTerminalApp?: ExternalTerminalApp;
+  }) => string;
   removeWorkspace: (id: string) => void;
   setActiveWorkspace: (id: string) => void;
   bringToFront: (id: string) => void;
-  updateWorkspace: (id: string, patch: Partial<Pick<Workspace, "name" | "color">>) => void;
+  updateWorkspace: (id: string, patch: Partial<Pick<Workspace, "name" | "color" | "target" | "defaultTerminalHost" | "externalTerminalApp">>) => void;
 }
 
 let _wid = Date.now();
 function makeId() { return String(_wid++); }
 
 export function pathBasename(p: string): string {
-  return p.replace(/\/$/, "").split("/").pop() || p;
+  return p.replace(/[\\/]$/, "").split(/[\\/]/).pop() || p;
+}
+
+export function workspaceDisplayPath(workspace: Pick<Workspace, "path" | "target">): string {
+  return workspace.target.kind === "ssh"
+    ? workspace.target.remotePath
+    : workspace.path;
+}
+
+export function workspaceTargetLabel(workspace: Pick<Workspace, "target">): string {
+  return workspace.target.kind === "ssh" ? "SSH" : "本地";
+}
+
+export function isLocalWorkspaceTarget(target: WorkspaceTarget): target is LocalWorkspaceTarget {
+  return target.kind === "local";
 }
 
 const COLOR_CYCLE: WorkspaceColorId[] = ["blue", "green", "purple", "orange", "red", "yellow"];
@@ -56,15 +96,20 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       workspaces: [],
       activeWorkspaceId: null,
 
-      addWorkspace: (path, name, color) => {
+      addWorkspace: (path, name, color, options) => {
         const id = makeId();
+        const target = options?.target ?? { kind: "local", path };
+        const displayPath = target.kind === "ssh" ? target.remotePath : path;
         const ws: Workspace = {
           id,
-          name: name || pathBasename(path),
+          name: name || pathBasename(displayPath),
           path,
           color: color ?? nextColor(),
           createdAt: Date.now(),
           order: 0,
+          target,
+          defaultTerminalHost: options?.defaultTerminalHost ?? "embedded",
+          externalTerminalApp: options?.externalTerminalApp,
         };
         set((state) => {
           const updated = state.workspaces.map((w) => ({ ...w, order: w.order + 1 }));
@@ -105,7 +150,28 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           ),
         })),
     }),
-    { name: "code-bar-workspaces" }
+    {
+      name: "code-bar-workspaces",
+      merge: (persisted: unknown, current) => {
+        const p = persisted as Partial<WorkspaceStore>;
+        const workspaces = (p.workspaces ?? current.workspaces).map((workspace) => {
+          const path = workspace.path ?? "";
+          const target = workspace.target ?? { kind: "local" as const, path };
+          return {
+            ...workspace,
+            path,
+            target,
+            defaultTerminalHost: workspace.defaultTerminalHost ?? "embedded",
+            externalTerminalApp: workspace.externalTerminalApp,
+          } satisfies Workspace;
+        });
+        return {
+          ...current,
+          ...p,
+          workspaces,
+        };
+      },
+    }
   )
 );
 

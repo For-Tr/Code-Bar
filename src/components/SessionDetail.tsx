@@ -3,10 +3,11 @@ import { listen } from "@tauri-apps/api/event";
 import { motion, AnimatePresence } from "framer-motion";
 import { invoke } from "@tauri-apps/api/core";
 import { useSessionStore } from "../store/sessionStore";
-import { useSettingsStore, RUNNER_LABELS, sanitizeRunnerConfig, isGlassTheme, type RunnerType } from "../store/settingsStore";
-import { useWorkspaceStore } from "../store/workspaceStore";
+import { useSettingsStore, RUNNER_LABELS, isGlassTheme, type RunnerType } from "../store/settingsStore";
+import { useWorkspaceStore, workspaceDisplayPath, workspaceTargetLabel } from "../store/workspaceStore";
 import { PtyTerminal } from "./PtyTerminal";
 import { TrafficLights } from "./TrafficLights";
+import { buildSessionLaunchRecipe } from "../lib/sessionLaunch";
 
 // 弹簧参数
 const SPRING = {
@@ -142,6 +143,13 @@ function hasNativeResumeBinding(
 }
 
 function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
+  const copyText = useCallback(async (value: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+    } catch {
+      // ignore
+    }
+  }, []);
   const isWindows = navigator.userAgent.toLowerCase().includes("windows");
   const session = useSessionStore((s) => s.sessions.find((x) => x.id === sessionId));
   const worktreeReady = useSessionStore((s) => s.worktreeReadyIds.has(sessionId));
@@ -178,8 +186,6 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
 
   // PTY 是否已就绪（start_pty_session 成功返回后置为 true）
   const ptyReadyRef = useRef(false);
-  // 最后一次发送 query 的时间戳（ms），用于过滤紧随 query 之后的延迟 Stop
-  const lastQuerySentAtRef = useRef(0);
   // 用 ref 保存 sessionId，供稳定回调访问（避免闭包过时）
   const sessionIdRef = useRef(sessionId);
   sessionIdRef.current = sessionId;
@@ -249,14 +255,13 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
   }, [clearPendingQueryTimer, flushPendingQuery, isWindows]); // 纯 ref 访问，永不更新引用
 
   // PTY 状态回调：Claude 完成一轮回应，等待下一条 query
-  const handlePtyWaiting = useCallback(() => {
+  const handlePtyWaiting = useCallback((source?: string) => {
+    if (source === "pty-fallback" && session?.terminalHost !== "embedded") return;
     const sid = sessionIdRef.current;
     const s = useSessionStore.getState().sessions.find((x) => x.id === sid);
     flushPendingQuery(isWindows ? 120 : 0);
-    // 已是 waiting 则不重复通知
     if (s?.status === "waiting") return;
     updateSession(sid, { status: "waiting" });
-    // 发系统通知
     const taskName = s?.currentTask?.slice(0, 40) || "任务";
     invoke("send_notification", {
       title: "Code Bar",
@@ -264,13 +269,14 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
       sessionId: sid,
     }).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [flushPendingQuery, isWindows, updateSession]);
+  }, [flushPendingQuery, isWindows, session?.terminalHost, updateSession]);
 
   // PTY 状态回调：Claude 开始处理（UserPromptSubmit hook 触发）
-  const handlePtyRunning = useCallback(() => {
+  const handlePtyRunning = useCallback((source?: string) => {
+    if (source === "pty-fallback" && session?.terminalHost !== "embedded") return;
     updateSession(sessionIdRef.current, { status: "running" });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [updateSession]);
+  }, [session?.terminalHost, updateSession]);
 
   // PTY 状态回调：API 错误中断（StopFailure hook 触发）
   const handlePtyError = useCallback((error: string) => {
@@ -332,7 +338,18 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
 
   const runner = session ? session.runner : settings.runner;
   const supportsPromptLaunch = runner.type === "claude-code" || runner.type === "codex";
-  const boundResumeSessionId = supportsPromptLaunch ? (session?.providerSessionId?.trim() ?? "") : "";
+  const launchRecipe = session
+    ? buildSessionLaunchRecipe({
+        session,
+        workspace: workspaces.find((w) => w.id === session.workspaceId),
+        runner,
+        settingsApiKeys: settings.apiKeys,
+        siblingRunningCount: useSessionStore.getState().sessions.filter(
+          (s) => s.workspaceId === session.workspaceId && s.id !== session.id && s.status === "running"
+        ).length,
+      })
+    : null;
+  const boundResumeSessionId = supportsPromptLaunch ? (launchRecipe?.resumeSessionId ?? "") : "";
   const resumeSessionId = supportsPromptLaunch
     ? (ptyEverActive ? launchResumeSessionId : boundResumeSessionId)
     : "";
@@ -347,9 +364,10 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     setLaunchResumeSessionId(boundResumeSessionId);
   }, [boundResumeSessionId, ptyEverActive, supportsPromptLaunch]);
 
-  const cliCommand =
+  const cliCommand = launchRecipe?.command ?? (
     runner.type === "claude-code" ? runner.cliPath || "claude"
-    : runner.cliPath || "codex";
+    : runner.cliPath || "codex"
+  );
 
   // CLI 可用性检测
   const [cliAvailable, setCliAvailable] = useState<boolean | null>(null);
@@ -381,57 +399,12 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── 构建注入给 PTY 进程的环境变量 ──
-  // 包含：CODE_BAR_* 上下文信息 + CLI 所需的 API Key / Base URL
-  const buildContextEnv = useCallback((): [string, string][] => {
-    if (!session) return [];
-    const workspace = workspaces.find((w) => w.id === session.workspaceId);
-    const allSessions = useSessionStore.getState().sessions;
-    const siblingSessions = allSessions.filter(
-      (s) => s.workspaceId === session.workspaceId && s.id !== session.id && s.status === "running"
-    );
-
-    const env: [string, string][] = [
-      ["CODE_BAR_SESSION_ID", session.id],
-      ["CODE_BAR_RUNNER_TYPE", runner.type],
-      ["CODE_BAR_SESSION_NAME", session.name],
-      ["CODE_BAR_WORKDIR", session.workdir],
-      ["CODE_BAR_WORKSPACE_ID", session.workspaceId],
-      ["CODE_BAR_WORKSPACE_NAME", workspace?.name ?? ""],
-      ["CODE_BAR_CONCURRENT_SESSIONS", String(siblingSessions.length)],
-      ["CODE_BAR_SUGGESTED_BRANCH", `ci/session-${session.id}`],
-      // Worktree 信息：告知 AI CLI 当前在独立 worktree 工作，不用自己创建分支
-      ...(session.worktreePath ? [
-        ["CODE_BAR_WORKTREE_PATH", session.worktreePath] as [string, string],
-        ["CODE_BAR_BASE_BRANCH", session.baseBranch ?? ""] as [string, string],
-        ["CODE_BAR_BRANCH", session.branchName ?? ""] as [string, string],
-      ] : []),
-    ];
-
-    // ── CLI 专用：注入 API Key 和 Base URL ──
-    // apiKeyOverride 优先，否则从 apiKeys 取对应服务商的 key
-    const apiKey = runner.apiKeyOverride?.trim()
-      || settings.apiKeys?.[runner.type === "claude-code" ? "anthropic" : "openai"]
-      || "";
-    const apiBaseUrl = runner.apiBaseUrl?.trim() ?? "";
-
-    if (runner.type === "claude-code") {
-      if (apiKey)     env.push(["ANTHROPIC_API_KEY", apiKey]);
-      if (apiBaseUrl) env.push(["ANTHROPIC_BASE_URL", apiBaseUrl]);
-    } else {
-      if (apiKey)     env.push(["OPENAI_API_KEY", apiKey]);
-      if (apiBaseUrl) env.push(["OPENAI_BASE_URL", apiBaseUrl]);
-    }
-
-    return env;
-  }, [session, workspaces, runner, settings.apiKeys]);
 
   // ── 用户提交 query ──
   const handleSubmitQuery = useCallback((q: string) => {
     const trimmed = q.trim();
     if (!trimmed || !session) return;
     const title = trimmed.length > 24 ? trimmed.slice(0, 24) + "…" : trimmed;
-    lastQuerySentAtRef.current = Date.now();
     updateSession(session.id, { name: title, currentTask: trimmed, status: "running" });
     setQuerySent(true);
 
@@ -510,20 +483,22 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
   if (!session) return null;
 
   const runnerBadge = RUNNER_LABELS[runner.type];
+  const workspace = workspaces.find((w) => w.id === session.workspaceId);
+  const workspacePath = workspace ? workspaceDisplayPath(workspace) : session.workdir;
+  const workspaceKind = workspace ? workspaceTargetLabel(workspace) : "本地";
 
-  const isRunning = session.status === "running";
   const waitingForPtyLaunch = querySent && !ptyEverActive && !isResumeLaunch;
   const installCmd = CLI_INSTALL_CMD[runner.type];
 
   // CLI 基础 args（不含 task，task 通过 write_pty 写入）
-  const cliBaseArgs: string[] =
-    runner.type === "claude-code"
-      ? (resumeSessionId
-          ? ["--resume", resumeSessionId, "--dangerously-skip-permissions"]
-          : ["--dangerously-skip-permissions"])
-      : (resumeSessionId ? ["resume", resumeSessionId] : []);
+  const cliBaseArgs: string[] = launchRecipe?.baseArgs
+    ?? (runner.type === "claude-code"
+        ? (resumeSessionId
+            ? ["--resume", resumeSessionId, "--dangerously-skip-permissions"]
+            : ["--dangerously-skip-permissions"])
+        : (resumeSessionId ? ["resume", resumeSessionId] : []));
 
-  const contextEnv = buildContextEnv();
+  const contextEnv = launchRecipe?.contextEnv ?? [];
   const panelRadius = isGlass ? "var(--ci-shell-radius)" : 14;
   const panelBackground = isGlass ? "transparent" : "var(--ci-pty-panel-bg)";
   const panelBorder = isGlass ? "none" : "1px solid var(--ci-pty-panel-border)";
@@ -555,6 +530,22 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
   const queryInputShadow = isGlass
     ? "var(--ci-inset-highlight), var(--ci-card-shadow)"
     : "0 1px 6px rgba(0,0,0,0.1), inset 0 0 0 0.5px rgba(0,0,0,0.04)";
+  const terminalHostLabel = session.terminalHost === "external"
+    ? "外部终端"
+    : session.terminalHost === "headless"
+    ? "仅管理"
+    : "内置终端";
+
+  const handleOpenExternalTerminal = () => {
+    if (!launchRecipe) return;
+    invoke("open_external_terminal", {
+      terminalApp: workspace?.externalTerminalApp ?? "system",
+      cwd: launchRecipe.cwd,
+      command: launchRecipe.command,
+      args: launchRecipe.launchArgs,
+      env: launchRecipe.contextEnv,
+    }).catch(() => {});
+  };
 
   return (
     <motion.div
@@ -710,34 +701,142 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
           )}
         </AnimatePresence>
 
-        {/* ── PTY 终端：面板打开即启动（常驻），发送 query 后可见 ── */}
-        <div style={{
-          position: "absolute",
-          inset: 0,
-          overflow: "hidden",
-          padding: isGlass ? 0 : "8px 4px 4px",
-          opacity: querySent && ptyEverActive ? 1 : 0,
-          pointerEvents: querySent && ptyEverActive ? "auto" : "none",
-        }}>
-          <PtyTerminal
-            sessionId={sessionId}
-            command={cliCommand}
-            args={cliBaseArgs}
-            workdir={session.workdir}
-            active={isOpen && querySent && ptyEverActive}
-            initialPrompt={launchPrompt}
-            supportsPromptArg={supportsPromptLaunch}
-            onReady={handlePtyReady}
-            onWaiting={handlePtyWaiting}
-            onRunning={handlePtyRunning}
-            onError={handlePtyError}
-            env={contextEnv}
-          />
-        </div>
+        {/* ── PTY 终端：仅 embedded 模式启用 ── */}
+        {session.terminalHost === "embedded" && (
+          <div style={{
+            position: "absolute",
+            inset: 0,
+            overflow: "hidden",
+            padding: isGlass ? 0 : "8px 4px 4px",
+            opacity: querySent && ptyEverActive ? 1 : 0,
+            pointerEvents: querySent && ptyEverActive ? "auto" : "none",
+          }}>
+            <PtyTerminal
+              sessionId={sessionId}
+              command={cliCommand}
+              args={cliBaseArgs}
+              workdir={session.workdir}
+              active={isOpen && querySent && ptyEverActive}
+              initialPrompt={launchPrompt}
+              supportsPromptArg={supportsPromptLaunch}
+              hooksPreferred
+              onReady={handlePtyReady}
+              onWaiting={handlePtyWaiting}
+              onRunning={handlePtyRunning}
+              onError={handlePtyError}
+              env={contextEnv}
+            />
+          </div>
+        )}
+
+        {(session.terminalHost === "external" || session.terminalHost === "headless") && !installing && (
+          <div style={{
+            flex: 1,
+            padding: "24px 28px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: overlayBackground,
+          }}>
+            <div style={{
+              width: "min(100%, 620px)",
+              display: "flex",
+              flexDirection: "column",
+              gap: 14,
+              color: overlayTitle,
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 12, fontWeight: 700 }}>{session.name}</span>
+                <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 999, background: runnerChipBackground, border: runnerChipBorder, color: runnerChipText }}>
+                  {runnerBadge}
+                </span>
+                <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 999, background: actionButtonBackground, border: actionButtonBorder, color: actionButtonText }}>
+                  {terminalHostLabel}
+                </span>
+                <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 999, background: actionButtonBackground, border: actionButtonBorder, color: actionButtonText }}>
+                  {workspaceKind}
+                </span>
+              </div>
+
+              <div style={{ fontSize: 12, color: overlayHint, lineHeight: 1.7 }}>
+                {session.terminalHost === "external"
+                  ? "该会话由外部终端承载。Code Bar 继续负责会话状态、通知、worktree 与 resume 管理。找不到原窗口时会重新打开到当前工作树。"
+                  : "该会话当前仅由 Code Bar 管理，不自动打开终端。你可以随时手动打开到对应工作树。"}
+              </div>
+
+              <div style={{ display: "grid", gap: 10, padding: "14px 16px", borderRadius: 14, background: inputBackground, border: inputBorder }}>
+                <div style={{ fontSize: 11, color: overlayFooter }}>Workspace</div>
+                <div style={{ fontSize: 12, color: overlayTitle }}>{workspace?.name ?? "未命名 Workspace"}</div>
+                <div style={{ fontSize: 11, color: overlayHint, fontFamily: "monospace", wordBreak: "break-all" }}>{workspacePath}</div>
+
+                <div style={{ fontSize: 11, color: overlayFooter, marginTop: 4 }}>Worktree</div>
+                <div style={{ fontSize: 11, color: overlayHint, fontFamily: "monospace", wordBreak: "break-all" }}>{launchRecipe?.cwd ?? session.workdir}</div>
+
+                <div style={{ fontSize: 11, color: overlayFooter, marginTop: 4 }}>命令</div>
+                <div style={{ fontSize: 11, color: overlayTitle, fontFamily: "monospace", wordBreak: "break-all" }}>
+                  {[launchRecipe?.command ?? "", ...(launchRecipe?.launchArgs ?? [])].join(" ") || "(无)"}
+                </div>
+
+                <div style={{ fontSize: 11, color: overlayFooter, marginTop: 4 }}>恢复状态</div>
+                <div style={{ fontSize: 12, color: overlayTitle }}>
+                  {launchRecipe?.canResume
+                    ? `可恢复到 provider session ${launchRecipe.resumeSessionId}`
+                    : "当前没有可恢复的 provider session，将以新会话启动"}
+                </div>
+              </div>
+
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button
+                  onClick={handleOpenExternalTerminal}
+                  style={{
+                    padding: "8px 14px",
+                    borderRadius: 8,
+                    background: "var(--ci-accent-bg)",
+                    border: "1px solid var(--ci-accent-bdr)",
+                    color: "var(--ci-accent)",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  {session.terminalHost === "external" ? "重新打开终端" : "打开终端"}
+                </button>
+                <button
+                  onClick={() => copyText(launchRecipe?.cwd ?? session.workdir)}
+                  style={{
+                    padding: "8px 14px",
+                    borderRadius: 8,
+                    background: actionButtonBackground,
+                    border: actionButtonBorder,
+                    color: actionButtonText,
+                    fontSize: 12,
+                    cursor: "pointer",
+                  }}
+                >
+                  复制目录
+                </button>
+                <button
+                  onClick={() => copyText([launchRecipe?.command ?? "", ...(launchRecipe?.launchArgs ?? [])].join(" "))}
+                  style={{
+                    padding: "8px 14px",
+                    borderRadius: 8,
+                    background: actionButtonBackground,
+                    border: actionButtonBorder,
+                    color: actionButtonText,
+                    fontSize: 12,
+                    cursor: "pointer",
+                  }}
+                >
+                  复制命令
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Query 输入遮罩 */}
         <AnimatePresence>
-          {(!querySent || waitingForPtyLaunch) && !installing && (
+          {session.terminalHost === "embedded" && (!querySent || waitingForPtyLaunch) && !installing && (
             <motion.div
               key="query-input"
               initial={{ opacity: 0 }}

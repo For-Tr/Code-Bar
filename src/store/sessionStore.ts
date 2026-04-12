@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { RunnerConfig } from "./settingsStore";
+import type { ExternalTerminalApp, TerminalHost } from "./workspaceStore";
 
 // ── 类型定义 ────────────────────────────────────────────────
 
@@ -28,6 +29,13 @@ export interface DiffLine {
   newLineNo?: number;
 }
 
+export interface ExternalTerminalHint {
+  app?: ExternalTerminalApp;
+  lastKnownCwd?: string;
+  titleHint?: string;
+  lookupKey?: string;
+}
+
 export interface ClaudeSession {
   id: string;
   name: string;
@@ -39,6 +47,8 @@ export interface ClaudeSession {
   diffFiles: DiffFile[];
   output: string[];
   runner: RunnerConfig;
+  terminalHost: TerminalHost;
+  externalTerminalHint?: ExternalTerminalHint;
   pid?: number;
   branchName?: string;     // AI 在本 session 中使用的 git 分支名（如 ci/session-3）
   baseBranch?: string;     // 任务开始时的基础分支（如 main/master）
@@ -56,7 +66,7 @@ interface SessionStore {
   // 不持久化，每次应用启动重置；持久化的 session 重新打开时从 worktreePath 推断
   worktreeReadyIds: Set<string>;
 
-  addSession: (workspaceId: string, workdir: string, name: string | undefined, runner: RunnerConfig) => string;
+  addSession: (workspaceId: string, workdir: string, name: string | undefined, runner: RunnerConfig, terminalHost?: TerminalHost) => string;
   removeSession: (id: string) => void;
   setActiveSession: (id: string | null) => void;
   updateSession: (id: string, patch: Partial<ClaudeSession>) => void;
@@ -122,7 +132,9 @@ export function orderWorkspaceSessions(
   });
 }
 
-function makeSession(overrides: Partial<ClaudeSession> & { workspaceId: string; workdir: string }): ClaudeSession {
+function makeSession(
+  overrides: Partial<ClaudeSession> & Pick<ClaudeSession, "workspaceId" | "workdir" | "runner">
+): ClaudeSession {
   const id = String(_counter++);
   return {
     id,
@@ -132,6 +144,7 @@ function makeSession(overrides: Partial<ClaudeSession> & { workspaceId: string; 
     createdAt: Date.now(),
     diffFiles: [],
     output: [],
+    terminalHost: "embedded",
     ...overrides,
   };
 }
@@ -147,12 +160,13 @@ export const useSessionStore = create<SessionStore>()(
       sessionOrderByWorkspace: {},
       worktreeReadyIds: new Set<string>(),
 
-      addSession: (workspaceId, workdir, name, runner) => {
+      addSession: (workspaceId, workdir, name, runner, terminalHost = "embedded") => {
         const s = makeSession({
           workspaceId,
           workdir,
           ...(name ? { name } : {}),
           runner: { ...runner },
+          terminalHost,
         });
         set((state) => ({
           sessions: [...state.sessions, s],
@@ -320,6 +334,7 @@ export const useSessionStore = create<SessionStore>()(
           // output 不持久化（节省空间，PTY 重启后输出会重新产生）
           output: [],
           pid: undefined,
+          terminalHost: s.terminalHost ?? "embedded",
         })),
         activeSessionId: state.activeSessionId,
         sessionOrderByWorkspace: state.sessionOrderByWorkspace,
@@ -334,6 +349,11 @@ export const useSessionStore = create<SessionStore>()(
         }
         // 有 worktreePath 的持久化 session：worktree 已在文件系统中（由启动时的清理机制保证有效性）
         // 直接标记为 ready，不重新创建
+        state.sessions = state.sessions.map((s) => ({
+          ...s,
+          terminalHost: s.terminalHost ?? "embedded",
+        }));
+
         const readyIds = new Set<string>(
           state.sessions.filter((s) => s.worktreePath).map((s) => s.id)
         );
