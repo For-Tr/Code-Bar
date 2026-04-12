@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -16,7 +16,7 @@ import { useSettingsStore, isGlassTheme } from "../store/settingsStore";
 const CARD_H = 38;
 const CARD_PEEK = 5;
 const CARD_OFFSET_X = 3;
-const SPRING = { type: "spring" as const, stiffness: 380, damping: 30 };
+const FADE = { duration: 0.12 };
 
 // ── 新建 Workspace 内联表单 ───────────────────────────────────
 function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
@@ -223,13 +223,7 @@ function WorkspaceCardExpanded({
   );
 
   return (
-    <motion.div
-      layoutId={`ws-card-${ws.id}`}
-      layout
-      initial={{ opacity: 0, y: -8 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -8, height: 0 }}
-      transition={SPRING}
+    <div
       onClick={onClick}
       style={{
         position: "relative",
@@ -328,7 +322,7 @@ function WorkspaceCardExpanded({
           e.currentTarget.style.background = "none";
         }}
       >✕</button>
-    </motion.div>
+    </div>
   );
 }
 
@@ -369,7 +363,6 @@ function WorkspaceStackCollapsed({
       {/* 底层卡片阴影 */}
       {sorted.slice(1, 4).map((ws, idx) => {
         const layerIdx = idx + 1;
-        const pColor = getWorkspaceColor(ws.color);
         return (
           <div key={ws.id} style={{
             position: "absolute",
@@ -382,31 +375,42 @@ function WorkspaceStackCollapsed({
             border: "1px solid var(--ci-toolbar-border)",
             zIndex: 10 - layerIdx,
             boxShadow: "none",
-            borderTop: `2px solid ${pColor}45`,
           }} />
         );
       })}
 
       {/* 顶层卡片 */}
       <motion.div
-        layoutId={`ws-card-${top.id}`}
         style={{
           position: "absolute",
           top: 0, left: 0, right: 0,
           height: CARD_H,
           borderRadius: 12,
-          background: "var(--ci-surface)",
-          border: "1px solid var(--ci-toolbar-border)",
-          borderTop: `2px solid ${topColor}`,
+          background: activeId === top.id ? "var(--ci-accent-bg)" : "var(--ci-surface)",
+          border: activeId === top.id
+            ? `1px solid ${topColor}45`
+            : "1px solid var(--ci-toolbar-border)",
           zIndex: 20,
           display: "flex", alignItems: "center", gap: 10,
           padding: "0 12px",
           boxShadow: "none",
           textShadow,
         }}
-        whileHover={isGlass ? undefined : { scale: 1.004 }}
-        transition={SPRING}
+        whileHover={isGlass ? undefined : { scale: 1.002 }}
+        transition={FADE}
       >
+        {activeId === top.id && (
+          <div style={{
+            position: "absolute",
+            left: 0,
+            top: 5,
+            bottom: 5,
+            width: 3,
+            borderRadius: 99,
+            background: topColor,
+            opacity: 0.9,
+          }} />
+        )}
         {/* 颜色点 */}
         <div style={{
           width: 10, height: 10, borderRadius: "50%",
@@ -471,6 +475,8 @@ export function WorkspaceStack() {
   const [expanded, setExpanded] = useState(false);
   const [showForm, setShowForm] = useState(workspaces.length === 0);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const suppressHoverExpandRef = useRef(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
 
   // 没有 workspace 时只渲染添加表单
   if (workspaces.length === 0) {
@@ -521,9 +527,25 @@ export function WorkspaceStack() {
     removeSessionsByWorkspace(id);
     removeWorkspace(id);
   };
+  const collapsedHeight = CARD_H + Math.min(sorted.length - 1, 3) * CARD_PEEK;
+
+  useEffect(() => {
+    if (!expanded) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (rootRef.current?.contains(target)) return;
+      suppressHoverExpandRef.current = true;
+      setExpanded(false);
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [expanded]);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+    <div ref={rootRef} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       {/* ── 标题栏 ── */}
       <div style={{
         display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -540,37 +562,33 @@ export function WorkspaceStack() {
             <button
               onClick={() => setExpanded(v => !v)}
               style={{
-                background: "transparent",
-                border: "1px solid var(--ci-border)",
+                background: "none",
+                border: "none",
                 color: "var(--ci-text-muted)",
                 fontSize: 11,
                 cursor: "pointer",
-                padding: "5px 10px",
-                borderRadius: 8,
+                padding: "5px 2px",
+                borderRadius: 0,
                 fontWeight: 600,
-                transition: "background 0.12s, border-color 0.12s, color 0.12s",
+                transition: "color 0.12s, opacity 0.12s",
               }}
               onMouseEnter={e => {
-                e.currentTarget.style.background = "var(--ci-btn-ghost-bg)";
-                e.currentTarget.style.borderColor = "var(--ci-toolbar-border)";
                 e.currentTarget.style.color = "var(--ci-text)";
               }}
               onMouseLeave={e => {
-                e.currentTarget.style.background = "transparent";
-                e.currentTarget.style.borderColor = "var(--ci-border)";
                 e.currentTarget.style.color = "var(--ci-text-muted)";
               }}
             >
-              {expanded ? "收起" : "全部"}
+              {expanded ? "收起" : "展开"}
             </button>
           )}
           <button
             onClick={() => setShowForm(v => !v)}
             style={{
-              background: showForm ? "var(--ci-accent-bg)" : "transparent",
-              border: `1px solid ${showForm ? "var(--ci-accent-bdr)" : "var(--ci-border)"}`,
-              borderRadius: 8,
-              padding: "5px 10px",
+              background: "none",
+              border: "none",
+              borderRadius: 0,
+              padding: "5px 2px",
               color: showForm ? "var(--ci-accent)" : "var(--ci-text-muted)",
               fontSize: 12,
               cursor: "pointer",
@@ -578,18 +596,16 @@ export function WorkspaceStack() {
               alignItems: "center",
               gap: 4,
               fontWeight: 600,
-              transition: "background 0.12s, border-color 0.12s, color 0.12s",
+              transition: "color 0.12s, opacity 0.12s",
               lineHeight: 1,
             }}
             onMouseEnter={e => {
-              e.currentTarget.style.background = showForm ? "var(--ci-accent-bg)" : "var(--ci-btn-ghost-bg)";
-              e.currentTarget.style.borderColor = showForm ? "var(--ci-accent-bdr)" : "var(--ci-toolbar-border)";
               e.currentTarget.style.color = showForm ? "var(--ci-accent)" : "var(--ci-text)";
+              e.currentTarget.style.opacity = showForm ? "0.78" : "1";
             }}
             onMouseLeave={e => {
-              e.currentTarget.style.background = showForm ? "var(--ci-accent-bg)" : "transparent";
-              e.currentTarget.style.borderColor = showForm ? "var(--ci-accent-bdr)" : "var(--ci-border)";
               e.currentTarget.style.color = showForm ? "var(--ci-accent)" : "var(--ci-text-muted)";
+              e.currentTarget.style.opacity = "1";
             }}
           >
             <span style={{ fontSize: 13 }}>+</span>
@@ -606,15 +622,22 @@ export function WorkspaceStack() {
       </AnimatePresence>
 
       {/* ── 堆叠卡片 or 展开列表 ── */}
-      <AnimatePresence mode="wait">
+      <motion.div
+        initial={false}
+        animate={{
+          height: expanded ? "auto" : collapsedHeight,
+          opacity: 1,
+        }}
+        transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+        style={{ overflow: "hidden" }}
+      >
         {expanded ? (
           <motion.div
             key="expanded"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }}
-            style={{ display: "flex", flexDirection: "column", gap: 4 }}
+            initial={{ opacity: 0, scale: 0.985 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.16, ease: "easeOut" }}
+            style={{ display: "flex", flexDirection: "column", gap: 4, transformOrigin: "top center" }}
           >
             {sorted.map((ws, idx) => (
               <WorkspaceCardExpanded
@@ -625,6 +648,7 @@ export function WorkspaceStack() {
                 total={sorted.length}
                 onClick={() => {
                   bringToFront(ws.id);
+                  suppressHoverExpandRef.current = true;
                   setExpanded(false);
                 }}
                 onRemove={() => handleRemove(ws.id)}
@@ -634,22 +658,22 @@ export function WorkspaceStack() {
         ) : (
           <motion.div
             key="collapsed"
-            initial={{ opacity: 0 }}
+            initial={{ opacity: 0.92 }}
             animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }}
+            transition={{ duration: 0.12, ease: "easeOut" }}
           >
             <WorkspaceStackCollapsed
               workspaces={sorted}
               activeId={activeWorkspaceId}
               onHoverStart={() => {
-                if (sorted.length <= 1) return;
+                if (sorted.length <= 1 || suppressHoverExpandRef.current) return;
                 if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
                 hoverTimerRef.current = setTimeout(() => {
                   setExpanded(true);
                 }, 300);
               }}
               onHoverEnd={() => {
+                suppressHoverExpandRef.current = false;
                 if (hoverTimerRef.current) {
                   clearTimeout(hoverTimerRef.current);
                   hoverTimerRef.current = null;
@@ -661,7 +685,7 @@ export function WorkspaceStack() {
             />
           </motion.div>
         )}
-      </AnimatePresence>
+      </motion.div>
     </div>
   );
 }

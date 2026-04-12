@@ -534,10 +534,10 @@ export function SessionList() {
         <button
           onClick={handleNewSession}
           style={{
-            background: "var(--ci-accent-bg)",
-            border: "1px solid var(--ci-accent-bdr)",
-            borderRadius: 8,
-            padding: "6px 10px",
+            background: "none",
+            border: "none",
+            borderRadius: 0,
+            padding: "6px 2px",
             color: "var(--ci-accent)",
             fontSize: 12,
             cursor: "pointer",
@@ -545,16 +545,15 @@ export function SessionList() {
             alignItems: "center",
             gap: 4,
             fontWeight: 600,
-            transition: "background 0.12s, border-color 0.12s, color 0.12s",
+            transition: "color 0.12s, opacity 0.12s",
           }}
           onMouseEnter={e => {
-            if (isGlass) return;
-            e.currentTarget.style.background = "var(--ci-accent)";
-            e.currentTarget.style.color = "#fff";
+            e.currentTarget.style.color = "var(--ci-accent)";
+            e.currentTarget.style.opacity = "0.78";
           }}
           onMouseLeave={e => {
-            e.currentTarget.style.background = "var(--ci-accent-bg)";
             e.currentTarget.style.color = "var(--ci-accent)";
+            e.currentTarget.style.opacity = "1";
           }}
         >
           <span style={{ fontSize: 13, lineHeight: 1 }}>+</span>
