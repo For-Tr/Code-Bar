@@ -133,7 +133,7 @@ export function orderWorkspaceSessions(
 }
 
 function makeSession(
-  overrides: Partial<ClaudeSession> & Pick<ClaudeSession, "workspaceId" | "workdir" | "runner">
+  overrides: Partial<Omit<ClaudeSession, "runner">> & { workspaceId: string; workdir: string; runner: RunnerConfig }
 ): ClaudeSession {
   const id = String(_counter++);
   return {
