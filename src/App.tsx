@@ -497,18 +497,13 @@ export default function App() {
     (async () => {
       const workspaces = useWorkspaceStore.getState().workspaces;
       const knownIds = new Set(useSessionStore.getState().sessions.map((s) => s.id));
-      const recovered: ClaudeSession[] = [];
-
-      for (const workspace of workspaces) {
-        const items = await invoke<ClaudeSession[]>("recover_workspace_sessions", {
+      const recovered = await invoke<ClaudeSession[]>("recover_workspace_sessions", {
+        workspaces: workspaces.map((workspace) => ({
           workspaceId: workspace.id,
           workspacePath: workspace.path,
-          existingSessionIds: [...knownIds],
-        }).catch(() => []);
-
-        items.forEach((session) => knownIds.add(session.id));
-        recovered.push(...items);
-      }
+        })),
+        existingSessionIds: [...knownIds],
+      }).catch(() => []);
 
       if (!cancelled && recovered.length > 0) {
         useSessionStore.getState().mergeRecoveredSessions(recovered);
@@ -587,9 +582,10 @@ export default function App() {
       "provider-session-bound",
       ({ payload }) => {
         if (!payload.session_id || !payload.provider_session_id) return;
-        const existing = useSessionStore
+        const session = useSessionStore
           .getState()
-          .sessions.find((x) => x.id === payload.session_id)?.providerSessionId?.trim();
+          .sessions.find((x) => x.id === payload.session_id);
+        const existing = session?.providerSessionId?.trim();
         // 避免被“新建但空壳”的 provider 会话覆盖已有可恢复会话 ID
         if (existing && existing !== payload.provider_session_id) {
           return;
@@ -597,6 +593,14 @@ export default function App() {
         updateSession(payload.session_id, {
           providerSessionId: payload.provider_session_id,
         });
+        void invoke("save_recovery_binding", {
+          input: {
+            sessionId: payload.session_id,
+            runnerType: payload.runner_type,
+            providerSessionId: payload.provider_session_id,
+            worktreePath: session?.worktreePath ?? null,
+          },
+        }).catch(() => {});
       }
     );
 

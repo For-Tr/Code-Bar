@@ -3,7 +3,7 @@ use std::{
     fs,
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
-    time::UNIX_EPOCH,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use serde::{Deserialize, Serialize};
@@ -13,6 +13,7 @@ use crate::util::{background_command, home_dir, normalize_expanded_path};
 
 const UI_STATE_DIR: &str = "ui-state";
 const DELETED_UI_STATE_KEY: &str = "code-bar-deleted-items";
+const RECOVERY_BINDINGS_KEY: &str = "code-bar-recovery-bindings";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -96,6 +97,18 @@ pub struct DeleteWorkspaceInput {
     path: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RecoveryBinding {
+    session_id: String,
+    runner_type: String,
+    provider_session_id: String,
+    #[serde(default)]
+    worktree_path: Option<String>,
+    #[serde(default)]
+    updated_at_ms: u64,
+}
+
 fn normalize_optional_string(value: Option<String>) -> Option<String> {
     value
         .map(|value| value.trim().to_string())
@@ -104,6 +117,33 @@ fn normalize_optional_string(value: Option<String>) -> Option<String> {
 
 fn normalize_path(value: Option<String>) -> Option<String> {
     normalize_optional_string(value).map(|path| normalize_expanded_path(&path))
+}
+
+impl RecoveryBinding {
+    fn normalized(self) -> Option<Self> {
+        let session_id = self.session_id.trim().to_string();
+        let runner_type = self.runner_type.trim().to_string();
+        let provider_session_id = self.provider_session_id.trim().to_string();
+        if session_id.is_empty() || runner_type.is_empty() || provider_session_id.is_empty() {
+            return None;
+        }
+
+        Some(Self {
+            session_id,
+            runner_type,
+            provider_session_id,
+            worktree_path: normalize_path(self.worktree_path),
+            updated_at_ms: if self.updated_at_ms == 0 {
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .ok()
+                    .map(|duration| duration.as_millis() as u64)
+                    .unwrap_or(0)
+            } else {
+                self.updated_at_ms
+            },
+        })
+    }
 }
 
 impl DeletedSessionRef {
@@ -287,6 +327,51 @@ fn write_deleted_ui_state(app: &tauri::AppHandle, state: &DeletedUiState) -> Res
     let payload = serde_json::to_string(&normalize_deleted_ui_state(state.clone()))
         .map_err(|e| format!("序列化已删除 UI 状态失败: {e}"))?;
     write_ui_state(app, DELETED_UI_STATE_KEY, &payload)
+}
+
+fn read_recovery_bindings(app: &tauri::AppHandle) -> Result<Vec<RecoveryBinding>, String> {
+    let Some(content) = read_ui_state(app, RECOVERY_BINDINGS_KEY)? else {
+        return Ok(Vec::new());
+    };
+
+    serde_json::from_str::<Vec<RecoveryBinding>>(&content)
+        .map(|items| items.into_iter().filter_map(RecoveryBinding::normalized).collect())
+        .map_err(|e| format!("解析恢复绑定失败: {e}"))
+}
+
+fn write_recovery_bindings(app: &tauri::AppHandle, bindings: &[RecoveryBinding]) -> Result<(), String> {
+    if bindings.is_empty() {
+        return remove_ui_state_file(app, RECOVERY_BINDINGS_KEY);
+    }
+
+    let payload = serde_json::to_string(bindings)
+        .map_err(|e| format!("序列化恢复绑定失败: {e}"))?;
+    write_ui_state(app, RECOVERY_BINDINGS_KEY, &payload)
+}
+
+fn upsert_recovery_binding(app: &tauri::AppHandle, binding: RecoveryBinding) -> Result<(), String> {
+    let Some(binding) = binding.normalized() else {
+        return Ok(());
+    };
+
+    let mut bindings = read_recovery_bindings(app)?;
+    bindings.retain(|entry| entry.session_id != binding.session_id);
+    bindings.push(binding);
+    bindings.sort_by(|a, b| a.session_id.cmp(&b.session_id));
+    write_recovery_bindings(app, &bindings)
+}
+
+fn remove_recovery_bindings_by_session_ids(
+    app: &tauri::AppHandle,
+    session_ids: &HashSet<String>,
+) -> Result<(), String> {
+    if session_ids.is_empty() {
+        return Ok(());
+    }
+
+    let mut bindings = read_recovery_bindings(app)?;
+    bindings.retain(|entry| !session_ids.contains(&entry.session_id));
+    write_recovery_bindings(app, &bindings)
 }
 
 fn modified_millis(path: &Path) -> u64 {
@@ -504,10 +589,11 @@ fn extract_codex_first_task(json: &serde_json::Value) -> Option<String> {
     None
 }
 
-fn latest_codex_hint(worktree_path: &Path) -> Option<RecoveryHint> {
-    let sessions_dir = home_dir()?.join(".codex").join("sessions");
-    let target_workdir = normalize_expanded_path(&worktree_path.to_string_lossy());
-    let mut best: Option<RecoveryHint> = None;
+fn load_codex_history_index() -> HashMap<String, RecoveryHint> {
+    let Some(sessions_dir) = home_dir().map(|home| home.join(".codex").join("sessions")) else {
+        return HashMap::new();
+    };
+    let mut hints = HashMap::new();
     let mut stack = vec![sessions_dir];
 
     while let Some(dir) = stack.pop() {
@@ -573,31 +659,49 @@ fn latest_codex_hint(worktree_path: &Path) -> Option<RecoveryHint> {
                 continue;
             }
 
-            if normalize_expanded_path(&cwd) != target_workdir {
-                continue;
+            let normalized_cwd = normalize_expanded_path(&cwd);
+            let candidate = RecoveryHint {
+                runner_type: "codex".to_string(),
+                provider_session_id,
+                current_task: first_task,
+                modified_at_ms: modified_millis(&path),
+            };
+            let slot = hints.entry(normalized_cwd).or_insert_with(|| candidate.clone());
+            if slot.modified_at_ms < candidate.modified_at_ms {
+                *slot = candidate;
             }
-
-            select_newer_hint(
-                &mut best,
-                RecoveryHint {
-                    runner_type: "codex".to_string(),
-                    provider_session_id,
-                    current_task: first_task,
-                    modified_at_ms: modified_millis(&path),
-                },
-            );
         }
     }
 
-    best
+    hints
 }
 
-fn latest_recovery_hint(session_id: &str, worktree_path: &Path) -> Option<RecoveryHint> {
-    let mut best = latest_claude_hint(session_id);
-    if let Some(codex_hint) = latest_codex_hint(worktree_path) {
-        select_newer_hint(&mut best, codex_hint);
+fn resolve_recovery_hint(
+    session_id: &str,
+    worktree_path: &Path,
+    recovery_bindings: &HashMap<String, RecoveryBinding>,
+    codex_history: &HashMap<String, RecoveryHint>,
+) -> Option<RecoveryHint> {
+    let worktree_key = normalize_expanded_path(&worktree_path.to_string_lossy());
+    if let Some(binding) = recovery_bindings.get(session_id) {
+        if binding.runner_type == "claude-code" {
+            let mut hint = latest_claude_hint(session_id)?;
+            hint.provider_session_id = binding.provider_session_id.clone();
+            hint.modified_at_ms = hint.modified_at_ms.max(binding.updated_at_ms);
+            return Some(hint);
+        }
+
+        if binding.runner_type == "codex" {
+            let mut hint = codex_history.get(&worktree_key).cloned()?;
+            if hint.provider_session_id != binding.provider_session_id {
+                return None;
+            }
+            hint.modified_at_ms = hint.modified_at_ms.max(binding.updated_at_ms);
+            return Some(hint);
+        }
     }
-    best
+
+    latest_claude_hint(session_id)
 }
 
 fn numeric_session_id(name: &str) -> Option<String> {
@@ -631,9 +735,36 @@ pub fn remove_ui_state(app: tauri::AppHandle, key: String) -> Result<(), String>
     remove_ui_state_file(&app, &key)
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveRecoveryBindingInput {
+    session_id: String,
+    runner_type: String,
+    provider_session_id: String,
+    #[serde(default)]
+    worktree_path: Option<String>,
+}
+
 #[tauri::command]
 pub fn load_deleted_ui_state(app: tauri::AppHandle) -> Result<DeletedUiState, String> {
     read_deleted_ui_state(&app)
+}
+
+#[tauri::command]
+pub fn save_recovery_binding(
+    app: tauri::AppHandle,
+    input: SaveRecoveryBindingInput,
+) -> Result<(), String> {
+    upsert_recovery_binding(
+        &app,
+        RecoveryBinding {
+            session_id: input.session_id,
+            runner_type: input.runner_type,
+            provider_session_id: input.provider_session_id,
+            worktree_path: input.worktree_path,
+            updated_at_ms: 0,
+        },
+    )
 }
 
 #[tauri::command]
@@ -723,6 +854,7 @@ pub fn clear_deleted_items(
         .retain(|id| !removed_session_ids.contains(id));
     state.workspace_ids
         .retain(|id| !removed_workspace_ids.contains(id));
+    remove_recovery_bindings_by_session_ids(&app, &removed_session_ids)?;
     state.sessions.retain(|entry| {
         !removed_session_refs
             .iter()
@@ -745,94 +877,117 @@ pub fn clear_deleted_items(
     }
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecoverWorkspaceInput {
+    workspace_id: String,
+    workspace_path: String,
+}
+
 #[tauri::command]
 pub fn recover_workspace_sessions(
     app: tauri::AppHandle,
-    workspace_id: String,
-    workspace_path: String,
+    workspaces: Vec<RecoverWorkspaceInput>,
     existing_session_ids: Vec<String>,
 ) -> Result<Vec<RecoveredSession>, String> {
-    let normalized_workspace_path = normalize_path(Some(workspace_path)).unwrap_or_default();
-    let repo_root = PathBuf::from(&normalized_workspace_path);
-    let Some(parent) = repo_root.parent() else {
-        return Ok(vec![]);
-    };
-
-    let worktree_root = parent.join(".code-bar-worktrees");
-    if !worktree_root.exists() {
+    if workspaces.is_empty() {
         return Ok(vec![]);
     }
 
     let deleted_state = read_deleted_ui_state(&app)?;
+    let recovery_bindings = read_recovery_bindings(&app)?
+        .into_iter()
+        .map(|binding| (binding.session_id.clone(), binding))
+        .collect::<HashMap<_, _>>();
+    let codex_history = load_codex_history_index();
     let existing = existing_session_ids.into_iter().collect::<HashSet<_>>();
-    let base_branch = default_base_branch(&repo_root);
     let mut recovered = Vec::new();
 
-    for entry in fs::read_dir(&worktree_root)
-        .map_err(|e| format!("读取 {} 失败: {e}", worktree_root.display()))?
-        .flatten()
-    {
-        let worktree_path = entry.path();
-        if !worktree_path.is_dir() {
+    for workspace in workspaces {
+        let normalized_workspace_path = normalize_path(Some(workspace.workspace_path)).unwrap_or_default();
+        let repo_root = PathBuf::from(&normalized_workspace_path);
+        let Some(parent) = repo_root.parent() else {
+            continue;
+        };
+
+        let worktree_root = parent.join(".code-bar-worktrees");
+        if !worktree_root.exists() {
             continue;
         }
 
-        let Some(dir_name) = worktree_path.file_name().and_then(|name| name.to_str()) else {
-            continue;
-        };
-        let Some(session_id) = numeric_session_id(dir_name) else {
-            continue;
-        };
-        if existing.contains(&session_id) || deleted_state.session_ids.contains(&session_id) {
-            continue;
-        }
-        if deleted_state
-            .sessions
-            .iter()
-            .any(|entry| entry.matches(&session_id, Some(&workspace_id)))
+        let base_branch = default_base_branch(&repo_root);
+
+        for entry in fs::read_dir(&worktree_root)
+            .map_err(|e| format!("读取 {} 失败: {e}", worktree_root.display()))?
+            .flatten()
         {
-            continue;
-        }
-        if deleted_state.workspace_ids.contains(&workspace_id)
-            || deleted_state
-                .workspaces
+            let worktree_path = entry.path();
+            if !worktree_path.is_dir() {
+                continue;
+            }
+
+            let Some(dir_name) = worktree_path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            let Some(session_id) = numeric_session_id(dir_name) else {
+                continue;
+            };
+            if existing.contains(&session_id) || deleted_state.session_ids.contains(&session_id) {
+                continue;
+            }
+            if deleted_state
+                .sessions
                 .iter()
-                .any(|entry| entry.matches(&workspace_id, Some(&normalized_workspace_path)))
-        {
-            continue;
+                .any(|entry| entry.matches(&session_id, Some(&workspace.workspace_id)))
+            {
+                continue;
+            }
+            if deleted_state.workspace_ids.contains(&workspace.workspace_id)
+                || deleted_state
+                    .workspaces
+                    .iter()
+                    .any(|entry| entry.matches(&workspace.workspace_id, Some(&normalized_workspace_path)))
+            {
+                continue;
+            }
+
+            let Some(hint) = resolve_recovery_hint(
+                &session_id,
+                &worktree_path,
+                &recovery_bindings,
+                &codex_history,
+            ) else {
+                continue;
+            };
+
+            let branch_name = current_branch(&worktree_path)
+                .or_else(|| Some(format!("ci/session-{session_id}")));
+            let workdir = worktree_path.to_string_lossy().to_string();
+            let current_task = hint.current_task.clone();
+
+            recovered.push(RecoveredSession {
+                id: session_id.clone(),
+                name: normalize_task_title(&current_task, &session_id),
+                workspace_id: workspace.workspace_id.clone(),
+                workdir: workdir.clone(),
+                status: "idle".to_string(),
+                current_task,
+                created_at: modified_millis(&worktree_path),
+                diff_files: vec![],
+                output: vec![],
+                runner: RecoveredRunnerConfig {
+                    r#type: hint.runner_type,
+                    cli_path: String::new(),
+                    cli_args: String::new(),
+                    api_base_url: String::new(),
+                    api_key_override: String::new(),
+                },
+                branch_name,
+                base_branch: base_branch.clone(),
+                worktree_path: Some(workdir),
+                provider_session_id: Some(hint.provider_session_id),
+            });
         }
-
-        let Some(hint) = latest_recovery_hint(&session_id, &worktree_path) else {
-            continue;
-        };
-
-        let branch_name =
-            current_branch(&worktree_path).or_else(|| Some(format!("ci/session-{session_id}")));
-        let workdir = worktree_path.to_string_lossy().to_string();
-        let current_task = hint.current_task.clone();
-
-        recovered.push(RecoveredSession {
-            id: session_id.clone(),
-            name: normalize_task_title(&current_task, &session_id),
-            workspace_id: workspace_id.clone(),
-            workdir: workdir.clone(),
-            status: "idle".to_string(),
-            current_task,
-            created_at: modified_millis(&worktree_path),
-            diff_files: vec![],
-            output: vec![],
-            runner: RecoveredRunnerConfig {
-                r#type: hint.runner_type,
-                cli_path: String::new(),
-                cli_args: String::new(),
-                api_base_url: String::new(),
-                api_key_override: String::new(),
-            },
-            branch_name,
-            base_branch: base_branch.clone(),
-            worktree_path: Some(workdir),
-            provider_session_id: Some(hint.provider_session_id),
-        });
     }
 
     recovered.sort_by_key(|session| session.id.parse::<u64>().unwrap_or(u64::MAX));

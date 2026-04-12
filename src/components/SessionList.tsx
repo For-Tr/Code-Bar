@@ -516,7 +516,7 @@ export function SessionList() {
   const handleRemoveSession = async (session: ClaudeSession) => {
     if ("__TAURI_INTERNALS__" in window) {
       await invoke("mark_deleted_items", {
-        sessionIds: [],
+        sessionIds: [session.id],
         workspaceIds: [],
         sessionRefs: [{ sessionId: session.id, workspaceId: session.workspaceId }],
         workspaceRefs: [],

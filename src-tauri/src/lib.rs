@@ -249,6 +249,7 @@ pub fn run() {
             ui_state::save_ui_state,
             ui_state::remove_ui_state,
             ui_state::recover_workspace_sessions,
+            ui_state::save_recovery_binding,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
