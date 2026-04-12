@@ -93,7 +93,7 @@ export default function App() {
         root.style.setProperty("--ci-glow-b",         "transparent");
         root.style.setProperty("--ci-inset-highlight","none");
         root.style.setProperty("--ci-shell-blur",     "blur(22px) saturate(1.1)");
-        root.style.setProperty("--ci-shell-radius",   "18px");
+        root.style.setProperty("--ci-shell-radius",   "24px");
         root.style.setProperty("--ci-card-shadow",    "0 8px 24px rgba(0,0,0,0.18)");
         root.style.setProperty("--ci-card-shadow-strong","0 12px 28px rgba(0,0,0,0.22)");
         root.style.setProperty("--ci-pill-bg",        "rgba(255,255,255,0.07)");
@@ -255,7 +255,7 @@ export default function App() {
         root.style.setProperty("--ci-glow-b",         "transparent");
         root.style.setProperty("--ci-inset-highlight","none");
         root.style.setProperty("--ci-shell-blur",     "blur(18px) saturate(1.08)");
-        root.style.setProperty("--ci-shell-radius",   "18px");
+        root.style.setProperty("--ci-shell-radius",   "24px");
         root.style.setProperty("--ci-card-shadow",    "0 8px 24px rgba(0,0,0,0.08)");
         root.style.setProperty("--ci-card-shadow-strong","0 12px 28px rgba(0,0,0,0.12)");
         root.style.setProperty("--ci-pill-bg",        "rgba(255,255,255,0.58)");
@@ -601,7 +601,7 @@ export default function App() {
       <div style={{
         width: "100vw",
         height: "100vh",
-        padding: isGlass ? 0 : "10px",
+        padding: 0,
         boxSizing: "border-box",
         background: "transparent",
       }}>
@@ -609,7 +609,7 @@ export default function App() {
           transition={spring}
           style={{
             width: "100%",
-            height: isGlass ? "100vh" : "calc(100vh - 20px)",
+            height: "100%",
             position: "relative",
             borderRadius: "var(--ci-shell-radius)",
             border: isGlass ? "none" : "1px solid var(--ci-window-edge)",
@@ -646,12 +646,12 @@ export default function App() {
                   zIndex: 1,
                 }}>
                   {/* Workspace 堆叠卡片 */}
-                  <div style={{ padding: "12px 12px 0" }}>
+                  <div style={{ padding: "6px 18px 0" }}>
                     <WorkspaceStack />
                   </div>
 
                   {/* Session 列表（在激活 Workspace 下） */}
-                  <div style={{ padding: "4px 12px 10px" }}>
+                  <div style={{ padding: "0 18px 12px" }}>
                     <SessionList />
                   </div>
 
@@ -665,17 +665,15 @@ export default function App() {
                         exit={{ opacity: 0, height: 0 }}
                         transition={{ duration: 0.2 }}
                         style={{
-                          margin: "0 12px 14px",
-                          border: "1px solid var(--ci-toolbar-border)",
-                          borderRadius: 18,
+                          margin: "0 18px 16px",
                           overflow: "hidden",
-                          background: "var(--ci-card-grad)",
-                          boxShadow: "var(--ci-inset-highlight)",
+                          background: "transparent",
                         }}
                       >
                         <div style={{
                           display: "flex", alignItems: "center", gap: 8,
-                          padding: "8px 12px 4px",
+                          padding: "8px 0 6px",
+                          borderTop: "1px solid var(--ci-toolbar-border)",
                         }}>
                           <span style={{
                             fontSize: 10, fontWeight: 600,
@@ -685,24 +683,33 @@ export default function App() {
                             变更
                           </span>
                           <span style={{
-                            fontSize: 10, padding: "1px 6px", borderRadius: 99,
+                            fontSize: 9.5, padding: "1px 6px", borderRadius: 999,
                             background: "var(--ci-green-bg)",
                             border: "1px solid var(--ci-green-bdr)",
                             color: "var(--ci-green-dark)",
+                            fontWeight: 600,
                           }}>
                             +{activeSession!.diffFiles.reduce((s, f) => s + f.additions, 0)}
                           </span>
                           <span style={{
-                            fontSize: 10, padding: "1px 6px", borderRadius: 99,
+                            fontSize: 9.5, padding: "1px 6px", borderRadius: 999,
                             background: "var(--ci-deleted-bg)",
                             border: "1px solid var(--ci-border-med)",
                             color: "var(--ci-deleted-text)",
+                            fontWeight: 600,
                           }}>
                             −{activeSession!.diffFiles.reduce((s, f) => s + f.deletions, 0)}
                           </span>
                           <div style={{ flex: 1, height: 1, background: "var(--ci-border)" }} />
                         </div>
-                        <DiffViewer files={activeSession!.diffFiles} />
+                        <div style={{
+                          border: "1px solid var(--ci-toolbar-border)",
+                          borderRadius: 14,
+                          overflow: "hidden",
+                          background: "var(--ci-surface)",
+                        }}>
+                          <DiffViewer files={activeSession!.diffFiles} />
+                        </div>
                       </motion.div>
                     )}
                   </AnimatePresence>

@@ -8,7 +8,6 @@ export function TitleBar() {
   const { openSettings } = useSettingsStore();
   const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
   const textShadow = isGlass ? "var(--ci-glass-text-shadow)" : "none";
-  const strongTextShadow = isGlass ? "var(--ci-glass-text-shadow-strong)" : "none";
 
   return (
     <div
@@ -17,98 +16,95 @@ export function TitleBar() {
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
-        padding: "14px 16px 12px",
-        borderBottom: isGlass ? "none" : "1px solid var(--ci-toolbar-border)",
+        padding: "14px 18px 8px",
+        borderBottom: "none",
         cursor: "grab",
         userSelect: "none",
         WebkitUserSelect: "none",
-        background: isGlass ? "var(--ci-toolbar-bg)" : "var(--ci-toolbar-bg)",
-        backdropFilter: isGlass ? "none" : "blur(18px) saturate(1.3)",
-        WebkitBackdropFilter: isGlass ? "none" : "blur(18px) saturate(1.3)",
+        background: isGlass ? "var(--ci-toolbar-bg)" : "transparent",
         position: "relative",
         zIndex: 2,
         textShadow,
       }}
     >
-      {/* 左侧：交通灯按钮区 */}
       <TrafficLights onClose={() => invoke("close_popup").catch(() => {})} />
 
-      {/* 中间：标题 */}
-      <div style={{
-        position: "absolute", left: 0, right: 0,
-        display: "flex", alignItems: "center", justifyContent: "center",
-        pointerEvents: "none",
-        gap: 6,
-      }}>
-        <div style={{
-          width: 20, height: 20, borderRadius: 7,
-          background: "linear-gradient(135deg, var(--ci-accent), #a78bfa)",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          fontSize: 10, flexShrink: 0,
-          boxShadow: "0 6px 18px rgba(90,120,255,0.28)",
-          color: "#fff",
-        }}>
-          ⌘
-        </div>
-        <div style={{
+      <div
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
           display: "flex",
           alignItems: "center",
-          gap: 8,
-          padding: "7px 11px",
-          borderRadius: 999,
-          background: "var(--ci-pill-bg)",
-          border: "1px solid var(--ci-pill-border)",
-          boxShadow: "var(--ci-inset-highlight), var(--ci-card-shadow)",
-          backdropFilter: isGlass ? "none" : "blur(18px) saturate(1.2)",
-          WebkitBackdropFilter: isGlass ? "none" : "blur(18px) saturate(1.2)",
-          opacity: 1,
-          textShadow: strongTextShadow,
-        }}>
-          <span style={{
-            color: "var(--ci-text)",
-            fontSize: 13,
-            fontWeight: 600,
-            letterSpacing: "-0.02em",
-          }}>
-            Code Bar
-          </span>
-          {sessions.length > 0 && (
-            <span style={{
-              fontSize: 10, padding: "2px 7px", borderRadius: 99,
+          justifyContent: "center",
+          pointerEvents: "none",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div
+            style={{
+              width: 20,
+              height: 20,
+              borderRadius: 7,
               background: "var(--ci-accent-bg)",
-              color: "var(--ci-accent)",
+              border: "1px solid var(--ci-accent-bdr)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 10,
               fontWeight: 700,
-            }}>
-              {sessions.length}
+              flexShrink: 0,
+              color: "var(--ci-accent)",
+            }}
+          >
+            ⌘
+          </div>
+
+          <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+            <span
+              style={{
+                color: "var(--ci-text)",
+                fontSize: 14,
+                fontWeight: 700,
+                letterSpacing: "-0.02em",
+              }}
+            >
+              Code Bar
             </span>
-          )}
+            {sessions.length > 0 && (
+              <span style={{ fontSize: 10, color: "var(--ci-accent)", fontWeight: 700 }}>
+                {sessions.length}
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* 右侧：设置按钮 */}
       <button
         onClick={() => openSettings()}
         title="设置"
         style={{
-          background: "var(--ci-pill-bg)",
-          border: "1px solid var(--ci-pill-border)",
+          width: 28,
+          height: 28,
+          borderRadius: 9,
+          background: "var(--ci-close-bg)",
+          border: "0.5px solid var(--ci-close-border)",
           color: "var(--ci-text-muted)",
-          borderRadius: 999, width: 30, height: 30,
           cursor: "pointer",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          transition: "color 0.15s, border-color 0.15s",
-          boxShadow: "var(--ci-inset-highlight), var(--ci-card-shadow)",
-          backdropFilter: isGlass ? "none" : "blur(18px) saturate(1.2)",
-          WebkitBackdropFilter: isGlass ? "none" : "blur(18px) saturate(1.2)",
-          opacity: 1,
-          textShadow,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          transition: "background 0.15s, border-color 0.15s, color 0.15s",
+          textShadow: "none",
         }}
-        onMouseEnter={e => {
-          e.currentTarget.style.background = isGlass ? "var(--ci-pill-bg)" : "var(--ci-btn-ghost-hover)";
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = isGlass ? "var(--ci-close-bg)" : "var(--ci-btn-ghost-hover)";
+          e.currentTarget.style.borderColor = "var(--ci-toolbar-border)";
           e.currentTarget.style.color = "var(--ci-text)";
         }}
-        onMouseLeave={e => {
-          e.currentTarget.style.background = "var(--ci-pill-bg)";
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = "var(--ci-close-bg)";
+          e.currentTarget.style.borderColor = "var(--ci-close-border)";
           e.currentTarget.style.color = "var(--ci-text-muted)";
         }}
       >
