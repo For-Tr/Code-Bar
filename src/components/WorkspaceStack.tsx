@@ -476,6 +476,7 @@ export function WorkspaceStack() {
   const [showForm, setShowForm] = useState(workspaces.length === 0);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suppressHoverExpandRef = useRef(false);
+  const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
   // 没有 workspace 时只渲染添加表单
@@ -530,18 +531,36 @@ export function WorkspaceStack() {
   const collapsedHeight = CARD_H + Math.min(sorted.length - 1, 3) * CARD_PEEK;
 
   useEffect(() => {
-    if (!expanded) return;
+    const handlePointerMove = (event: PointerEvent) => {
+      lastPointerRef.current = { x: event.clientX, y: event.clientY };
+      if (!suppressHoverExpandRef.current || expanded) return;
+      const root = rootRef.current;
+      if (!root) return;
+      const rect = root.getBoundingClientRect();
+      const inside =
+        event.clientX >= rect.left &&
+        event.clientX <= rect.right &&
+        event.clientY >= rect.top &&
+        event.clientY <= rect.bottom;
+      if (!inside) {
+        suppressHoverExpandRef.current = false;
+      }
+    };
 
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as Node | null;
-      if (!target) return;
+      if (!expanded || !target) return;
       if (rootRef.current?.contains(target)) return;
-      suppressHoverExpandRef.current = true;
+      suppressHoverExpandRef.current = false;
       setExpanded(false);
     };
 
+    document.addEventListener("pointermove", handlePointerMove, true);
     document.addEventListener("pointerdown", handlePointerDown);
-    return () => document.removeEventListener("pointerdown", handlePointerDown);
+    return () => {
+      document.removeEventListener("pointermove", handlePointerMove, true);
+      document.removeEventListener("pointerdown", handlePointerDown);
+    };
   }, [expanded]);
 
   return (
@@ -648,7 +667,17 @@ export function WorkspaceStack() {
                 total={sorted.length}
                 onClick={() => {
                   bringToFront(ws.id);
-                  suppressHoverExpandRef.current = true;
+                  const point = lastPointerRef.current;
+                  if (point && rootRef.current) {
+                    const rect = rootRef.current.getBoundingClientRect();
+                    suppressHoverExpandRef.current =
+                      point.x >= rect.left &&
+                      point.x <= rect.right &&
+                      point.y >= rect.top &&
+                      point.y <= rect.bottom;
+                  } else {
+                    suppressHoverExpandRef.current = true;
+                  }
                   setExpanded(false);
                 }}
                 onRemove={() => handleRemove(ws.id)}
@@ -673,7 +702,6 @@ export function WorkspaceStack() {
                 }, 300);
               }}
               onHoverEnd={() => {
-                suppressHoverExpandRef.current = false;
                 if (hoverTimerRef.current) {
                   clearTimeout(hoverTimerRef.current);
                   hoverTimerRef.current = null;
