@@ -52,12 +52,12 @@ function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
 
   const inputStyle: React.CSSProperties = {
     width: "100%", boxSizing: "border-box",
-    background: "var(--ci-surface-hi)",
+    background: "transparent",
     border: "1px solid var(--ci-border)",
     borderRadius: 8, padding: "7px 10px",
     color: "var(--ci-text)", fontSize: 12, outline: "none",
     fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif",
-    transition: "border-color 0.15s, box-shadow 0.15s",
+    transition: "border-color 0.15s, box-shadow 0.15s, background 0.15s",
   };
 
   return (
@@ -69,13 +69,12 @@ function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
       style={{ overflow: "hidden" }}
     >
       <div style={{
-        background: isGlass ? "var(--ci-card-grad)" : "var(--ci-card-grad)",
-        border: "1px solid var(--ci-pill-border)",
-        borderRadius: 18, padding: 16,
+        background: "var(--ci-surface)",
+        border: "1px solid var(--ci-toolbar-border)",
+        borderRadius: 14, padding: 14,
         display: "flex", flexDirection: "column", gap: 10,
-        marginBottom: 6,
-        boxShadow: "var(--ci-inset-highlight), var(--ci-card-shadow-strong)",
-        backdropFilter: isGlass ? "none" : "blur(18px) saturate(1.2)",
+        marginBottom: 4,
+        boxShadow: "none",
         textShadow,
       }}>
         <div style={{
@@ -109,13 +108,24 @@ function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
             <button onClick={handlePick} disabled={picking}
               style={{
                 flexShrink: 0,
-                background: "var(--ci-surface-hi)",
+                background: "transparent",
                 border: "1px solid var(--ci-border)",
                 borderRadius: 8, padding: "0 10px",
                 color: picking ? "var(--ci-text-dim)" : "var(--ci-text-muted)",
                 cursor: picking ? "wait" : "pointer", fontSize: 15,
                 display: "flex", alignItems: "center",
-                transition: "background 0.12s",
+                transition: "background 0.12s, border-color 0.12s, color 0.12s",
+              }}
+              onMouseEnter={e => {
+                if (picking) return;
+                e.currentTarget.style.background = "var(--ci-btn-ghost-bg)";
+                e.currentTarget.style.borderColor = "var(--ci-toolbar-border)";
+                e.currentTarget.style.color = "var(--ci-text)";
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.background = "transparent";
+                e.currentTarget.style.borderColor = "var(--ci-border)";
+                e.currentTarget.style.color = picking ? "var(--ci-text-dim)" : "var(--ci-text-muted)";
               }}
             >{picking ? "…" : "📂"}</button>
           </div>
@@ -146,27 +156,41 @@ function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
         <div style={{ display: "flex", gap: 7, justifyContent: "flex-end", marginTop: 2 }}>
           <button onClick={onDone}
             style={{
-              background: "var(--ci-surface)",
+              background: "transparent",
               border: "1px solid var(--ci-border)",
               borderRadius: 8, padding: "6px 14px",
               color: "var(--ci-text-muted)", fontSize: 12, cursor: "pointer",
               fontWeight: 500,
-              transition: "background 0.12s",
-            }}>取消</button>
+              transition: "background 0.12s, border-color 0.12s, color 0.12s",
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.background = "var(--ci-btn-ghost-bg)";
+              e.currentTarget.style.borderColor = "var(--ci-toolbar-border)";
+              e.currentTarget.style.color = "var(--ci-text)";
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.background = "transparent";
+              e.currentTarget.style.borderColor = "var(--ci-border)";
+              e.currentTarget.style.color = "var(--ci-text-muted)";
+            }}
+          >取消</button>
           <button onClick={handleCreate}
             style={{
-              background: "var(--ci-accent)",
-              border: "none",
+              background: "var(--ci-accent-bg)",
+              border: "1px solid var(--ci-accent-bdr)",
               borderRadius: 8, padding: "6px 16px",
-              color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer",
-              boxShadow: "0 1px 4px rgba(0,122,255,0.35)",
-              transition: "filter 0.12s",
+              color: "var(--ci-accent)", fontSize: 12, fontWeight: 600, cursor: "pointer",
+              transition: "background 0.12s, border-color 0.12s, color 0.12s",
             }}
             onMouseEnter={e => {
               if (isGlass) return;
-              e.currentTarget.style.filter = "brightness(1.1)";
+              e.currentTarget.style.background = "var(--ci-accent)";
+              e.currentTarget.style.color = "#fff";
             }}
-            onMouseLeave={e => e.currentTarget.style.filter = "none"}
+            onMouseLeave={e => {
+              e.currentTarget.style.background = "var(--ci-accent-bg)";
+              e.currentTarget.style.color = "var(--ci-accent)";
+            }}
           >创建</button>
         </div>
       </div>
@@ -210,19 +234,16 @@ function WorkspaceCardExpanded({
       style={{
         position: "relative",
         display: "flex", alignItems: "center", gap: 10,
-        padding: "9px 12px",
-        borderRadius: 16,
-        background: isActive ? "var(--ci-card-grad)" : "var(--ci-panel-grad)",
+        padding: "10px 12px",
+        borderRadius: 12,
+        background: isActive ? "var(--ci-accent-bg)" : "transparent",
         border: isActive
-          ? `1px solid ${color}58`
-          : "1px solid var(--ci-pill-border)",
+          ? `1px solid ${color}45`
+          : "1px solid var(--ci-toolbar-border)",
         cursor: "pointer",
         zIndex: total - index,
         transition: isGlass ? "border-color 0.15s, color 0.15s" : "background 0.15s, border-color 0.15s",
-        boxShadow: isActive
-          ? `var(--ci-inset-highlight), var(--ci-card-shadow-strong)`
-          : "var(--ci-inset-highlight), var(--ci-card-shadow)",
-        backdropFilter: isGlass ? "none" : "blur(20px) saturate(1.15)",
+        boxShadow: "none",
         textShadow,
       }}
     >
@@ -356,13 +377,12 @@ function WorkspaceStackCollapsed({
             left: CARD_OFFSET_X * layerIdx,
             right: -(CARD_OFFSET_X * layerIdx),
             height: CARD_H,
-            borderRadius: 14,
-            background: "var(--ci-panel-grad)",
-            border: "1px solid var(--ci-pill-border)",
+            borderRadius: 12,
+            background: "var(--ci-surface)",
+            border: "1px solid var(--ci-toolbar-border)",
             zIndex: 10 - layerIdx,
-            boxShadow: "var(--ci-inset-highlight), var(--ci-card-shadow)",
-            // 颜色细条提示
-            borderTop: `2.5px solid ${pColor}50`,
+            boxShadow: "none",
+            borderTop: `2px solid ${pColor}45`,
           }} />
         );
       })}
@@ -374,18 +394,17 @@ function WorkspaceStackCollapsed({
           position: "absolute",
           top: 0, left: 0, right: 0,
           height: CARD_H,
-          borderRadius: 16,
-          background: "var(--ci-card-grad)",
-          border: "1px solid var(--ci-pill-border)",
-          borderTop: `2.5px solid ${topColor}`,
+          borderRadius: 12,
+          background: "var(--ci-surface)",
+          border: "1px solid var(--ci-toolbar-border)",
+          borderTop: `2px solid ${topColor}`,
           zIndex: 20,
           display: "flex", alignItems: "center", gap: 10,
           padding: "0 12px",
-          boxShadow: "var(--ci-inset-highlight), var(--ci-card-shadow-strong)",
-          backdropFilter: isGlass ? "none" : "blur(20px) saturate(1.15)",
+          boxShadow: "none",
           textShadow,
         }}
-        whileHover={isGlass ? undefined : { scale: 1.01 }}
+        whileHover={isGlass ? undefined : { scale: 1.004 }}
         transition={SPRING}
       >
         {/* 颜色点 */}
@@ -508,57 +527,73 @@ export function WorkspaceStack() {
       {/* ── 标题栏 ── */}
       <div style={{
         display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "0 2px 6px",
+        padding: "0 0 8px",
       }}>
         <span style={{
-          fontSize: 11, color: "var(--ci-text-dim)", fontWeight: 600,
-          letterSpacing: "0.04em", textTransform: "uppercase",
+          fontSize: 11, color: "var(--ci-text-dim)", fontWeight: 700,
+          letterSpacing: "0.08em", textTransform: "uppercase",
         }}>
           Workspace
         </span>
-        <div style={{ display: "flex", gap: 4 }}>
-          {/* 展开/收起切换 */}
+        <div style={{ display: "flex", gap: 6 }}>
           {workspaces.length > 1 && (
             <button
               onClick={() => setExpanded(v => !v)}
               style={{
-                background: "var(--ci-pill-bg)", border: "1px solid var(--ci-pill-border)",
-                color: "var(--ci-accent)", fontSize: 11,
-                cursor: "pointer", padding: "4px 9px", borderRadius: 999,
-                fontWeight: 500,
-                transition: "background 0.12s, border-color 0.12s",
-                boxShadow: "var(--ci-inset-highlight)",
+                background: "transparent",
+                border: "1px solid var(--ci-border)",
+                color: "var(--ci-text-muted)",
+                fontSize: 11,
+                cursor: "pointer",
+                padding: "5px 10px",
+                borderRadius: 8,
+                fontWeight: 600,
+                transition: "background 0.12s, border-color 0.12s, color 0.12s",
               }}
               onMouseEnter={e => {
-                if (isGlass) return;
-                e.currentTarget.style.background = "var(--ci-accent-bg)";
-                e.currentTarget.style.borderColor = "var(--ci-accent-bdr)";
+                e.currentTarget.style.background = "var(--ci-btn-ghost-bg)";
+                e.currentTarget.style.borderColor = "var(--ci-toolbar-border)";
+                e.currentTarget.style.color = "var(--ci-text)";
               }}
               onMouseLeave={e => {
-                e.currentTarget.style.background = "var(--ci-pill-bg)";
-                e.currentTarget.style.borderColor = "var(--ci-pill-border)";
+                e.currentTarget.style.background = "transparent";
+                e.currentTarget.style.borderColor = "var(--ci-border)";
+                e.currentTarget.style.color = "var(--ci-text-muted)";
               }}
             >
               {expanded ? "收起" : "全部"}
             </button>
           )}
-          {/* 添加按钮 */}
           <button
             onClick={() => setShowForm(v => !v)}
             style={{
-              background: showForm ? "var(--ci-accent)" : "var(--ci-card-grad)",
-              border: `1px solid ${showForm ? "transparent" : "var(--ci-toolbar-border)"}`,
-              borderRadius: 999, padding: "5px 10px",
-              color: showForm ? "#fff" : "var(--ci-accent)",
-              fontSize: 13, cursor: "pointer",
-              display: "flex", alignItems: "center", gap: 2,
+              background: showForm ? "var(--ci-accent-bg)" : "transparent",
+              border: `1px solid ${showForm ? "var(--ci-accent-bdr)" : "var(--ci-border)"}`,
+              borderRadius: 8,
+              padding: "5px 10px",
+              color: showForm ? "var(--ci-accent)" : "var(--ci-text-muted)",
+              fontSize: 12,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
               fontWeight: 600,
-              transition: "background 0.12s",
+              transition: "background 0.12s, border-color 0.12s, color 0.12s",
               lineHeight: 1,
-              boxShadow: showForm ? "0 14px 32px rgba(64,156,255,0.22)" : "var(--ci-inset-highlight)",
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.background = showForm ? "var(--ci-accent-bg)" : "var(--ci-btn-ghost-bg)";
+              e.currentTarget.style.borderColor = showForm ? "var(--ci-accent-bdr)" : "var(--ci-toolbar-border)";
+              e.currentTarget.style.color = showForm ? "var(--ci-accent)" : "var(--ci-text)";
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.background = showForm ? "var(--ci-accent-bg)" : "transparent";
+              e.currentTarget.style.borderColor = showForm ? "var(--ci-accent-bdr)" : "var(--ci-border)";
+              e.currentTarget.style.color = showForm ? "var(--ci-accent)" : "var(--ci-text-muted)";
             }}
           >
-            +
+            <span style={{ fontSize: 13 }}>+</span>
+            <span>添加</span>
           </button>
         </div>
       </div>

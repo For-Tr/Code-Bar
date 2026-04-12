@@ -331,9 +331,9 @@ export default function Settings() {
       background: isGlass ? "transparent" : "var(--ci-overlay-bg)",
       backdropFilter: isGlass ? "none" : "blur(28px) saturate(1.3)",
       WebkitBackdropFilter: isGlass ? "none" : "blur(28px) saturate(1.3)",
-      borderRadius: 16,
+      borderRadius: isGlass ? 0 : "var(--ci-shell-radius)",
       display: "flex",
-      padding: isGlass ? 0 : 14,
+      padding: 0,
       boxSizing: "border-box",
       textShadow,
     }}>
@@ -344,10 +344,10 @@ export default function Settings() {
         display: "flex",
         flexDirection: "column",
         overflow: "hidden",
-        background: isGlass ? "transparent" : "var(--ci-overlay-bg)",
+        background: "transparent",
         border: "none",
-        borderRadius: isGlass ? 0 : 24,
-        boxShadow: isGlass ? "var(--ci-inset-highlight)" : "var(--ci-card-shadow-strong)",
+        borderRadius: 0,
+        boxShadow: "none",
       }}>
         <div
           data-tauri-drag-region
