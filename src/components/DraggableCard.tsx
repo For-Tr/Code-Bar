@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 
@@ -15,6 +15,35 @@ function DragHandleIcon() {
   );
 }
 
+function ResizeHandle({
+  edge,
+  cursor,
+  onPointerDown,
+}: {
+  edge: "right" | "bottom" | "corner";
+  cursor: string;
+  onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
+}) {
+  const style = edge === "right"
+    ? { top: 0, right: -4, bottom: 0, width: 8 }
+    : edge === "bottom"
+    ? { left: 0, right: 0, bottom: -4, height: 8 }
+    : { right: -4, bottom: -4, width: 12, height: 12 };
+
+  return (
+    <div
+      onPointerDown={onPointerDown}
+      style={{
+        position: "absolute",
+        ...style,
+        cursor,
+        zIndex: 2,
+        touchAction: "none",
+      }}
+    />
+  );
+}
+
 export function DraggableCard({
   id,
   title,
@@ -23,8 +52,7 @@ export function DraggableCard({
   row,
   colSpan,
   rowSpan,
-  onGrow,
-  onShrink,
+  onResize,
   children,
 }: {
   id: string;
@@ -34,8 +62,7 @@ export function DraggableCard({
   row: number;
   colSpan: number;
   rowSpan: number;
-  onGrow?: () => void;
-  onShrink?: () => void;
+  onResize?: (deltaCols: number, deltaRows: number) => void;
   children: ReactNode;
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id });
@@ -47,6 +74,32 @@ export function DraggableCard({
         scaleY: 1,
       }
     : null;
+
+  const handleResizePointerDown = (edge: "right" | "bottom" | "corner") => (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!onResize) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const startX = event.clientX;
+    const startY = event.clientY;
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      const deltaCols = edge === "right" || edge === "corner"
+        ? Math.round((moveEvent.clientX - startX) / gridUnit)
+        : 0;
+      const deltaRows = edge === "bottom" || edge === "corner"
+        ? Math.round((moveEvent.clientY - startY) / gridUnit)
+        : 0;
+      onResize(deltaCols, deltaRows);
+    };
+
+    const handlePointerUp = () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+  };
 
   return (
     <div
@@ -110,47 +163,19 @@ export function DraggableCard({
           </span>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-          {onShrink && (
-            <button
-              onPointerDown={(event) => event.stopPropagation()}
-              onClick={onShrink}
-              style={{
-                background: "none",
-                border: "none",
-                color: "var(--ci-text-muted)",
-                cursor: "pointer",
-                fontSize: 12,
-                padding: 0,
-              }}
-              title="缩小"
-            >
-              －
-            </button>
-          )}
-          {onGrow && (
-            <button
-              onPointerDown={(event) => event.stopPropagation()}
-              onClick={onGrow}
-              style={{
-                background: "none",
-                border: "none",
-                color: "var(--ci-text-muted)",
-                cursor: "pointer",
-                fontSize: 12,
-                padding: 0,
-              }}
-              title="放大"
-            >
-              ＋
-            </button>
-          )}
-        </div>
       </div>
 
       <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
         {children}
       </div>
+
+      {onResize && (
+        <>
+          <ResizeHandle edge="right" cursor="ew-resize" onPointerDown={handleResizePointerDown("right")} />
+          <ResizeHandle edge="bottom" cursor="ns-resize" onPointerDown={handleResizePointerDown("bottom")} />
+          <ResizeHandle edge="corner" cursor="nwse-resize" onPointerDown={handleResizePointerDown("corner")} />
+        </>
+      )}
     </div>
   );
 }

@@ -78,22 +78,16 @@ export function SplitWidgetPanel() {
             row={widget.row}
             colSpan={widget.colSpan}
             rowSpan={widget.rowSpan}
-            onGrow={() => patchSettings({
+            onResize={(deltaCols, deltaRows) => patchSettings({
               splitWidgetCanvas: {
                 ...settings.splitWidgetCanvas,
                 items: settings.splitWidgetCanvas.items.map((item) =>
                   item.id === widget.id
-                    ? { ...item, colSpan: item.colSpan + 2, rowSpan: item.rowSpan + 2 }
-                    : item
-                ),
-              },
-            })}
-            onShrink={() => patchSettings({
-              splitWidgetCanvas: {
-                ...settings.splitWidgetCanvas,
-                items: settings.splitWidgetCanvas.items.map((item) =>
-                  item.id === widget.id
-                    ? { ...item, colSpan: Math.max(12, item.colSpan - 2), rowSpan: Math.max(10, item.rowSpan - 2) }
+                    ? {
+                        ...item,
+                        colSpan: Math.max(12, item.colSpan + deltaCols),
+                        rowSpan: Math.max(10, item.rowSpan + deltaRows),
+                      }
                     : item
                 ),
               },
