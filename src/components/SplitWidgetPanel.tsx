@@ -1,124 +1,9 @@
 import { useMemo } from "react";
-import { CSS } from "@dnd-kit/utilities";
-import { DndContext, PointerSensor, useDraggable, useSensor, useSensors } from "@dnd-kit/core";
+import { DndContext, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { PtyTerminal } from "./PtyTerminal";
+import { DraggableCard } from "./DraggableCard";
 import { useSettingsStore, isGlassTheme } from "../store/settingsStore";
 import { useSessionStore } from "../store/sessionStore";
-
-function DragHandleIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
-      <circle cx="3" cy="3" r="1" />
-      <circle cx="3" cy="6" r="1" />
-      <circle cx="3" cy="9" r="1" />
-      <circle cx="7" cy="3" r="1" />
-      <circle cx="7" cy="6" r="1" />
-      <circle cx="7" cy="9" r="1" />
-    </svg>
-  );
-}
-
-function DraggableTerminalWidget({
-  id,
-  x,
-  y,
-  width,
-  height,
-  terminalWorkdir,
-  sessionId,
-  onClose,
-}: {
-  id: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  terminalWorkdir: string;
-  sessionId: string;
-  onClose: () => void;
-}) {
-  const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id });
-  const style = {
-    position: "absolute" as const,
-    left: x,
-    top: y,
-    width,
-    height,
-    transform: CSS.Translate.toString(transform),
-    zIndex: isDragging ? 10 : 1,
-    display: "flex",
-    flexDirection: "column" as const,
-    borderRadius: 14,
-    overflow: "hidden",
-    background: isGlass ? "var(--ci-toolbar-bg)" : "var(--ci-surface-hi)",
-    border: "1px solid var(--ci-toolbar-border)",
-    boxShadow: isDragging ? "var(--ci-card-shadow-strong)" : "var(--ci-card-shadow)",
-  };
-
-  return (
-    <div ref={setNodeRef} style={style}>
-      <div
-        {...listeners}
-        {...attributes}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 8,
-          padding: "8px 10px 6px",
-          cursor: isDragging ? "grabbing" : "grab",
-          touchAction: "none",
-          background: isGlass ? "var(--ci-toolbar-bg)" : "transparent",
-        }}
-      >
-        <div style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          minWidth: 0,
-          color: "var(--ci-text-muted)",
-        }}>
-          <span style={{ display: "inline-flex", flexShrink: 0 }}><DragHandleIcon /></span>
-          <span style={{
-            fontSize: 10,
-            fontFamily: "monospace",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-            minWidth: 0,
-          }}>
-            {terminalWorkdir}
-          </span>
-        </div>
-        <button
-          onClick={onClose}
-          style={{
-            background: "none",
-            border: "none",
-            color: "var(--ci-text-muted)",
-            cursor: "pointer",
-            fontSize: 12,
-            padding: 0,
-            flexShrink: 0,
-          }}
-        >
-          ×
-        </button>
-      </div>
-
-      <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
-        <PtyTerminal
-          sessionId={sessionId}
-          command={navigator.userAgent.toLowerCase().includes("windows") ? "cmd.exe" : "zsh"}
-          args={[]}
-          workdir={terminalWorkdir}
-          active
-        />
-      </div>
-    </div>
-  );
-}
 
 export function SplitWidgetPanel() {
   const { settings, patchSettings } = useSettingsStore();
@@ -133,6 +18,7 @@ export function SplitWidgetPanel() {
   );
   const terminalWorkdir = session?.worktreePath ?? session?.workdir ?? "";
   const widget = settings.splitWidgetCanvas.items.find((item) => item.type === "terminal" && item.visible !== false) ?? null;
+  const gridUnit = settings.splitWidgetCanvas.cellSize;
 
   return (
     <div style={{
@@ -140,7 +26,10 @@ export function SplitWidgetPanel() {
       height: "100%",
       position: "relative",
       overflow: "hidden",
-      background: isGlass ? "transparent" : "var(--ci-surface)",
+      backgroundColor: isGlass ? "transparent" : "var(--ci-surface)",
+      backgroundImage: `radial-gradient(var(--ci-toolbar-border) 0.8px, transparent 0.8px)`,
+      backgroundSize: `${gridUnit}px ${gridUnit}px`,
+      backgroundPosition: `${gridUnit / 2}px ${gridUnit / 2}px`,
     }}>
       <div style={{
         position: "absolute",
@@ -167,27 +56,57 @@ export function SplitWidgetPanel() {
         <DndContext
           sensors={sensors}
           onDragEnd={({ delta }) => {
-            const nextX = Math.max(0, widget.x + delta.x);
-            const nextY = Math.max(0, widget.y + delta.y);
+            const colDelta = Math.round(delta.x / gridUnit);
+            const rowDelta = Math.round(delta.y / gridUnit);
+            const nextCol = Math.max(1, widget.col + colDelta);
+            const nextRow = Math.max(1, widget.row + rowDelta);
             patchSettings({
               splitWidgetCanvas: {
+                ...settings.splitWidgetCanvas,
                 items: settings.splitWidgetCanvas.items.map((item) =>
-                  item.id === widget.id ? { ...item, x: nextX, y: nextY } : item
+                  item.id === widget.id ? { ...item, col: nextCol, row: nextRow } : item
                 ),
               },
             });
           }}
         >
-          <DraggableTerminalWidget
+          <DraggableCard
             id={widget.id}
-            x={widget.x}
-            y={widget.y}
-            width={widget.width}
-            height={widget.height}
-            terminalWorkdir={terminalWorkdir}
-            sessionId={`widget-${session.id}`}
-            onClose={() => patchSettings({ splitWidgetPanelCollapsed: true })}
-          />
+            title={terminalWorkdir || "Terminal"}
+            gridUnit={gridUnit}
+            col={widget.col}
+            row={widget.row}
+            colSpan={widget.colSpan}
+            rowSpan={widget.rowSpan}
+            onGrow={() => patchSettings({
+              splitWidgetCanvas: {
+                ...settings.splitWidgetCanvas,
+                items: settings.splitWidgetCanvas.items.map((item) =>
+                  item.id === widget.id
+                    ? { ...item, colSpan: item.colSpan + 2, rowSpan: item.rowSpan + 2 }
+                    : item
+                ),
+              },
+            })}
+            onShrink={() => patchSettings({
+              splitWidgetCanvas: {
+                ...settings.splitWidgetCanvas,
+                items: settings.splitWidgetCanvas.items.map((item) =>
+                  item.id === widget.id
+                    ? { ...item, colSpan: Math.max(12, item.colSpan - 2), rowSpan: Math.max(10, item.rowSpan - 2) }
+                    : item
+                ),
+              },
+            })}
+          >
+            <PtyTerminal
+              sessionId={`widget-${session.id}`}
+              command={navigator.userAgent.toLowerCase().includes("windows") ? "cmd.exe" : "zsh"}
+              args={[]}
+              workdir={terminalWorkdir}
+              active
+            />
+          </DraggableCard>
         </DndContext>
       ) : (
         <div style={{
