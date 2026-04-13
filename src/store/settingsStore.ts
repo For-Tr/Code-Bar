@@ -25,6 +25,7 @@ export interface ApiKeys {
 }
 
 export type ThemeMode = "light" | "dark" | "glass" | "system";
+export type LayoutMode = "original" | "split";
 
 export function isGlassTheme(theme: ThemeMode): theme is "glass" {
   return theme === "glass";
@@ -36,6 +37,10 @@ export function normalizeThemeMode(theme: string | undefined): ThemeMode {
   return "light";
 }
 
+export function normalizeLayoutMode(layoutMode: string | undefined): LayoutMode {
+  return layoutMode === "split" ? "split" : "original";
+}
+
 export interface Settings {
   runner: RunnerConfig;
   runnerProfiles: RunnerProfiles;
@@ -43,6 +48,7 @@ export interface Settings {
   autoRefreshDiff: boolean;
   diffRefreshIntervalSec: number;
   theme: ThemeMode;
+  layoutMode: LayoutMode;
 }
 
 const DEFAULT_RUNNER_PROFILE: RunnerProfile = {
@@ -100,6 +106,7 @@ const DEFAULT_SETTINGS: Settings = {
   autoRefreshDiff: true,
   diffRefreshIntervalSec: 5,
   theme: "light",
+  layoutMode: "original",
 };
 
 interface SettingsStore {
@@ -185,7 +192,10 @@ export const useSettingsStore = create<SettingsStore>()(
       }),
       merge: (persisted: unknown, current) => {
         const p = persisted as Partial<typeof current>;
-        const persistedSettings = (p.settings ?? {}) as Partial<Settings> & { theme?: string };
+        const persistedSettings = (p.settings ?? {}) as Partial<Settings> & {
+          theme?: string;
+          layoutMode?: string;
+        };
         const runnerProfiles: RunnerProfiles = {
           "claude-code": normalizeRunnerProfile(persistedSettings.runnerProfiles?.["claude-code"]),
           "codex": normalizeRunnerProfile(persistedSettings.runnerProfiles?.codex),
@@ -197,6 +207,7 @@ export const useSettingsStore = create<SettingsStore>()(
             ...DEFAULT_SETTINGS,
             ...persistedSettings,
             theme: normalizeThemeMode(persistedSettings.theme),
+            layoutMode: normalizeLayoutMode(persistedSettings.layoutMode),
             runnerProfiles,
             runner: resolveRunnerConfig(
               persistedSettings.runner?.type ?? DEFAULT_SETTINGS.runner.type,

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { useSettingsStore, type ThemeMode, isGlassTheme } from "../store/settingsStore";
+import { useSettingsStore, type ThemeMode, type LayoutMode, isGlassTheme } from "../store/settingsStore";
 
 const C = {
   surface:   "var(--ci-surface)",
@@ -58,6 +58,7 @@ function AppearanceTab() {
   const { settings, patchSettings } = useSettingsStore();
 
   type ThemeOption = ThemeMode;
+  type LayoutOption = LayoutMode;
 
   const themeOptions: {
     value: ThemeOption;
@@ -106,125 +107,266 @@ function AppearanceTab() {
     },
   ];
 
+  const layoutOptions: {
+    value: LayoutOption;
+    label: string;
+    desc: string;
+    preview: string;
+  }[] = [
+    {
+      value: "original",
+      label: "原始布局",
+      desc: "菜单页与终端详情分开显示，展开终端时覆盖主内容。",
+      preview: "▔▔▔▔\n菜单\n列表\nDiff",
+    },
+    {
+      value: "split",
+      label: "分栏布局",
+      desc: "左侧持续显示菜单，右侧显示当前终端详情。",
+      preview: "▔▔▔▔┆▔▔▔▔▔▔\n菜单  ┆   PTY\n列表  ┆ 终端详情\nDiff  ┆ 输出/输入",
+    },
+  ];
+
   return (
-    <div>
-      <div style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-        gap: 12,
-      }}>
-        {themeOptions.map((opt) => {
-          const active = settings.theme === opt.value;
-          return (
-            <button
-              key={opt.value}
-              onClick={() => patchSettings({ theme: opt.value })}
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 12,
-                padding: 12,
-                background: active ? "linear-gradient(180deg, var(--ci-surface-hi), var(--ci-surface))" : C.surface,
-                border: `1px solid ${active ? C.accentBdr : C.border}`,
-                borderRadius: 18,
-                cursor: "pointer",
-                textAlign: "left",
-                transition: "transform 0.16s, border-color 0.16s, box-shadow 0.16s, background 0.16s",
-                boxShadow: active
-                  ? `0 0 0 3px ${C.accentBg}, var(--ci-card-shadow-strong)`
-                  : "none",
-                transform: active ? "translateY(-1px)" : "translateY(0)",
-              }}
-            >
-              <div style={{
-                position: "relative",
-                height: 118,
-                borderRadius: 14,
-                background: opt.shell,
-                overflow: "hidden",
-                padding: 12,
-                boxSizing: "border-box",
-              }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+      <div>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: C.textDim, marginBottom: 10 }}>
+          主题
+        </div>
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+          gap: 12,
+        }}>
+          {themeOptions.map((opt) => {
+            const active = settings.theme === opt.value;
+            return (
+              <button
+                key={opt.value}
+                onClick={() => patchSettings({ theme: opt.value })}
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 12,
+                  padding: 12,
+                  background: active ? "linear-gradient(180deg, var(--ci-surface-hi), var(--ci-surface))" : C.surface,
+                  border: `1px solid ${active ? C.accentBdr : C.border}`,
+                  borderRadius: 18,
+                  cursor: "pointer",
+                  textAlign: "left",
+                  transition: "transform 0.16s, border-color 0.16s, box-shadow 0.16s, background 0.16s",
+                  boxShadow: active
+                    ? `0 0 0 3px ${C.accentBg}, var(--ci-card-shadow-strong)`
+                    : "none",
+                  transform: active ? "translateY(-1px)" : "translateY(0)",
+                }}
+              >
                 <div style={{
-                  position: "absolute",
-                  inset: 0,
-                  background: "linear-gradient(180deg, rgba(255,255,255,0.18), transparent 48%)",
-                  opacity: 0.55,
-                  pointerEvents: "none",
-                }} />
-                <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 8, height: "100%" }}>
+                  position: "relative",
+                  height: 118,
+                  borderRadius: 14,
+                  background: opt.shell,
+                  overflow: "hidden",
+                  padding: 12,
+                  boxSizing: "border-box",
+                }}>
                   <div style={{
-                    borderRadius: 12,
-                    background: opt.card,
-                    boxShadow: "0 10px 24px rgba(15,23,42,0.08)",
-                    backdropFilter: "blur(18px)",
-                    WebkitBackdropFilter: "blur(18px)",
+                    position: "absolute",
+                    inset: 0,
+                    background: "linear-gradient(180deg, rgba(255,255,255,0.18), transparent 48%)",
+                    opacity: 0.55,
+                    pointerEvents: "none",
                   }} />
-                  <div style={{ display: "grid", gap: 8 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 8, height: "100%" }}>
                     <div style={{
                       borderRadius: 12,
                       background: opt.card,
+                      boxShadow: "0 10px 24px rgba(15,23,42,0.08)",
                       backdropFilter: "blur(18px)",
                       WebkitBackdropFilter: "blur(18px)",
                     }} />
-                    <div style={{
-                      borderRadius: 12,
-                      background: `linear-gradient(135deg, ${opt.accent}, rgba(255,255,255,0.2))`,
-                      boxShadow: "0 8px 18px rgba(15,23,42,0.10)",
-                    }} />
-                  </div>
-                </div>
-                <div style={{
-                  position: "absolute",
-                  top: 12,
-                  right: 12,
-                  width: 30,
-                  height: 30,
-                  borderRadius: 10,
-                  background: "rgba(255,255,255,0.24)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  color: opt.textColor,
-                  fontSize: 14,
-                  fontWeight: 700,
-                }}>
-                  {opt.icon}
-                </div>
-              </div>
-
-              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: C.textDim, marginBottom: 4 }}>
-                    {active ? "Current" : "Mode"}
+                    <div style={{ display: "grid", gap: 8 }}>
+                      <div style={{
+                        borderRadius: 12,
+                        background: opt.card,
+                        backdropFilter: "blur(18px)",
+                        WebkitBackdropFilter: "blur(18px)",
+                      }} />
+                      <div style={{
+                        borderRadius: 12,
+                        background: `linear-gradient(135deg, ${opt.accent}, rgba(255,255,255,0.2))`,
+                        boxShadow: "0 8px 18px rgba(15,23,42,0.10)",
+                      }} />
+                    </div>
                   </div>
                   <div style={{
-                    fontSize: 14, fontWeight: active ? 700 : 600,
-                    color: active ? C.accent : C.text,
+                    position: "absolute",
+                    top: 12,
+                    right: 12,
+                    width: 30,
+                    height: 30,
+                    borderRadius: 10,
+                    background: "rgba(255,255,255,0.24)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: opt.textColor,
+                    fontSize: 14,
+                    fontWeight: 700,
                   }}>
-                    {opt.label}
+                    {opt.icon}
                   </div>
                 </div>
-                <div style={{
-                  minWidth: 20,
-                  height: 20,
-                  padding: active ? "0 8px" : 0,
-                  borderRadius: 999,
-                  border: `1px solid ${active ? C.accentBdr : "transparent"}`,
-                  background: active ? C.accentBg : "transparent",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  color: active ? C.accent : C.textDim,
-                  fontSize: 11,
-                  fontWeight: 700,
-                }}>
-                  {active ? "已选" : "○"}
+
+                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: C.textDim, marginBottom: 4 }}>
+                      {active ? "Current" : "Mode"}
+                    </div>
+                    <div style={{
+                      fontSize: 14, fontWeight: active ? 700 : 600,
+                      color: active ? C.accent : C.text,
+                    }}>
+                      {opt.label}
+                    </div>
+                  </div>
+                  <div style={{
+                    minWidth: 20,
+                    height: 20,
+                    padding: active ? "0 8px" : 0,
+                    borderRadius: 999,
+                    border: `1px solid ${active ? C.accentBdr : "transparent"}`,
+                    background: active ? C.accentBg : "transparent",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: active ? C.accent : C.textDim,
+                    fontSize: 11,
+                    fontWeight: 700,
+                  }}>
+                    {active ? "已选" : "○"}
+                  </div>
                 </div>
-              </div>
-            </button>
-          );
-        })}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: C.textDim, marginBottom: 10 }}>
+          布局
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
+          {layoutOptions.map((opt) => {
+            const active = settings.layoutMode === opt.value;
+            return (
+              <button
+                key={opt.value}
+                onClick={() => patchSettings({ layoutMode: opt.value })}
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 12,
+                  padding: 12,
+                  background: active ? "linear-gradient(180deg, var(--ci-surface-hi), var(--ci-surface))" : C.surface,
+                  border: `1px solid ${active ? C.accentBdr : C.border}`,
+                  borderRadius: 18,
+                  cursor: "pointer",
+                  textAlign: "left",
+                  transition: "transform 0.16s, border-color 0.16s, box-shadow 0.16s, background 0.16s",
+                  boxShadow: active
+                    ? `0 0 0 3px ${C.accentBg}, var(--ci-card-shadow-strong)`
+                    : "none",
+                  transform: active ? "translateY(-1px)" : "translateY(0)",
+                }}
+              >
+                <div style={{
+                  height: 118,
+                  borderRadius: 14,
+                  border: `1px solid ${C.border}`,
+                  background: "linear-gradient(180deg, var(--ci-surface-hi), var(--ci-surface))",
+                  padding: 14,
+                  boxSizing: "border-box",
+                  display: "flex",
+                  alignItems: "stretch",
+                  gap: opt.value === "split" ? 10 : 0,
+                  color: C.textMuted,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  whiteSpace: "pre-line",
+                }}>
+                  {opt.value === "split" ? (
+                    <>
+                      <div style={{
+                        width: "42%",
+                        borderRadius: 10,
+                        border: `1px solid ${C.border}`,
+                        background: "var(--ci-surface)",
+                        padding: 10,
+                        boxSizing: "border-box",
+                      }}>
+                        {"菜单\n列表\nDiff"}
+                      </div>
+                      <div style={{
+                        flex: 1,
+                        borderRadius: 10,
+                        border: `1px solid ${C.accentBdr}`,
+                        background: "var(--ci-accent-bg)",
+                        color: C.accent,
+                        padding: 10,
+                        boxSizing: "border-box",
+                      }}>
+                        {"PTY\n输出 / 输入"}
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{
+                      width: "100%",
+                      borderRadius: 10,
+                      border: `1px solid ${C.border}`,
+                      background: "var(--ci-surface)",
+                      padding: 10,
+                      boxSizing: "border-box",
+                    }}>
+                      {opt.preview}
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: C.textDim, marginBottom: 4 }}>
+                      {active ? "Current" : "Layout"}
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: active ? 700 : 600, color: active ? C.accent : C.text }}>
+                      {opt.label}
+                    </div>
+                    <div style={{ fontSize: 11, color: C.textDim, marginTop: 4, lineHeight: 1.5 }}>
+                      {opt.desc}
+                    </div>
+                  </div>
+                  <div style={{
+                    minWidth: 20,
+                    height: 20,
+                    padding: active ? "0 8px" : 0,
+                    borderRadius: 999,
+                    border: `1px solid ${active ? C.accentBdr : "transparent"}`,
+                    background: active ? C.accentBg : "transparent",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: active ? C.accent : C.textDim,
+                    fontSize: 11,
+                    fontWeight: 700,
+                  }}>
+                    {active ? "已选" : "○"}
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
