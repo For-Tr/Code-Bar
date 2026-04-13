@@ -84,7 +84,7 @@ function SessionCard({
   onClick: () => void;
   onExpand: () => void;
   onRemove: () => void;
-  onRotateSuspend: () => void;
+  onRotateSuspend: () => void | Promise<void>;
 }) {
   const runnerLabel = RUNNER_LABELS[session.runner.type];
   const cfg = STATUS_CONFIG[session.status];
@@ -92,6 +92,8 @@ function SessionCard({
   const isSuspended = session.status === "suspended";
   const isRunning = session.status === "running";
   const isError   = session.status === "error";
+  const canSuspend = !!session.providerSessionId?.trim()
+    && (session.runner.type === "claude-code" || session.runner.type === "codex");
   const textShadow = isGlass ? "var(--ci-glass-text-shadow)" : "none";
 
   return (
@@ -260,24 +262,33 @@ function SessionCard({
 
       {(isWaiting || isSuspended) && (
         <button
-          onClick={(e) => { e.stopPropagation(); onRotateSuspend(); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (isWaiting && !canSuspend) return;
+            void onRotateSuspend();
+          }}
           onMouseDown={(e) => {
             e.preventDefault();
             e.stopPropagation();
           }}
-          title={isWaiting ? "挂起" : "恢复为需要操作"}
+          title={isWaiting
+            ? (canSuspend ? "挂起并释放 PTY 资源" : "当前尚未绑定可恢复会话，暂不可挂起")
+            : "恢复为需要操作"}
+          disabled={isWaiting && !canSuspend}
           style={{
             background: isWaiting ? "var(--ci-btn-ghost-bg)" : "rgba(107,114,128,0.14)",
             border: isWaiting ? "1px solid var(--ci-border)" : "1px solid rgba(107,114,128,0.36)",
             color: isWaiting ? "var(--ci-text-dim)" : "#6B7280",
-            cursor: "pointer",
+            cursor: isWaiting && !canSuspend ? "not-allowed" : "pointer",
             padding: "4px 8px",
             borderRadius: 6,
             flexShrink: 0,
             fontSize: 11,
             transition: "all 0.12s",
+            opacity: isWaiting && !canSuspend ? 0.45 : 1,
           }}
           onMouseEnter={e => {
+            if (isWaiting && !canSuspend) return;
             e.currentTarget.style.background = isWaiting ? "rgba(107,114,128,0.14)" : "rgba(107,114,128,0.2)";
             e.currentTarget.style.borderColor = "rgba(107,114,128,0.44)";
             e.currentTarget.style.color = "#4B5563";
@@ -537,10 +548,20 @@ export function SessionList() {
                         setExpandedSession(session.id);
                       }}
                       onRemove={() => handleRemoveSession(session)}
-                      onRotateSuspend={() => {
-                        updateSession(session.id, {
-                          status: session.status === "waiting" ? "suspended" : "waiting",
+                      onRotateSuspend={async () => {
+                        if (session.status === "suspended") {
+                          updateSession(session.id, { status: "waiting" });
+                          return;
+                        }
+                        if (!(session.providerSessionId?.trim()
+                          && (session.runner.type === "claude-code" || session.runner.type === "codex"))) {
+                          return;
+                        }
+                        await invoke("stop_pty_session", {
+                          sessionId: session.id,
+                          reason: "suspend",
                         });
+                        updateSession(session.id, { status: "suspended" });
                       }}
                     />
                   </SortableSessionCard>

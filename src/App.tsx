@@ -556,13 +556,14 @@ export default function App() {
 
     // PTY 退出：将 running/waiting/suspended 状态的 session 标记为 done
     // SessionPanel 关闭后不再常驻，此处补全全局兜底监听
-    const u6 = listen<{ session_id: string }>(
+    const u6 = listen<{ session_id: string; reason?: string }>(
       "pty-exit",
       ({ payload }) => {
+        if (payload.reason === "suspend") return;
         // 延迟 1.2s 与 SessionPanel 内的逻辑保持一致
         setTimeout(() => {
           const s = useSessionStore.getState().sessions.find((x) => x.id === payload.session_id);
-          if (s && (s.status === "running" || s.status === "waiting" || s.status === "suspended")) {
+          if (s && (s.status === "running" || s.status === "waiting")) {
             updateSession(payload.session_id, { status: "done" });
           }
         }, 1200);

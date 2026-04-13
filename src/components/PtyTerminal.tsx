@@ -207,7 +207,7 @@ export function PtyTerminal({
       startingRef.current = false;
       launchTokenRef.current += 1;
       if (startedRef.current) {
-        invoke("stop_pty_session", { sessionId }).catch(() => {});
+        invoke("stop_pty_session", { sessionId, reason: "terminated" }).catch(() => {});
       }
     };
   }, [sessionId]);
@@ -279,10 +279,17 @@ export function PtyTerminal({
       }
     );
 
-    const u2 = listen<{ session_id: string }>(
+    const u2 = listen<{ session_id: string; reason?: string }>(
       "pty-exit",
       ({ payload }) => {
         if (payload.session_id !== sessionId) return;
+        if (payload.reason === "suspend") {
+          setExited(false);
+          startedRef.current = false;
+          startingRef.current = false;
+          launchTokenRef.current += 1;
+          return;
+        }
         termRef.current?.writeln("\r\n\x1b[90m─────────────────────────────────────\x1b[0m");
         termRef.current?.writeln("\x1b[90m[进程已退出]\x1b[0m");
         setExited(true);

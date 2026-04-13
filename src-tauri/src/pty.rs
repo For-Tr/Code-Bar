@@ -4,7 +4,10 @@ use tauri::{Emitter, Manager};
 
 use crate::{
     cli_detect::resolve_command_path,
-    state::{PtyKillerMap, PtyMasterMap, PtySessionMeta, PtySessionMetaMap, PtyWriterMap},
+    state::{
+        PtyExitReasonMap, PtyKillerMap, PtyMasterMap, PtySessionMeta, PtySessionMetaMap,
+        PtyWriterMap,
+    },
     util::{expand_path, home_dir, resolve_windows_pty_command},
 };
 
@@ -24,6 +27,10 @@ fn pty_master_map(app: &tauri::AppHandle) -> PtyMasterMap {
 
 fn pty_session_meta_map(app: &tauri::AppHandle) -> PtySessionMetaMap {
     app.state::<PtySessionMetaMap>().inner().clone()
+}
+
+fn pty_exit_reason_map(app: &tauri::AppHandle) -> PtyExitReasonMap {
+    app.state::<PtyExitReasonMap>().inner().clone()
 }
 
 // ── PTY 输出状态机 ────────────────────────────────────────────────
@@ -255,6 +262,7 @@ pub async fn start_pty_session(
     let sid_r = session_id.clone();
     let killer_map_r = pty_killer_map(&app);
     let session_meta_map_r = pty_session_meta_map(&app);
+    let exit_reason_map_r = pty_exit_reason_map(&app);
     std::thread::spawn(move || {
         let mut buf = [0u8; 4096];
         let mut stripper = AnsiStripper::new();
@@ -309,7 +317,17 @@ pub async fn start_pty_session(
             meta_map.remove(&sid_r);
         }
 
-        let _ = app_r.emit("pty-exit", serde_json::json!({ "session_id": sid_r }));
+        let reason = {
+            let mut reasons = exit_reason_map_r.lock().unwrap();
+            reasons.remove(&sid_r)
+        };
+
+        if reason.is_none() {
+            let _ = app_r.emit(
+                "pty-exit",
+                serde_json::json!({ "session_id": sid_r, "reason": "process-exit" }),
+            );
+        }
     });
 
     Ok(())
@@ -384,7 +402,17 @@ pub fn resize_pty(
 
 /// 停止 PTY 会话
 #[tauri::command]
-pub fn stop_pty_session(app: tauri::AppHandle, session_id: String) -> Result<(), String> {
+pub fn stop_pty_session(
+    app: tauri::AppHandle,
+    session_id: String,
+    reason: Option<String>,
+) -> Result<(), String> {
+    let exit_reason = reason.unwrap_or_else(|| "terminated".to_string());
+    {
+        let reason_map = pty_exit_reason_map(&app);
+        let mut reason_map = reason_map.lock().unwrap();
+        reason_map.insert(session_id.clone(), exit_reason.clone());
+    }
     let mut had_session = false;
     {
         let km = pty_killer_map(&app);
@@ -416,7 +444,14 @@ pub fn stop_pty_session(app: tauri::AppHandle, session_id: String) -> Result<(),
         }
     }
     if had_session {
-        let _ = app.emit("pty-exit", serde_json::json!({ "session_id": session_id }));
+        let _ = app.emit(
+            "pty-exit",
+            serde_json::json!({ "session_id": session_id, "reason": exit_reason }),
+        );
+    } else {
+        let reason_map = pty_exit_reason_map(&app);
+        let mut reason_map = reason_map.lock().unwrap();
+        reason_map.remove(&session_id);
     }
     Ok(())
 }

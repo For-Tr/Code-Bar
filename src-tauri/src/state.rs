@@ -24,6 +24,8 @@ pub struct PtySessionMeta {
 
 /// session_id → PTY 会话元信息（用于 hooks 事件精确路由）
 pub type PtySessionMetaMap = Arc<Mutex<HashMap<String, PtySessionMeta>>>;
+/// session_id → 预期 PTY 退出原因（用于区分 suspend 与自然退出）
+pub type PtyExitReasonMap = Arc<Mutex<HashMap<String, String>>>;
 
 // ── 展开前小窗口位置快照（内存缓存，比磁盘快）─────────────────────
 /// 展开终端面板时，把小窗口的精确位置存在这里。

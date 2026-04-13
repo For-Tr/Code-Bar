@@ -347,6 +347,13 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     setLaunchResumeSessionId(boundResumeSessionId);
   }, [boundResumeSessionId, ptyEverActive, supportsPromptLaunch]);
 
+  useEffect(() => {
+    if (!supportsPromptLaunch) return;
+    if (session?.status !== "suspended") return;
+    if (!boundResumeSessionId) return;
+    setLaunchResumeSessionId(boundResumeSessionId);
+  }, [boundResumeSessionId, session?.status, supportsPromptLaunch]);
+
   const cliCommand =
     runner.type === "claude-code" ? runner.cliPath || "claude"
     : runner.cliPath || "codex";
@@ -368,10 +375,16 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     setInstalling(false);
   }, [recheckCli]);
 
-  // PTY 退出后标记 done
+  // PTY 退出后标记 done；suspend 仅释放 PTY，不结束会话
   useEffect(() => {
-    const u = listen<{ session_id: string }>("pty-exit", ({ payload }) => {
+    const u = listen<{ session_id: string; reason?: string }>("pty-exit", ({ payload }) => {
       if (payload.session_id !== sessionIdRef.current) return;
+      if (payload.reason === "suspend") {
+        setTimeout(() => {
+          updateSession(sessionIdRef.current, { status: "suspended" });
+        }, 1200);
+        return;
+      }
       setTimeout(() => {
         updateSession(sessionIdRef.current, { status: "done" });
         setQuerySent(false);
@@ -463,7 +476,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
     clearPendingQueryTimer();
     ptyReadyRef.current = false;
     pendingQueryRef.current = null;
-    invoke("stop_pty_session", { sessionId }).catch(() => {});
+    invoke("stop_pty_session", { sessionId, reason: "terminated" }).catch(() => {});
     if (session) {
       updateSession(session.id, { runner: { ...nextRunner } });
     }
