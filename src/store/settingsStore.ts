@@ -46,6 +46,53 @@ export function normalizeSplitPaneSidebarWidth(width: unknown): number {
   return Math.min(560, Math.max(280, Math.round(width)));
 }
 
+export function normalizeSplitWidgetPanelWidth(width: unknown): number {
+  if (typeof width !== "number" || !Number.isFinite(width)) return 260;
+  return Math.min(420, Math.max(220, Math.round(width)));
+}
+
+export interface SplitWidgetCanvasItem {
+  id: string;
+  type: "terminal";
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  visible: boolean;
+}
+
+export interface SplitWidgetCanvas {
+  items: SplitWidgetCanvasItem[];
+}
+
+function normalizeSplitWidgetCanvasItem(item: unknown): SplitWidgetCanvasItem | null {
+  if (!item || typeof item !== "object") return null;
+  const candidate = item as Partial<SplitWidgetCanvasItem>;
+  if (candidate.type !== "terminal") return null;
+  if (!candidate.id || typeof candidate.id !== "string") return null;
+  return {
+    id: candidate.id,
+    type: "terminal",
+    x: typeof candidate.x === "number" && Number.isFinite(candidate.x) ? Math.round(candidate.x) : 16,
+    y: typeof candidate.y === "number" && Number.isFinite(candidate.y) ? Math.round(candidate.y) : 16,
+    width: typeof candidate.width === "number" && Number.isFinite(candidate.width) ? Math.max(180, Math.round(candidate.width)) : 220,
+    height: typeof candidate.height === "number" && Number.isFinite(candidate.height) ? Math.max(140, Math.round(candidate.height)) : 160,
+    visible: candidate.visible !== false,
+  };
+}
+
+export function normalizeSplitWidgetCanvas(canvas: unknown): SplitWidgetCanvas {
+  const candidate = (canvas && typeof canvas === "object") ? canvas as Partial<SplitWidgetCanvas> : {};
+  const items = Array.isArray(candidate.items)
+    ? candidate.items.map(normalizeSplitWidgetCanvasItem).filter((item): item is SplitWidgetCanvasItem => item !== null)
+    : [];
+  return {
+    items: items.length > 0
+      ? items
+      : [{ id: "terminal-widget-1", type: "terminal", x: 16, y: 16, width: 220, height: 160, visible: true }],
+  };
+}
+
 export interface Settings {
   runner: RunnerConfig;
   runnerProfiles: RunnerProfiles;
@@ -55,6 +102,9 @@ export interface Settings {
   theme: ThemeMode;
   layoutMode: LayoutMode;
   splitPaneSidebarWidth: number;
+  splitWidgetPanelWidth: number;
+  splitWidgetPanelCollapsed: boolean;
+  splitWidgetCanvas: SplitWidgetCanvas;
 }
 
 const DEFAULT_RUNNER_PROFILE: RunnerProfile = {
@@ -114,6 +164,11 @@ const DEFAULT_SETTINGS: Settings = {
   theme: "light",
   layoutMode: "original",
   splitPaneSidebarWidth: 420,
+  splitWidgetPanelWidth: 260,
+  splitWidgetPanelCollapsed: true,
+  splitWidgetCanvas: {
+    items: [{ id: "terminal-widget-1", type: "terminal", x: 16, y: 16, width: 220, height: 160, visible: true }],
+  },
 };
 
 interface SettingsStore {
@@ -203,6 +258,9 @@ export const useSettingsStore = create<SettingsStore>()(
           theme?: string;
           layoutMode?: string;
           splitPaneSidebarWidth?: unknown;
+          splitWidgetPanelWidth?: unknown;
+          splitWidgetPanelCollapsed?: unknown;
+          splitWidgetCanvas?: unknown;
         };
         const runnerProfiles: RunnerProfiles = {
           "claude-code": normalizeRunnerProfile(persistedSettings.runnerProfiles?.["claude-code"]),
@@ -217,6 +275,9 @@ export const useSettingsStore = create<SettingsStore>()(
             theme: normalizeThemeMode(persistedSettings.theme),
             layoutMode: normalizeLayoutMode(persistedSettings.layoutMode),
             splitPaneSidebarWidth: normalizeSplitPaneSidebarWidth(persistedSettings.splitPaneSidebarWidth),
+            splitWidgetPanelWidth: normalizeSplitWidgetPanelWidth(persistedSettings.splitWidgetPanelWidth),
+            splitWidgetPanelCollapsed: persistedSettings.splitWidgetPanelCollapsed === true,
+            splitWidgetCanvas: normalizeSplitWidgetCanvas(persistedSettings.splitWidgetCanvas),
             runnerProfiles,
             runner: resolveRunnerConfig(
               persistedSettings.runner?.type ?? DEFAULT_SETTINGS.runner.type,
