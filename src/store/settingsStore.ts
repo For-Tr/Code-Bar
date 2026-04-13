@@ -41,6 +41,11 @@ export function normalizeLayoutMode(layoutMode: string | undefined): LayoutMode 
   return layoutMode === "split" ? "split" : "original";
 }
 
+export function normalizeSplitPaneSidebarWidth(width: unknown): number {
+  if (typeof width !== "number" || !Number.isFinite(width)) return 420;
+  return Math.min(560, Math.max(280, Math.round(width)));
+}
+
 export interface Settings {
   runner: RunnerConfig;
   runnerProfiles: RunnerProfiles;
@@ -49,6 +54,7 @@ export interface Settings {
   diffRefreshIntervalSec: number;
   theme: ThemeMode;
   layoutMode: LayoutMode;
+  splitPaneSidebarWidth: number;
 }
 
 const DEFAULT_RUNNER_PROFILE: RunnerProfile = {
@@ -107,6 +113,7 @@ const DEFAULT_SETTINGS: Settings = {
   diffRefreshIntervalSec: 5,
   theme: "light",
   layoutMode: "original",
+  splitPaneSidebarWidth: 420,
 };
 
 interface SettingsStore {
@@ -195,6 +202,7 @@ export const useSettingsStore = create<SettingsStore>()(
         const persistedSettings = (p.settings ?? {}) as Partial<Settings> & {
           theme?: string;
           layoutMode?: string;
+          splitPaneSidebarWidth?: unknown;
         };
         const runnerProfiles: RunnerProfiles = {
           "claude-code": normalizeRunnerProfile(persistedSettings.runnerProfiles?.["claude-code"]),
@@ -208,6 +216,7 @@ export const useSettingsStore = create<SettingsStore>()(
             ...persistedSettings,
             theme: normalizeThemeMode(persistedSettings.theme),
             layoutMode: normalizeLayoutMode(persistedSettings.layoutMode),
+            splitPaneSidebarWidth: normalizeSplitPaneSidebarWidth(persistedSettings.splitPaneSidebarWidth),
             runnerProfiles,
             runner: resolveRunnerConfig(
               persistedSettings.runner?.type ?? DEFAULT_SETTINGS.runner.type,

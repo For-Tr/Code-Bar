@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, type PointerEvent as ReactPointerEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -33,7 +33,7 @@ export default function App() {
     setExpandedSession,
   } = useSessionStore();
 
-  const { settings } = useSettingsStore();
+  const { settings, patchSettings } = useSettingsStore();
   const settingsOpen = useSettingsStore((s) => s.settingsOpen);
   const closeSettings = useSettingsStore((s) => s.closeSettings);
   const { activeWorkspaceId } = useWorkspaceStore();
@@ -637,6 +637,28 @@ export default function App() {
   }, [activeSession?.id, activeSession?.status, settings.autoRefreshDiff, settings.diffRefreshIntervalSec, refreshSessionDiff]);
 
   const hasDiff = (activeSession?.diffFiles.length ?? 0) > 0;
+  const splitSidebarWidth = settings.splitPaneSidebarWidth;
+
+  const handleSplitPanePointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = splitSidebarWidth;
+    const minWidth = 280;
+    const maxWidth = 560;
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      const nextWidth = Math.min(maxWidth, Math.max(minWidth, Math.round(startWidth + moveEvent.clientX - startX)));
+      patchSettings({ splitPaneSidebarWidth: nextWidth });
+    };
+
+    const handlePointerUp = () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+  }, [patchSettings, splitSidebarWidth]);
 
   const menuContent = (
     <>
@@ -772,10 +794,8 @@ export default function App() {
             ) : (
               <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
                 <div style={{
-                  width: 420,
-                  maxWidth: "46%",
-                  minWidth: 340,
-                  borderRight: "1px solid var(--ci-toolbar-border)",
+                  width: splitSidebarWidth,
+                  flexShrink: 0,
                   display: "flex",
                   flexDirection: "column",
                   minHeight: 0,
@@ -784,7 +804,31 @@ export default function App() {
                   {menuContent}
                 </div>
 
-                <div style={{ flex: 1, minWidth: 0, minHeight: 0, position: "relative", display: "flex" }}>
+                <div
+                  onPointerDown={handleSplitPanePointerDown}
+                  title="拖拽调整分栏宽度"
+                  style={{
+                    width: 10,
+                    marginLeft: -5,
+                    marginRight: -5,
+                    cursor: "col-resize",
+                    zIndex: 3,
+                    touchAction: "none",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flexShrink: 0,
+                  }}
+                >
+                  <div style={{
+                    width: 2,
+                    height: "100%",
+                    background: "var(--ci-toolbar-border)",
+                    borderRadius: 999,
+                  }} />
+                </div>
+
+                <div style={{ flex: 1, minWidth: 0, minHeight: 0, position: "relative", display: "flex", borderLeft: "1px solid var(--ci-toolbar-border)" }}>
                   <SessionDetail
                     mode="embedded"
                     openSessionId={visibleSplitSessionId}
