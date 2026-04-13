@@ -21,6 +21,25 @@ import { useWorkspaceStore } from "./store/workspaceStore";
 
 const spring = { type: "spring" as const, stiffness: 320, damping: 28, mass: 1 };
 
+const RefreshIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ display: "block" }}>
+    <path
+      d="M9.5 4.5A3.5 3.5 0 1 0 10 7"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+    <path
+      d="M7.75 2.5H9.75V4.5"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
 export default function App() {
   const {
     sessions,
@@ -33,7 +52,7 @@ export default function App() {
     setExpandedSession,
   } = useSessionStore();
 
-  const { settings } = useSettingsStore();
+  const settings = useSettingsStore((s) => s.settings);
   const settingsOpen = useSettingsStore((s) => s.settingsOpen);
   const { activeWorkspaceId } = useWorkspaceStore();
   const isGlass = isGlassTheme(settings.theme);
@@ -615,18 +634,6 @@ export default function App() {
     refreshSessionDiff(activeSession.id);
   }, [activeSession?.id, refreshSessionDiff]);
 
-  // ── 自动刷新 Diff ─────────────────────────────────────────
-  useEffect(() => {
-    if (!("__TAURI_INTERNALS__" in window)) return;
-    if (!settings.autoRefreshDiff || !activeSession || activeSession.status !== "running") return;
-
-    const interval = setInterval(() => {
-      refreshSessionDiff(activeSession.id);
-    }, settings.diffRefreshIntervalSec * 1000);
-
-    return () => clearInterval(interval);
-  }, [activeSession?.id, activeSession?.status, settings.autoRefreshDiff, settings.diffRefreshIntervalSec, refreshSessionDiff]);
-
   const hasDiff = (activeSession?.diffFiles.length ?? 0) > 0;
 
   return (
@@ -737,6 +744,35 @@ export default function App() {
                             −{activeSession!.diffFiles.reduce((s, f) => s + f.deletions, 0)}
                           </span>
                           <div style={{ flex: 1, height: 1, background: "var(--ci-border)" }} />
+                          <button
+                            onClick={() => refreshSessionDiff(activeSession!.id)}
+                            title="刷新变更"
+                            aria-label="刷新变更"
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              width: 22,
+                              height: 22,
+                              padding: 0,
+                              borderRadius: 6,
+                              border: "none",
+                              background: "transparent",
+                              color: "var(--ci-text-dim)",
+                              cursor: "pointer",
+                              flexShrink: 0,
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.background = "var(--ci-btn-ghost-bg)";
+                              e.currentTarget.style.color = "var(--ci-text)";
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.background = "transparent";
+                              e.currentTarget.style.color = "var(--ci-text-dim)";
+                            }}
+                          >
+                            <RefreshIcon />
+                          </button>
                         </div>
                         <div style={{
                           border: "1px solid var(--ci-toolbar-border)",

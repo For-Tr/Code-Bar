@@ -68,26 +68,9 @@ const ExpandIcon = () => (
   </svg>
 );
 
-function StatusDot({ status, isGlass }: { status: SessionStatus; isGlass: boolean }) {
-  const { dotColor, pulse } = STATUS_CONFIG[status];
-  return (
-    <div style={{ position: "relative", width: 9, height: 9, flexShrink: 0 }}>
-      <div style={{
-        width: 9, height: 9, borderRadius: "50%",
-        background: dotColor, position: "absolute",
-      }} />
-      {pulse && !isGlass && (
-        <motion.div
-          animate={{ scale: [1, 2.0], opacity: [0.6, 0] }}
-          transition={{ duration: 1.5, repeat: Infinity, ease: "easeOut" }}
-          style={{
-            width: 9, height: 9, borderRadius: "50%",
-            background: dotColor, position: "absolute",
-          }}
-        />
-      )}
-    </div>
-  );
+function StatusDot({ status }: { status: SessionStatus }) {
+  const { dotColor } = STATUS_CONFIG[status];
+  return <div style={{ width: 9, height: 9, borderRadius: "50%", background: dotColor, flexShrink: 0 }} />;
 }
 
 // ── Session 卡片 ─────────────────────────────────────────────
@@ -161,20 +144,7 @@ function SessionCard({
         }} />
       )}
 
-      {/* waiting 状态：脉冲边框 */}
-      {isWaiting && !isGlass && (
-        <motion.div
-          animate={{ opacity: [0.3, 0.7, 0.3] }}
-          transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
-          style={{
-            position: "absolute", inset: 0, borderRadius: 10,
-            border: "1px solid var(--ci-yellow-bdr)",
-            pointerEvents: "none",
-          }}
-        />
-      )}
-
-      <StatusDot status={session.status} isGlass={isGlass} />
+      <StatusDot status={session.status} />
 
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
@@ -210,21 +180,7 @@ function SessionCard({
         </div>
 
         {/* waiting：操作提示 */}
-        {isWaiting && !isGlass && (
-          <motion.p
-            animate={{ opacity: [0.6, 1, 0.6] }}
-            transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
-            style={{
-              margin: "2px 0 0", fontSize: 11,
-              color: "var(--ci-yellow-dark)",
-              display: "flex", alignItems: "center", gap: 4,
-            }}
-          >
-            <span style={{ fontSize: 10 }}>⚡</span>
-            点击展开终端查看并输入
-          </motion.p>
-        )}
-        {isWaiting && isGlass && (
+        {isWaiting && (
           <p
             style={{
               margin: "2px 0 0", fontSize: 11,
