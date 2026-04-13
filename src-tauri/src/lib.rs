@@ -121,7 +121,7 @@ pub fn run() {
             // 读取记忆的尺寸（没有则用默认值）
             let (popup_w, popup_h) = window::load_bounds(app.handle())
                 .map(|b| (b.width, b.height))
-                .unwrap_or((376.0, 600.0));
+                .unwrap_or((700.0, 600.0));
             let win = WebviewWindowBuilder::new(
                 app.handle(),
                 "popup",

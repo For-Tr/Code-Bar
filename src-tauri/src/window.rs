@@ -76,7 +76,7 @@ pub fn load_popup_bounds(app: tauri::AppHandle) -> Option<PopupBounds> {
     b
 }
 
-// ── 内部辅助：定位弹窗（优先使用记忆的位置，否则默认右上角）─────
+// ── 内部辅助：定位弹窗（优先使用记忆的位置，否则默认居中）─────
 
 pub fn position_popup(app: &tauri::AppHandle, win: &tauri::WebviewWindow) {
     if let Some(bounds) = load_bounds(app) {
@@ -92,7 +92,7 @@ pub fn position_popup(app: &tauri::AppHandle, win: &tauri::WebviewWindow) {
         return;
     }
 
-    // 没有记忆：默认右上角
+    // 没有记忆：默认居中
     let monitor_opt = win
         .primary_monitor()
         .ok()
@@ -101,17 +101,28 @@ pub fn position_popup(app: &tauri::AppHandle, win: &tauri::WebviewWindow) {
 
     if let Some(monitor) = monitor_opt {
         let scale = monitor.scale_factor();
+        let screen_x = monitor.position().x as f64 / scale;
+        let screen_y = monitor.position().y as f64 / scale;
         let screen_w = monitor.size().width as f64 / scale;
-        let win_w = 376.0_f64;
-        let x = screen_w - win_w;
-        let y = 28.0;
-        popup_log!("[popup] default position => x={x} y={y} screen_w={screen_w} scale={scale}");
+        let screen_h = monitor.size().height as f64 / scale;
+        let win_size = win
+            .outer_size()
+            .map(|size| size.to_logical::<f64>(scale))
+            .unwrap_or(tauri::LogicalSize {
+                width: 700.0,
+                height: 600.0,
+            });
+        let x = screen_x + (screen_w - win_size.width) * 0.5;
+        let y = screen_y + (screen_h - win_size.height) * 0.5;
+        popup_log!(
+            "[popup] default position => x={x} y={y} screen=({screen_x},{screen_y},{screen_w},{screen_h}) scale={scale}"
+        );
         let _ = win.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
     } else {
-        popup_log!("[popup] WARNING: no monitor found, using fallback position");
+        popup_log!("[popup] WARNING: no monitor found, using fallback centered position");
         let _ = win.set_position(tauri::Position::Logical(tauri::LogicalPosition {
-            x: 800.0,
-            y: 28.0,
+            x: 200.0,
+            y: 120.0,
         }));
     }
 }
@@ -306,7 +317,7 @@ pub fn show_popup_only(app: tauri::AppHandle) {
 fn create_popup(app: &tauri::AppHandle) {
     let (default_w, default_h) = load_bounds(app)
         .map(|b| (b.width, b.height))
-        .unwrap_or((376.0, 600.0));
+        .unwrap_or((700.0, 600.0));
 
     let win = WebviewWindowBuilder::new(app, "popup", WebviewUrl::App("index.html".into()))
         .title("")
@@ -537,7 +548,7 @@ pub fn resize_popup_full(
     let (orig_w, orig_h) = window
         .outer_size()
         .map(|s| (s.width as f64 / scale, s.height as f64 / scale))
-        .unwrap_or((376.0, 600.0));
+        .unwrap_or((700.0, 600.0));
 
     // ★ 展开前把小窗口位置快照存入内存缓存，收起时精确还原
     app.state::<crate::state::PreExpandPos>()
@@ -586,7 +597,7 @@ pub fn resize_popup_full(
 /// 策略（优先级降序）：
 ///   1. 内存缓存（PreExpandPos）：展开时快照的小窗口坐标，最精确，与碰撞检测完全兼容。
 ///   2. 磁盘记忆（popup_bounds.json）：冷启动/异常时的兜底。
-///   3. 默认值 376×600。
+///   3. 默认值 700×600。
 ///
 /// 采用上一个 commit 的直接赋值方式（set_position + set_size），
 /// 不使用 NSAnimationContext，避免坐标系转换引入偏差。
@@ -636,7 +647,7 @@ pub fn resize_popup(app: tauri::AppHandle, window: tauri::WebviewWindow, height:
         .inner_size()
         .map(|s| s.to_logical::<f64>(scale))
         .unwrap_or(tauri::LogicalSize {
-            width: 376.0,
+            width: 700.0,
             height: h,
         });
     let w = cur_size.width.max(300.0);
