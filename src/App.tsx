@@ -784,7 +784,7 @@ export default function App() {
                   {menuContent}
                 </div>
 
-                <div style={{ flex: 1, minWidth: 0, minHeight: 0, position: "relative" }}>
+                <div style={{ flex: 1, minWidth: 0, minHeight: 0, position: "relative", display: "flex" }}>
                   <SessionDetail
                     mode="embedded"
                     openSessionId={visibleSplitSessionId}
