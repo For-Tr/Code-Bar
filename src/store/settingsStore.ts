@@ -39,8 +39,6 @@ export interface Settings {
   runner: RunnerConfig;
   runnerProfiles: RunnerProfiles;
   apiKeys: ApiKeys;
-  autoRefreshDiff: boolean;
-  diffRefreshIntervalSec: number;
   theme: ThemeMode;
 }
 
@@ -96,8 +94,6 @@ const DEFAULT_SETTINGS: Settings = {
     anthropic: "",
     openai: "",
   },
-  autoRefreshDiff: true,
-  diffRefreshIntervalSec: 5,
   theme: "light",
 };
 
