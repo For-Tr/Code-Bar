@@ -53,7 +53,7 @@ export function normalizeSplitWidgetPanelWidth(width: unknown): number {
 
 export interface SplitWidgetCanvasItem {
   id: string;
-  type: "terminal";
+  type: "terminal" | "usage";
   col: number;
   row: number;
   colSpan: number;
@@ -69,11 +69,11 @@ export interface SplitWidgetCanvas {
 function normalizeSplitWidgetCanvasItem(item: unknown): SplitWidgetCanvasItem | null {
   if (!item || typeof item !== "object") return null;
   const candidate = item as Partial<SplitWidgetCanvasItem>;
-  if (candidate.type !== "terminal") return null;
+  if (candidate.type !== "terminal" && candidate.type !== "usage") return null;
   if (!candidate.id || typeof candidate.id !== "string") return null;
   return {
     id: candidate.id,
-    type: "terminal",
+    type: candidate.type,
     col: typeof candidate.col === "number" && Number.isFinite(candidate.col) ? Math.max(1, Math.round(candidate.col)) : 1,
     row: typeof candidate.row === "number" && Number.isFinite(candidate.row) ? Math.max(1, Math.round(candidate.row)) : 1,
     colSpan: typeof candidate.colSpan === "number" && Number.isFinite(candidate.colSpan) ? Math.max(12, Math.round(candidate.colSpan)) : 18,
@@ -87,13 +87,21 @@ export function normalizeSplitWidgetCanvas(canvas: unknown): SplitWidgetCanvas {
   const items = Array.isArray(candidate.items)
     ? candidate.items.map(normalizeSplitWidgetCanvasItem).filter((item): item is SplitWidgetCanvasItem => item !== null)
     : [];
+  const normalizedItems = items.length > 0 ? [...items] : [];
+
+  if (!normalizedItems.some((item) => item.type === "terminal")) {
+    normalizedItems.unshift({ id: "terminal-widget-1", type: "terminal", col: 1, row: 1, colSpan: 18, rowSpan: 13, visible: true });
+  }
+
+  if (!normalizedItems.some((item) => item.type === "usage")) {
+    normalizedItems.push({ id: "usage-widget-1", type: "usage", col: 1, row: 15, colSpan: 18, rowSpan: 10, visible: true });
+  }
+
   return {
     cellSize: typeof candidate.cellSize === "number" && Number.isFinite(candidate.cellSize)
       ? Math.max(8, Math.round(candidate.cellSize))
       : 12,
-    items: items.length > 0
-      ? items
-      : [{ id: "terminal-widget-1", type: "terminal", col: 1, row: 1, colSpan: 18, rowSpan: 13, visible: true }],
+    items: normalizedItems,
   };
 }
 
@@ -172,7 +180,10 @@ const DEFAULT_SETTINGS: Settings = {
   splitWidgetPanelCollapsed: true,
   splitWidgetCanvas: {
     cellSize: 12,
-    items: [{ id: "terminal-widget-1", type: "terminal", col: 1, row: 1, colSpan: 18, rowSpan: 13, visible: true }],
+    items: [
+      { id: "terminal-widget-1", type: "terminal", col: 1, row: 1, colSpan: 18, rowSpan: 13, visible: true },
+      { id: "usage-widget-1", type: "usage", col: 1, row: 15, colSpan: 18, rowSpan: 10, visible: true },
+    ],
   },
 };
 

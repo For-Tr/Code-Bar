@@ -1,9 +1,77 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { DndContext, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { PtyTerminal } from "./PtyTerminal";
 import { DraggableCard } from "./DraggableCard";
-import { useSettingsStore, isGlassTheme } from "../store/settingsStore";
+import { UsageWidgetCard } from "./UsageWidgetCard";
+import { useSettingsStore, isGlassTheme, type SplitWidgetCanvasItem } from "../store/settingsStore";
 import { useSessionStore } from "../store/sessionStore";
+
+function rectsOverlap(a: SplitWidgetCanvasItem, b: SplitWidgetCanvasItem) {
+  return a.col < b.col + b.colSpan
+    && a.col + a.colSpan > b.col
+    && a.row < b.row + b.rowSpan
+    && a.row + a.rowSpan > b.row;
+}
+
+function clampRectToBounds(
+  item: SplitWidgetCanvasItem,
+  maxCols: number,
+  maxRows: number
+): SplitWidgetCanvasItem {
+  const colSpan = Math.min(item.colSpan, maxCols);
+  const rowSpan = Math.min(item.rowSpan, maxRows);
+  return {
+    ...item,
+    colSpan,
+    rowSpan,
+    col: Math.max(1, Math.min(item.col, Math.max(1, maxCols - colSpan + 1))),
+    row: Math.max(1, Math.min(item.row, Math.max(1, maxRows - rowSpan + 1))),
+  };
+}
+
+function collides(candidate: SplitWidgetCanvasItem, items: SplitWidgetCanvasItem[], excludeId: string) {
+  return items.some((item) => item.id !== excludeId && rectsOverlap(candidate, item));
+}
+
+function findNearestFreePlacement(
+  candidate: SplitWidgetCanvasItem,
+  items: SplitWidgetCanvasItem[],
+  maxCols: number,
+  maxRows: number
+): SplitWidgetCanvasItem | null {
+  const maxColStart = Math.max(1, maxCols - candidate.colSpan + 1);
+  const maxRowStart = Math.max(1, maxRows - candidate.rowSpan + 1);
+  const targetCol = Math.max(1, Math.min(candidate.col, maxColStart));
+  const targetRow = Math.max(1, Math.min(candidate.row, maxRowStart));
+  let best: SplitWidgetCanvasItem | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  for (let row = 1; row <= maxRowStart; row += 1) {
+    for (let col = 1; col <= maxColStart; col += 1) {
+      const next = { ...candidate, col, row };
+      if (collides(next, items, candidate.id)) continue;
+      const distance = Math.abs(col - targetCol) + Math.abs(row - targetRow);
+      if (distance < bestDistance) {
+        best = next;
+        bestDistance = distance;
+      }
+    }
+  }
+
+  return best;
+}
+
+function repairLayout(items: SplitWidgetCanvasItem[], maxCols: number, maxRows: number) {
+  const placed: SplitWidgetCanvasItem[] = [];
+  for (const item of items) {
+    const clamped = clampRectToBounds(item, maxCols, maxRows);
+    const next = collides(clamped, placed, clamped.id)
+      ? findNearestFreePlacement(clamped, placed, maxCols, maxRows) ?? clamped
+      : clamped;
+    placed.push(next);
+  }
+  return placed;
+}
 
 export function SplitWidgetPanel() {
   const { settings, patchSettings } = useSettingsStore();
@@ -11,17 +79,56 @@ export function SplitWidgetPanel() {
   const sessions = useSessionStore((s) => s.sessions);
   const expandedSessionId = useSessionStore((s) => s.expandedSessionId);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const [panelBounds, setPanelBounds] = useState({ width: 0, height: 0 });
 
   const session = useMemo(
     () => sessions.find((item) => item.id === expandedSessionId) ?? null,
     [expandedSessionId, sessions]
   );
   const terminalWorkdir = session?.worktreePath ?? session?.workdir ?? "";
-  const widget = settings.splitWidgetCanvas.items.find((item) => item.type === "terminal" && item.visible !== false) ?? null;
+  const widgets = settings.splitWidgetCanvas.items.filter((item) => item.visible !== false);
   const gridUnit = settings.splitWidgetCanvas.cellSize;
+  const maxCols = Math.max(12, Math.floor(panelBounds.width / gridUnit));
+  const maxRows = Math.max(10, Math.floor(panelBounds.height / gridUnit));
+  const repairedWidgets = useMemo(() => repairLayout(widgets, maxCols, maxRows), [widgets, maxCols, maxRows]);
+
+  useEffect(() => {
+    const element = panelRef.current;
+    if (!element) return;
+    const observer = new ResizeObserver(() => {
+      setPanelBounds({ width: element.clientWidth, height: element.clientHeight });
+    });
+    observer.observe(element);
+    setPanelBounds({ width: element.clientWidth, height: element.clientHeight });
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (panelBounds.width <= 0 || panelBounds.height <= 0) return;
+    if (repairedWidgets.length !== widgets.length) return;
+    const changed = repairedWidgets.some((item, index) => {
+      const original = widgets[index];
+      return !original
+        || item.col !== original.col
+        || item.row !== original.row
+        || item.colSpan !== original.colSpan
+        || item.rowSpan !== original.rowSpan;
+    });
+    if (!changed) return;
+    patchSettings({
+      splitWidgetCanvas: {
+        ...settings.splitWidgetCanvas,
+        items: settings.splitWidgetCanvas.items.map((item) => {
+          const repaired = repairedWidgets.find((candidate) => candidate.id === item.id);
+          return repaired ?? item;
+        }),
+      },
+    });
+  }, [panelBounds.height, panelBounds.width, patchSettings, repairedWidgets, settings.splitWidgetCanvas, widgets]);
 
   return (
-    <div style={{
+    <div ref={panelRef} style={{
       width: "100%",
       height: "100%",
       position: "relative",
@@ -52,55 +159,92 @@ export function SplitWidgetPanel() {
         </button>
       </div>
 
-      {session && terminalWorkdir && widget ? (
+      {repairedWidgets.length > 0 ? (
         <DndContext
           sensors={sensors}
-          onDragEnd={({ delta }) => {
+          onDragEnd={({ active, delta }) => {
+            const current = repairedWidgets.find((item) => item.id === active.id);
+            if (!current) return;
             const colDelta = Math.round(delta.x / gridUnit);
             const rowDelta = Math.round(delta.y / gridUnit);
-            const nextCol = Math.max(1, widget.col + colDelta);
-            const nextRow = Math.max(1, widget.row + rowDelta);
+            const candidate = clampRectToBounds({
+              ...current,
+              col: current.col + colDelta,
+              row: current.row + rowDelta,
+            }, maxCols, maxRows);
+            const resolved = collides(candidate, repairedWidgets, current.id)
+              ? findNearestFreePlacement(candidate, repairedWidgets, maxCols, maxRows) ?? current
+              : candidate;
             patchSettings({
               splitWidgetCanvas: {
                 ...settings.splitWidgetCanvas,
                 items: settings.splitWidgetCanvas.items.map((item) =>
-                  item.id === widget.id ? { ...item, col: nextCol, row: nextRow } : item
+                  item.id === active.id
+                    ? { ...item, col: resolved.col, row: resolved.row, colSpan: resolved.colSpan, rowSpan: resolved.rowSpan }
+                    : item
                 ),
               },
             });
           }}
         >
-          <DraggableCard
-            id={widget.id}
-            title={terminalWorkdir || "Terminal"}
-            gridUnit={gridUnit}
-            col={widget.col}
-            row={widget.row}
-            colSpan={widget.colSpan}
-            rowSpan={widget.rowSpan}
-            onResize={(deltaCols, deltaRows) => patchSettings({
-              splitWidgetCanvas: {
-                ...settings.splitWidgetCanvas,
-                items: settings.splitWidgetCanvas.items.map((item) =>
-                  item.id === widget.id
-                    ? {
-                        ...item,
-                        colSpan: Math.max(12, item.colSpan + deltaCols),
-                        rowSpan: Math.max(10, item.rowSpan + deltaRows),
-                      }
-                    : item
-                ),
-              },
-            })}
-          >
-            <PtyTerminal
-              sessionId={`widget-${session.id}`}
-              command={navigator.userAgent.toLowerCase().includes("windows") ? "cmd.exe" : "zsh"}
-              args={[]}
-              workdir={terminalWorkdir}
-              active
-            />
-          </DraggableCard>
+          {repairedWidgets.map((widget) => (
+            <DraggableCard
+              key={widget.id}
+              id={widget.id}
+              title={widget.type === "terminal" ? (terminalWorkdir || "Terminal") : "Usage"}
+              gridUnit={gridUnit}
+              col={widget.col}
+              row={widget.row}
+              colSpan={widget.colSpan}
+              rowSpan={widget.rowSpan}
+              onResize={(deltaCols, deltaRows) => {
+                const candidate = clampRectToBounds({
+                  ...widget,
+                  colSpan: Math.max(12, widget.colSpan + deltaCols),
+                  rowSpan: Math.max(10, widget.rowSpan + deltaRows),
+                }, maxCols, maxRows);
+                let resolved = candidate;
+                if (collides(candidate, repairedWidgets, widget.id)) {
+                  let nextColSpan = candidate.colSpan;
+                  let nextRowSpan = candidate.rowSpan;
+                  while ((nextColSpan > widget.colSpan || nextRowSpan > widget.rowSpan) && collides({ ...candidate, colSpan: nextColSpan, rowSpan: nextRowSpan }, repairedWidgets, widget.id)) {
+                    if (nextColSpan > widget.colSpan) nextColSpan -= 1;
+                    if (nextRowSpan > widget.rowSpan) nextRowSpan -= 1;
+                  }
+                  resolved = {
+                    ...candidate,
+                    colSpan: Math.max(12, nextColSpan),
+                    rowSpan: Math.max(10, nextRowSpan),
+                  };
+                  if (collides(resolved, repairedWidgets, widget.id)) {
+                    resolved = widget;
+                  }
+                }
+                patchSettings({
+                  splitWidgetCanvas: {
+                    ...settings.splitWidgetCanvas,
+                    items: settings.splitWidgetCanvas.items.map((item) =>
+                      item.id === widget.id
+                        ? { ...item, col: resolved.col, row: resolved.row, colSpan: resolved.colSpan, rowSpan: resolved.rowSpan }
+                        : item
+                    ),
+                  },
+                });
+              }}
+            >
+              {widget.type === "terminal" && session && terminalWorkdir ? (
+                <PtyTerminal
+                  sessionId={`widget-${session.id}`}
+                  command={navigator.userAgent.toLowerCase().includes("windows") ? "cmd.exe" : "zsh"}
+                  args={[]}
+                  workdir={terminalWorkdir}
+                  active
+                />
+              ) : widget.type === "usage" ? (
+                <UsageWidgetCard />
+              ) : null}
+            </DraggableCard>
+          ))}
         </DndContext>
       ) : (
         <div style={{
