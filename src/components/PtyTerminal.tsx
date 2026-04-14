@@ -464,7 +464,12 @@ export function PtyTerminal({
     if (!active) return;
     const t = setTimeout(() => {
       fitRef.current?.fit();
-      termRef.current?.focus();
+      const term = termRef.current;
+      term?.focus();
+      if (!term) return;
+      const cols = Math.max(term.cols, 20);
+      const rows = Math.max(term.rows, 5);
+      invoke("resize_pty", { sessionId, cols, rows }).catch(() => {});
     }, 80);
     return () => clearTimeout(t);
   }, [active, sessionId]);

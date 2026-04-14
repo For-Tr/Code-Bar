@@ -47,6 +47,8 @@ function ResizeHandle({
 export function DraggableCard({
   id,
   title,
+  headerActions,
+  dragData,
   gridUnit,
   col,
   row,
@@ -57,6 +59,8 @@ export function DraggableCard({
 }: {
   id: string;
   title: ReactNode;
+  headerActions?: ReactNode;
+  dragData?: Record<string, unknown>;
   gridUnit: number;
   col: number;
   row: number;
@@ -65,7 +69,7 @@ export function DraggableCard({
   onResize?: (deltaCols: number, deltaRows: number) => void;
   children: ReactNode;
 }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id });
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id, data: dragData });
   const snappedTransform = transform
     ? {
         x: Math.round(transform.x / gridUnit) * gridUnit,
@@ -110,59 +114,76 @@ export function DraggableCard({
         top: row * gridUnit,
         width: colSpan * gridUnit,
         height: rowSpan * gridUnit,
-        transform: snappedTransform ? CSS.Transform.toString(snappedTransform) : undefined,
+        transform: snappedTransform
+          ? `${CSS.Transform.toString(snappedTransform)} scale(${isDragging ? 1.01 : 1})`
+          : undefined,
         zIndex: isDragging ? 10 : 1,
         display: "flex",
         flexDirection: "column",
         borderRadius: 14,
         overflow: "hidden",
         background: "var(--ci-surface-hi)",
-        border: "1px solid var(--ci-toolbar-border)",
-        boxShadow: isDragging ? "var(--ci-card-shadow-strong)" : "var(--ci-card-shadow)",
+        border: `1px solid ${isDragging ? "var(--ci-accent-bdr)" : "var(--ci-toolbar-border)"}`,
+        boxShadow: isDragging ? "0 0 0 1px var(--ci-accent-bdr), var(--ci-card-shadow-strong)" : "var(--ci-card-shadow)",
+        transition: "border-color 0.15s, box-shadow 0.15s",
       }}
     >
       <div
         style={{
           display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 8,
-          padding: "8px 10px 6px",
+          flexDirection: "column",
+          gap: headerActions ? 8 : 0,
+          padding: headerActions ? "8px 10px" : "8px 10px 6px",
           background: "var(--ci-toolbar-bg)",
           flexShrink: 0,
         }}
       >
         <div
-          {...listeners}
-          {...attributes}
           style={{
             display: "flex",
             alignItems: "center",
+            justifyContent: "space-between",
             gap: 8,
             minWidth: 0,
-            flex: 1,
-            cursor: isDragging ? "grabbing" : "grab",
-            touchAction: "none",
-            color: "var(--ci-text-muted)",
           }}
         >
-          <span style={{ display: "inline-flex", flexShrink: 0 }}>
-            <DragHandleIcon />
-          </span>
-          <span
+          <div
+            {...listeners}
+            {...attributes}
             style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
               minWidth: 0,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-              fontSize: 10,
-              fontFamily: "monospace",
+              flex: 1,
+              cursor: isDragging ? "grabbing" : "grab",
+              touchAction: "none",
+              color: "var(--ci-text-muted)",
             }}
           >
-            {title}
-          </span>
+            <span style={{ display: "inline-flex", flexShrink: 0 }}>
+              <DragHandleIcon />
+            </span>
+            <span
+              style={{
+                minWidth: 0,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                fontSize: 10,
+                fontFamily: "monospace",
+              }}
+            >
+              {title}
+            </span>
+          </div>
         </div>
 
+        {headerActions && (
+          <div style={{ minWidth: 0 }}>
+            {headerActions}
+          </div>
+        )}
       </div>
 
       <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
