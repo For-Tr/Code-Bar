@@ -48,7 +48,7 @@ export function normalizeSplitPaneSidebarWidth(width: unknown): number {
 
 export function normalizeSplitWidgetPanelWidth(width: unknown): number {
   if (typeof width !== "number" || !Number.isFinite(width)) return 260;
-  return Math.min(420, Math.max(220, Math.round(width)));
+  return Math.min(720, Math.max(220, Math.round(width)));
 }
 
 export interface SplitWidgetCanvasItem {
