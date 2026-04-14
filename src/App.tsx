@@ -22,25 +22,6 @@ import { useWorkspaceStore } from "./store/workspaceStore";
 
 const spring = { type: "spring" as const, stiffness: 320, damping: 28, mass: 1 };
 
-const RefreshIcon = () => (
-  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ display: "block" }}>
-    <path
-      d="M9.5 4.5A3.5 3.5 0 1 0 10 7"
-      stroke="currentColor"
-      strokeWidth="1.3"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    />
-    <path
-      d="M7.75 2.5H9.75V4.5"
-      stroke="currentColor"
-      strokeWidth="1.3"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    />
-  </svg>
-);
-
 export default function App() {
   const {
     sessions,
