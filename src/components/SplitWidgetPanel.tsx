@@ -8,7 +8,7 @@ import { useSessionStore } from "../store/sessionStore";
 
 const WIDGET_GAP = 1;
 const PANEL_MARGIN = 1;
-const RIGHT_EDGE_MARGIN = 2;
+const RIGHT_EDGE_MARGIN = 3;
 
 function rectsOverlap(a: SplitWidgetCanvasItem, b: SplitWidgetCanvasItem) {
   return a.col < b.col + b.colSpan + WIDGET_GAP
