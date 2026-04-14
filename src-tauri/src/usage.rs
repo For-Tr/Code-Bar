@@ -309,8 +309,7 @@ fn fetch_claude_usage_via_headers() -> RunnerUsageSnapshot {
     }
 }
 
-#[tauri::command]
-pub fn refresh_runner_usage(runner_type: String) -> RunnerUsageSnapshot {
+fn refresh_runner_usage_sync(runner_type: String) -> RunnerUsageSnapshot {
     let lowered = runner_type.trim().to_ascii_lowercase();
 
     if lowered == "codex" {
@@ -318,4 +317,11 @@ pub fn refresh_runner_usage(runner_type: String) -> RunnerUsageSnapshot {
     } else {
         fetch_claude_usage_via_headers()
     }
+}
+
+#[tauri::command]
+pub async fn refresh_runner_usage(runner_type: String) -> Result<RunnerUsageSnapshot, String> {
+    tauri::async_runtime::spawn_blocking(move || refresh_runner_usage_sync(runner_type))
+        .await
+        .map_err(|error| format!("usage refresh task failed: {error}"))
 }

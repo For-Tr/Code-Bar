@@ -8,6 +8,7 @@ import { useSessionStore } from "../store/sessionStore";
 
 const WIDGET_GAP = 1;
 const PANEL_MARGIN = 1;
+const RIGHT_EDGE_MARGIN = 2;
 
 function rectsOverlap(a: SplitWidgetCanvasItem, b: SplitWidgetCanvasItem) {
   return a.col < b.col + b.colSpan + WIDGET_GAP
@@ -27,8 +28,8 @@ function clampRectToBounds(
     ...item,
     colSpan,
     rowSpan,
-    col: Math.max(PANEL_MARGIN, Math.min(item.col, Math.max(PANEL_MARGIN, maxCols - colSpan - PANEL_MARGIN))),
-    row: Math.max(PANEL_MARGIN, Math.min(item.row, Math.max(PANEL_MARGIN, maxRows - rowSpan - PANEL_MARGIN))),
+    col: Math.max(PANEL_MARGIN, Math.min(item.col, Math.max(PANEL_MARGIN, maxCols - colSpan - RIGHT_EDGE_MARGIN + 1))),
+    row: Math.max(PANEL_MARGIN, Math.min(item.row, Math.max(PANEL_MARGIN, maxRows - rowSpan - PANEL_MARGIN + 1))),
   };
 }
 
@@ -42,8 +43,8 @@ function findNearestFreePlacement(
   maxCols: number,
   maxRows: number
 ): SplitWidgetCanvasItem | null {
-  const maxColStart = Math.max(PANEL_MARGIN, maxCols - candidate.colSpan - PANEL_MARGIN);
-  const maxRowStart = Math.max(PANEL_MARGIN, maxRows - candidate.rowSpan - PANEL_MARGIN);
+  const maxColStart = Math.max(PANEL_MARGIN, maxCols - candidate.colSpan - RIGHT_EDGE_MARGIN + 1);
+  const maxRowStart = Math.max(PANEL_MARGIN, maxRows - candidate.rowSpan - PANEL_MARGIN + 1);
   const targetCol = Math.max(PANEL_MARGIN, Math.min(candidate.col, maxColStart));
   const targetRow = Math.max(PANEL_MARGIN, Math.min(candidate.row, maxRowStart));
   let best: SplitWidgetCanvasItem | null = null;
@@ -79,6 +80,14 @@ function repairLayout(items: SplitWidgetCanvasItem[], maxCols: number, maxRows: 
 function shellQuote(value: string) {
   if (!value) return "''";
   return `'${value.replace(/'/g, `'"'"'`)}'`;
+}
+
+function insetRect(item: SplitWidgetCanvasItem, maxCols: number, maxRows: number) {
+  return clampRectToBounds({
+    ...item,
+    colSpan: Math.max(12, item.colSpan),
+    rowSpan: Math.max(10, item.rowSpan),
+  }, maxCols - RIGHT_EDGE_MARGIN + 1, maxRows - PANEL_MARGIN + 1);
 }
 
 function expandLayoutToFill(items: SplitWidgetCanvasItem[], maxCols: number, maxRows: number) {
@@ -210,7 +219,7 @@ export function SplitWidgetPanel() {
               return;
             }
             const expanded = expandLayoutToFill(repairedWidgets, maxCols, maxRows);
-            const repaired = repairLayout(expanded, maxCols, maxRows);
+            const repaired = repairLayout(expanded, maxCols, maxRows).map((item) => insetRect(item, maxCols, maxRows));
             patchSettings({
               splitWidgetCanvas: {
                 ...settings.splitWidgetCanvas,
