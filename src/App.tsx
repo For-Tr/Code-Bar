@@ -656,7 +656,7 @@ export default function App() {
     const startX = event.clientX;
     const startWidth = splitWidgetPanelWidth;
     const minWidth = 220;
-    const maxWidth = 420;
+    const maxWidth = 720;
 
     const handlePointerMove = (moveEvent: PointerEvent) => {
       const nextWidth = Math.min(maxWidth, Math.max(minWidth, Math.round(startWidth - (moveEvent.clientX - startX))));
