@@ -113,8 +113,6 @@ export interface Settings {
   runner: RunnerConfig;
   runnerProfiles: RunnerProfiles;
   apiKeys: ApiKeys;
-  autoRefreshDiff: boolean;
-  diffRefreshIntervalSec: number;
   theme: ThemeMode;
   layoutMode: LayoutMode;
   splitPaneSidebarWidth: number;
@@ -175,8 +173,6 @@ const DEFAULT_SETTINGS: Settings = {
     anthropic: "",
     openai: "",
   },
-  autoRefreshDiff: true,
-  diffRefreshIntervalSec: 5,
   theme: "light",
   layoutMode: "original",
   splitPaneSidebarWidth: 420,
