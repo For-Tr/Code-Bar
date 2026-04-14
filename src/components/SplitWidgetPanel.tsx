@@ -191,7 +191,7 @@ export function SplitWidgetPanel() {
             <DraggableCard
               key={widget.id}
               id={widget.id}
-              title={widget.type === "terminal" ? (terminalWorkdir || "Terminal") : "Usage"}
+              title={widget.type === "terminal" ? (terminalWorkdir || "Terminal") : null}
               gridUnit={gridUnit}
               col={widget.col}
               row={widget.row}

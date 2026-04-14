@@ -14,6 +14,49 @@ interface RunnerUsageSnapshot {
   error: string | null;
 }
 
+function parseUsageLine(text: string, label: string) {
+  const regex = new RegExp(`${label} usage: (\\d+(?:\\.\\d+)?)%\\n${label} reset: ([^\\n]+)`, "i");
+  const match = text.match(regex);
+  if (!match) return null;
+  const usedPercent = Number(match[1]);
+  return {
+    usedPercent,
+    leftPercent: Math.max(0, Math.min(100, 100 - usedPercent)),
+    resetRaw: match[2],
+  };
+}
+
+function formatResetText(raw: string) {
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) return { top: raw, bottom: "" };
+  const date = new Date(value * 1000);
+  if (Number.isNaN(date.getTime())) return { top: raw, bottom: "" };
+  return {
+    top: date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    bottom: date.toLocaleDateString(),
+  };
+}
+
+function FlatProgress({ label, leftPercent, reset }: { label: string; leftPercent: number; reset: { top: string; bottom: string } }) {
+  const clamped = Math.max(0, Math.min(100, leftPercent));
+  const tone = clamped <= 15 ? "var(--ci-red)" : clamped <= 40 ? "var(--ci-yellow-dark)" : "var(--ci-accent)";
+  return (
+    <div style={{ display: "grid", gap: 4 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+        <span style={{ fontSize: 10, color: "var(--ci-text-dim)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{label} limit</span>
+        <span style={{ fontSize: 11, color: tone, fontWeight: 600 }}>{clamped.toFixed(0)}% left</span>
+      </div>
+      <div style={{ height: 6, background: "var(--ci-btn-ghost-bg)", borderRadius: 999, overflow: "hidden" }}>
+        <div style={{ width: `${clamped}%`, height: "100%", background: tone, borderRadius: 999 }} />
+      </div>
+      <div style={{ display: "grid", gap: 1, fontSize: 10, color: "var(--ci-text-dim)", lineHeight: 1.3 }}>
+        <span>{reset.top}</span>
+        {reset.bottom && <span>{reset.bottom}</span>}
+      </div>
+    </div>
+  );
+}
+
 export function UsageWidgetCard() {
   const sessions = useSessionStore((s) => s.sessions);
   const expandedSessionId = useSessionStore((s) => s.expandedSessionId);
@@ -24,6 +67,14 @@ export function UsageWidgetCard() {
     const session = sessions.find((item) => item.id === expandedSessionId) ?? null;
     return session?.runner.type ?? "claude-code";
   }, [expandedSessionId, sessions]);
+
+  const parsedWindows = useMemo(() => {
+    if (!snapshot?.usage_summary) return { fiveHour: null, weekly: null };
+    return {
+      fiveHour: parseUsageLine(snapshot.usage_summary, "5h"),
+      weekly: parseUsageLine(snapshot.usage_summary, "7d"),
+    };
+  }, [snapshot?.usage_summary]);
 
   const handleRefresh = async () => {
     if (loading) return;
@@ -51,31 +102,27 @@ export function UsageWidgetCard() {
     <div style={{
       width: "100%",
       height: "100%",
-      padding: 12,
+      padding: 10,
       boxSizing: "border-box",
       display: "flex",
       flexDirection: "column",
-      gap: 10,
+      gap: 8,
       color: "var(--ci-text)",
+      overflow: "hidden",
     }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-        <div>
-          <div style={{ fontSize: 10, color: "var(--ci-text-dim)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 3 }}>
-            Usage
-          </div>
-          <div style={{ fontSize: 13, fontWeight: 600 }}>
-            {RUNNER_LABELS[runnerType]}
-          </div>
+        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ci-text)" }}>
+          {RUNNER_LABELS[runnerType]}
         </div>
         <button
           onClick={handleRefresh}
           disabled={loading}
           style={{
-            background: "var(--ci-accent-bg)",
-            border: "1px solid var(--ci-accent-bdr)",
-            color: "var(--ci-accent)",
+            background: "transparent",
+            border: "1px solid var(--ci-toolbar-border)",
+            color: "var(--ci-text-muted)",
             borderRadius: 8,
-            padding: "6px 10px",
+            padding: "5px 9px",
             fontSize: 11,
             cursor: loading ? "default" : "pointer",
           }}
@@ -84,55 +131,28 @@ export function UsageWidgetCard() {
         </button>
       </div>
 
-      <div style={{
-        flex: 1,
-        minHeight: 0,
-        borderRadius: 10,
-        border: "1px solid var(--ci-toolbar-border)",
-        background: "var(--ci-surface)",
-        padding: 10,
-        overflow: "auto",
-        display: "flex",
-        flexDirection: "column",
-        gap: 8,
-      }}>
-        {!snapshot && !loading && (
-          <div style={{ fontSize: 12, color: "var(--ci-text-dim)", lineHeight: 1.6 }}>
-            点击刷新，手动查询当前 runner 的 usage / status 信息。
-          </div>
-        )}
-
+      <div style={{ display: "grid", gap: 6, flex: 1, minHeight: 0, overflowY: "auto" }}>
         {snapshot?.error && (
-          <div style={{ fontSize: 12, color: "var(--ci-red)", lineHeight: 1.6 }}>
+          <div style={{ fontSize: 12, color: "var(--ci-red)", lineHeight: 1.5 }}>
             {snapshot.error}
           </div>
         )}
 
-        {snapshot?.auth_status && (
-          <div>
-            <div style={{ fontSize: 10, color: "var(--ci-text-dim)", marginBottom: 3 }}>Auth</div>
-            <div style={{ fontSize: 12, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{snapshot.auth_status}</div>
+        {parsedWindows.fiveHour && (
+          <div style={{ paddingTop: 4, borderTop: "1px solid var(--ci-toolbar-border)" }}>
+            <FlatProgress label="5h" leftPercent={parsedWindows.fiveHour.leftPercent} reset={formatResetText(parsedWindows.fiveHour.resetRaw)} />
           </div>
         )}
 
-        {snapshot?.usage_summary && (
-          <div>
-            <div style={{ fontSize: 10, color: "var(--ci-text-dim)", marginBottom: 3 }}>Usage</div>
-            <div style={{ fontSize: 12, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{snapshot.usage_summary}</div>
+        {parsedWindows.weekly && (
+          <div style={{ paddingTop: 4, borderTop: "1px solid var(--ci-toolbar-border)" }}>
+            <FlatProgress label="7d" leftPercent={parsedWindows.weekly.leftPercent} reset={formatResetText(parsedWindows.weekly.resetRaw)} />
           </div>
         )}
 
-        {snapshot?.cost_summary && (
-          <div>
-            <div style={{ fontSize: 10, color: "var(--ci-text-dim)", marginBottom: 3 }}>Cost</div>
-            <div style={{ fontSize: 12, lineHeight: 1.6 }}>{snapshot.cost_summary}</div>
-          </div>
-        )}
-
-        {snapshot?.source && (
-          <div style={{ marginTop: "auto", display: "flex", justifyContent: "space-between", gap: 8, fontSize: 10, color: "var(--ci-text-dim)" }}>
-            <span>source: {snapshot.source}</span>
-            <span>{snapshot.last_refreshed_at}</span>
+        {!snapshot && !loading && (
+          <div style={{ fontSize: 12, color: "var(--ci-text-dim)", lineHeight: 1.6, paddingTop: 4, borderTop: "1px solid var(--ci-toolbar-border)" }}>
+            点击刷新，查询当前限额状态。
           </div>
         )}
       </div>
