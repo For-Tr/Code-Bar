@@ -25,6 +25,7 @@ export interface ApiKeys {
 }
 
 export type ThemeMode = "light" | "dark" | "glass" | "system";
+export type LayoutMode = "original" | "split";
 
 export function isGlassTheme(theme: ThemeMode): theme is "glass" {
   return theme === "glass";
@@ -36,11 +37,88 @@ export function normalizeThemeMode(theme: string | undefined): ThemeMode {
   return "light";
 }
 
+export function normalizeLayoutMode(layoutMode: string | undefined): LayoutMode {
+  return layoutMode === "split" ? "split" : "original";
+}
+
+export function normalizeSplitPaneSidebarWidth(width: unknown): number {
+  if (typeof width !== "number" || !Number.isFinite(width)) return 420;
+  return Math.min(560, Math.max(280, Math.round(width)));
+}
+
+export function normalizeSplitWidgetPanelWidth(width: unknown): number {
+  if (typeof width !== "number" || !Number.isFinite(width)) return 260;
+  return Math.min(420, Math.max(220, Math.round(width)));
+}
+
+export interface SplitWidgetCanvasItem {
+  id: string;
+  type: "terminal" | "usage";
+  col: number;
+  row: number;
+  colSpan: number;
+  rowSpan: number;
+  visible: boolean;
+}
+
+export interface SplitWidgetCanvas {
+  cellSize: number;
+  items: SplitWidgetCanvasItem[];
+  filledSnapshot?: SplitWidgetCanvasItem[] | null;
+}
+
+function normalizeSplitWidgetCanvasItem(item: unknown): SplitWidgetCanvasItem | null {
+  if (!item || typeof item !== "object") return null;
+  const candidate = item as Partial<SplitWidgetCanvasItem>;
+  if (candidate.type !== "terminal" && candidate.type !== "usage") return null;
+  if (!candidate.id || typeof candidate.id !== "string") return null;
+  return {
+    id: candidate.id,
+    type: candidate.type,
+    col: typeof candidate.col === "number" && Number.isFinite(candidate.col) ? Math.max(1, Math.round(candidate.col)) : 1,
+    row: typeof candidate.row === "number" && Number.isFinite(candidate.row) ? Math.max(1, Math.round(candidate.row)) : 1,
+    colSpan: typeof candidate.colSpan === "number" && Number.isFinite(candidate.colSpan) ? Math.max(12, Math.round(candidate.colSpan)) : 18,
+    rowSpan: typeof candidate.rowSpan === "number" && Number.isFinite(candidate.rowSpan) ? Math.max(10, Math.round(candidate.rowSpan)) : 13,
+    visible: candidate.visible !== false,
+  };
+}
+
+export function normalizeSplitWidgetCanvas(canvas: unknown): SplitWidgetCanvas {
+  const candidate = (canvas && typeof canvas === "object") ? canvas as Partial<SplitWidgetCanvas> : {};
+  const items = Array.isArray(candidate.items)
+    ? candidate.items.map(normalizeSplitWidgetCanvasItem).filter((item): item is SplitWidgetCanvasItem => item !== null)
+    : [];
+  const normalizedItems = items.length > 0 ? [...items] : [];
+
+  if (!normalizedItems.some((item) => item.type === "terminal")) {
+    normalizedItems.unshift({ id: "terminal-widget-1", type: "terminal", col: 2, row: 16, colSpan: 18, rowSpan: 13, visible: true });
+  }
+
+  if (!normalizedItems.some((item) => item.type === "usage")) {
+    normalizedItems.push({ id: "usage-widget-1", type: "usage", col: 2, row: 2, colSpan: 18, rowSpan: 10, visible: true });
+  }
+
+  return {
+    cellSize: typeof candidate.cellSize === "number" && Number.isFinite(candidate.cellSize)
+      ? Math.max(8, Math.round(candidate.cellSize))
+      : 12,
+    items: normalizedItems,
+    filledSnapshot: Array.isArray(candidate.filledSnapshot)
+      ? candidate.filledSnapshot.map(normalizeSplitWidgetCanvasItem).filter((item): item is SplitWidgetCanvasItem => item !== null)
+      : null,
+  };
+}
+
 export interface Settings {
   runner: RunnerConfig;
   runnerProfiles: RunnerProfiles;
   apiKeys: ApiKeys;
   theme: ThemeMode;
+  layoutMode: LayoutMode;
+  splitPaneSidebarWidth: number;
+  splitWidgetPanelWidth: number;
+  splitWidgetPanelCollapsed: boolean;
+  splitWidgetCanvas: SplitWidgetCanvas;
 }
 
 const DEFAULT_RUNNER_PROFILE: RunnerProfile = {
@@ -96,6 +174,18 @@ const DEFAULT_SETTINGS: Settings = {
     openai: "",
   },
   theme: "light",
+  layoutMode: "original",
+  splitPaneSidebarWidth: 420,
+  splitWidgetPanelWidth: 260,
+  splitWidgetPanelCollapsed: true,
+  splitWidgetCanvas: {
+    cellSize: 12,
+    items: [
+      { id: "terminal-widget-1", type: "terminal", col: 2, row: 16, colSpan: 18, rowSpan: 13, visible: true },
+      { id: "usage-widget-1", type: "usage", col: 2, row: 2, colSpan: 18, rowSpan: 10, visible: true },
+    ],
+    filledSnapshot: null,
+  },
 };
 
 interface SettingsStore {
@@ -181,7 +271,14 @@ export const useSettingsStore = create<SettingsStore>()(
       }),
       merge: (persisted: unknown, current) => {
         const p = persisted as Partial<typeof current>;
-        const persistedSettings = (p.settings ?? {}) as Partial<Settings> & { theme?: string };
+        const persistedSettings = (p.settings ?? {}) as Partial<Settings> & {
+          theme?: string;
+          layoutMode?: string;
+          splitPaneSidebarWidth?: unknown;
+          splitWidgetPanelWidth?: unknown;
+          splitWidgetPanelCollapsed?: unknown;
+          splitWidgetCanvas?: unknown;
+        };
         const runnerProfiles: RunnerProfiles = {
           "claude-code": normalizeRunnerProfile(persistedSettings.runnerProfiles?.["claude-code"]),
           "codex": normalizeRunnerProfile(persistedSettings.runnerProfiles?.codex),
@@ -193,6 +290,11 @@ export const useSettingsStore = create<SettingsStore>()(
             ...DEFAULT_SETTINGS,
             ...persistedSettings,
             theme: normalizeThemeMode(persistedSettings.theme),
+            layoutMode: normalizeLayoutMode(persistedSettings.layoutMode),
+            splitPaneSidebarWidth: normalizeSplitPaneSidebarWidth(persistedSettings.splitPaneSidebarWidth),
+            splitWidgetPanelWidth: normalizeSplitWidgetPanelWidth(persistedSettings.splitWidgetPanelWidth),
+            splitWidgetPanelCollapsed: persistedSettings.splitWidgetPanelCollapsed === true,
+            splitWidgetCanvas: normalizeSplitWidgetCanvas(persistedSettings.splitWidgetCanvas),
             runnerProfiles,
             runner: resolveRunnerConfig(
               persistedSettings.runner?.type ?? DEFAULT_SETTINGS.runner.type,

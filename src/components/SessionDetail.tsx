@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { motion, AnimatePresence } from "framer-motion";
 import { invoke } from "@tauri-apps/api/core";
@@ -15,6 +15,35 @@ const SPRING = {
   damping: 28,
   mass: 0.9,
 };
+
+type DetailPresentation = "overlay" | "embedded";
+
+function SessionDetailEmptyState({ message }: { message: ReactNode }) {
+  return (
+    <div style={{
+      width: "100%",
+      height: "100%",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: 24,
+      color: "var(--ci-text-dim)",
+      fontSize: 12,
+      textAlign: "center",
+      lineHeight: 1.7,
+    }}>
+      <div style={{
+        maxWidth: 240,
+        padding: "18px 20px",
+        borderRadius: 16,
+        background: "var(--ci-surface)",
+        border: "1px solid var(--ci-toolbar-border)",
+      }}>
+        {message}
+      </div>
+    </div>
+  );
+}
 
 // ── CLI 安装命令映射 ───────────────────────────────────────────
 const CLI_INSTALL_CMD: Partial<Record<RunnerType, string>> = {
@@ -131,6 +160,7 @@ interface PanelProps {
   sessionId: string;
   isOpen: boolean;
   onClose: () => void;
+  presentation: DetailPresentation;
 }
 
 function hasNativeResumeBinding(
@@ -141,7 +171,7 @@ function hasNativeResumeBinding(
   return runnerType === "claude-code" || runnerType === "codex";
 }
 
-function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
+function SessionPanel({ sessionId, isOpen, onClose, presentation }: PanelProps) {
   const isWindows = navigator.userAgent.toLowerCase().includes("windows");
   const session = useSessionStore((s) => s.sessions.find((x) => x.id === sessionId));
   const worktreeReady = useSessionStore((s) => s.worktreeReadyIds.has(sessionId));
@@ -307,15 +337,14 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
 
   // 展开/收起时调整窗口大小
   useEffect(() => {
+    if (presentation !== "overlay") return;
     if (isOpen) {
       hasOpenedRef.current = true;
-      // 展开：临时放大，不写盘（不覆盖用户记忆的基础大小）
       invoke("resize_popup_full", { width: 700, height: 600 }).catch(() => {});
     } else if (hasOpenedRef.current) {
-      // 收起：恢复到用户记忆的基础大小（从磁盘读取），不硬编码尺寸
       invoke("restore_popup_bounds").catch(() => {});
     }
-  }, [isOpen]);
+  }, [isOpen, presentation]);
 
   // 展开且未发送 query 时自动聚焦输入框
   useEffect(() => {
@@ -525,6 +554,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
       : (resumeSessionId ? ["resume", resumeSessionId] : []);
 
   const contextEnv = buildContextEnv();
+  const isOverlay = presentation === "overlay";
   const panelRadius = isGlass ? "var(--ci-shell-radius)" : 14;
   const panelBackground = isGlass ? "transparent" : "var(--ci-pty-panel-bg)";
   const panelBorder = isGlass ? "none" : "1px solid var(--ci-pty-panel-border)";
@@ -569,42 +599,45 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
         if (!isOpen) setHidden(true);
       }}
       style={{
-        position: "fixed",
-        top: 6, left: 6, right: 6, bottom: 6,
-        zIndex: hidden ? -1 : 200,
-        borderRadius: panelRadius,
+        position: isOverlay ? "fixed" : "absolute",
+        top: isOverlay ? 6 : 0,
+        left: isOverlay ? 6 : 0,
+        right: isOverlay ? 6 : 0,
+        bottom: isOverlay ? 6 : 0,
+        zIndex: hidden ? -1 : isOverlay ? 200 : 1,
+        borderRadius: isOverlay ? panelRadius : 0,
         overflow: "hidden",
         background: panelBackground,
-        backdropFilter: isGlass ? "none" : "blur(48px) saturate(1.5)",
-        WebkitBackdropFilter: isGlass ? "none" : "blur(48px) saturate(1.5)",
-        border: panelBorder,
+        backdropFilter: isGlass && !isOverlay ? "none" : isGlass ? "none" : "blur(48px) saturate(1.5)",
+        WebkitBackdropFilter: isGlass && !isOverlay ? "none" : isGlass ? "none" : "blur(48px) saturate(1.5)",
+        border: isOverlay ? panelBorder : "none",
         display: "flex",
         flexDirection: "column",
         visibility: hidden ? "hidden" : "visible",
         textShadow,
       }}
     >
-      {/* ── 标题栏（data-tauri-drag-region 让整条都可拖动窗口）── */}
+      {/* ── 标题栏（data-tauri-drag-region={isOverlay ? "true" : undefined} 让整条都可拖动窗口）── */}
       <div
-        data-tauri-drag-region
+        data-tauri-drag-region={isOverlay ? "true" : undefined}
         style={{
           display: "flex", alignItems: "center", gap: 10,
           padding: "12px 16px 10px",
           borderBottom: titlebarBorder,
           flexShrink: 0,
-          cursor: "grab",
+          cursor: isOverlay ? "grab" : "default",
           userSelect: "none",
           WebkitUserSelect: "none",
           background: titlebarBackground,
         }}
       >
-        <TrafficLights onClose={onClose} size={12} gap={6} />
+        {isOverlay ? <TrafficLights onClose={onClose} size={12} gap={6} /> : <div style={{ width: 54, flexShrink: 0 }} />}
 
-        <span data-tauri-drag-region style={{
+        <span data-tauri-drag-region={isOverlay ? "true" : undefined} style={{
           flex: 1, fontSize: 12, fontWeight: 600,
           color: titlebarText,
           overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-          cursor: "grab",
+          cursor: isOverlay ? "grab" : "default",
           letterSpacing: -0.2,
         }}>
           {installing ? `正在安装 ${runnerBadge}…` : session.name}
@@ -612,7 +645,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
 
         {/* Runner 标识 */}
         <span
-          data-tauri-drag-region
+          data-tauri-drag-region={isOverlay ? "true" : undefined}
           style={{
             fontSize: 10, padding: "2px 8px", borderRadius: 99,
             background: runnerChipBackground,
@@ -626,7 +659,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
 
         {installing && (
           <button
-            data-tauri-drag-region
+            data-tauri-drag-region={isOverlay ? "true" : undefined}
             onClick={() => { setInstalling(false); recheckCli(); }}
             onMouseDown={(e) => e.stopPropagation()}
             style={{
@@ -642,7 +675,7 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
 
         {!installing && (
           <button
-            data-tauri-drag-region
+            data-tauri-drag-region={isOverlay ? "true" : undefined}
             onClick={onClose}
             onMouseDown={(e) => e.stopPropagation()}
             style={{
@@ -920,33 +953,59 @@ function SessionPanel({ sessionId, isOpen, onClose }: PanelProps) {
 }
 
 // ── 主组件 ──
-export function SessionDetail() {
+export function SessionDetail({
+  mode,
+  emptyState,
+  openSessionId,
+}: {
+  mode: DetailPresentation;
+  emptyState?: ReactNode;
+  openSessionId?: string | null;
+}) {
   const { expandedSessionId, setExpandedSession, sessions } = useSessionStore();
+  const visibleSessionId = openSessionId === undefined ? expandedSessionId : openSessionId;
 
-  // 记录所有曾经被展开过的 session id，保持其 Panel 常驻以维持 PTY 进程
   const [mountedIds, setMountedIds] = useState<string[]>([]);
 
   useEffect(() => {
-    if (!expandedSessionId) return;
+    if (!visibleSessionId) return;
     setMountedIds((prev) =>
-      prev.includes(expandedSessionId) ? prev : [...prev, expandedSessionId]
+      prev.includes(visibleSessionId) ? prev : [...prev, visibleSessionId]
     );
-  }, [expandedSessionId]);
+  }, [visibleSessionId]);
 
-  // 当 session 被删除时，从 mountedIds 中移除，实现卸载销毁
   useEffect(() => {
     const sessionIds = new Set(sessions.map((s) => s.id));
     setMountedIds((prev) => prev.filter((id) => sessionIds.has(id)));
   }, [sessions]);
 
   useEffect(() => {
-    if (!expandedSessionId) return;
+    if (mode !== "overlay" || !visibleSessionId) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") setExpandedSession(null);
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [expandedSessionId, setExpandedSession]);
+  }, [mode, visibleSessionId, setExpandedSession]);
+
+  if (mode === "embedded") {
+    return (
+      <div style={{ position: "relative", width: "100%", height: "100%", minHeight: 0, overflow: "hidden" }}>
+        {mountedIds.map((sid) => (
+          <SessionPanel
+            key={sid}
+            sessionId={sid}
+            isOpen={visibleSessionId === sid}
+            onClose={() => setExpandedSession(null)}
+            presentation="embedded"
+          />
+        ))}
+        {!visibleSessionId && (
+          emptyState ? <>{emptyState}</> : <SessionDetailEmptyState message="选择一个会话以在右侧打开终端。" />
+        )}
+      </div>
+    );
+  }
 
   return (
     <>
@@ -954,8 +1013,9 @@ export function SessionDetail() {
         <SessionPanel
           key={sid}
           sessionId={sid}
-          isOpen={expandedSessionId === sid}
+          isOpen={visibleSessionId === sid}
           onClose={() => setExpandedSession(null)}
+          presentation="overlay"
         />
       ))}
     </>

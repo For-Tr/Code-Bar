@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, type PointerEvent as ReactPointerEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -10,6 +10,7 @@ import { SessionList } from "./components/SessionList";
 import { DiffViewer } from "./components/DiffViewer";
 import { StatusBar } from "./components/StatusBar";
 import { SessionDetail } from "./components/SessionDetail";
+import { SplitWidgetPanel } from "./components/SplitWidgetPanel";
 import Settings from "./components/Settings";
 import { useSessionStore, DiffFile, type ClaudeSession } from "./store/sessionStore";
 import {
@@ -52,11 +53,14 @@ export default function App() {
     setExpandedSession,
   } = useSessionStore();
 
-  const settings = useSettingsStore((s) => s.settings);
+  const { settings, patchSettings } = useSettingsStore();
   const settingsOpen = useSettingsStore((s) => s.settingsOpen);
+  const closeSettings = useSettingsStore((s) => s.closeSettings);
   const { activeWorkspaceId } = useWorkspaceStore();
   const isGlass = isGlassTheme(settings.theme);
-  const isSubPageOpen = settingsOpen || expandedSessionId !== null;
+  const isOriginalLayout = settings.layoutMode === "original";
+  const overlaySessionOpen = isOriginalLayout && expandedSessionId !== null;
+  const isSubPageOpen = settingsOpen || overlaySessionOpen;
 
   // ── 主题注入：根据 settings.theme 向 :root 写入 CSS 变量 ──────
   useEffect(() => {
@@ -353,6 +357,10 @@ export default function App() {
   const activeSession = sessions.find(
     (s) => s.id === activeSessionId && s.workspaceId === activeWorkspaceId
   );
+  const expandedSession = sessions.find((s) => s.id === expandedSessionId) ?? null;
+  const visibleSplitSessionId = expandedSession?.workspaceId === activeWorkspaceId
+    ? expandedSession.id
+    : null;
 
   const refreshSessionDiff = useCallback((sessionId?: string | null) => {
     if (!("__TAURI_INTERNALS__" in window)) return;
@@ -384,24 +392,26 @@ export default function App() {
   // ── Esc 关闭 ──────────────────────────────────────────────
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") invoke("close_popup").catch(() => {});
+      if (e.key !== "Escape") return;
+      if (settingsOpen) {
+        closeSettings();
+        return;
+      }
+      if (isOriginalLayout && expandedSessionId !== null) return;
+      invoke("close_popup").catch(() => {});
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, []);
+  }, [settingsOpen, closeSettings, isOriginalLayout, expandedSessionId]);
 
   // ── 浮窗位置 / 大小记忆：用户拖动/调整后防抖 500ms 写盘 ──
   // 注意：只在基础状态（非展开）下保存，展开状态是临时的，不应覆盖记忆。
   // expandedSessionId 不为 null 表示终端面板已展开。
   const boundsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // 用 ref 存 expandedSessionId，让 onMoved/onResized 回调读取最新值（避免闭包过时）
-  const expandedSessionRef = useRef(useSessionStore.getState().expandedSessionId);
+  const suppressBoundsPersistenceRef = useRef(overlaySessionOpen);
   useEffect(() => {
-    const unsub = useSessionStore.subscribe((s) => {
-      expandedSessionRef.current = s.expandedSessionId;
-    });
-    return unsub;
-  }, []);
+    suppressBoundsPersistenceRef.current = overlaySessionOpen;
+  }, [overlaySessionOpen]);
 
   useEffect(() => {
     if (!("__TAURI_INTERNALS__" in window)) return;
@@ -412,8 +422,8 @@ export default function App() {
     // onResized payload = PhysicalSize { width, height }（物理像素）
     // 直接从 payload 读取，无需额外异步调用。
     const debouncedSave = (physX: number, physY: number, physW: number, physH: number) => {
-      // 展开状态下跳过，避免把展开后的大尺寸写盘
-      if (expandedSessionRef.current !== null) return;
+      // 仅 overlay 展开状态下跳过，避免把临时放大的尺寸写盘
+      if (suppressBoundsPersistenceRef.current) return;
       if (boundsTimerRef.current) clearTimeout(boundsTimerRef.current);
       boundsTimerRef.current = setTimeout(async () => {
         try {
@@ -432,7 +442,7 @@ export default function App() {
 
     // onMoved：payload 只有位置，宽高需读当前值
     const unlistenMoved = win.onMoved(async ({ payload: pos }) => {
-      if (expandedSessionRef.current !== null) return;
+      if (suppressBoundsPersistenceRef.current) return;
       try {
         const size = await win.innerSize();
         debouncedSave(pos.x, pos.y, size.width, size.height);
@@ -441,7 +451,7 @@ export default function App() {
 
     // onResized：payload 只有尺寸，位置需读当前值
     const unlistenResized = win.onResized(async ({ payload: size }) => {
-      if (expandedSessionRef.current !== null) return;
+      if (suppressBoundsPersistenceRef.current) return;
       try {
         const pos = await win.outerPosition();
         debouncedSave(pos.x, pos.y, size.width, size.height);
@@ -635,11 +645,151 @@ export default function App() {
   }, [activeSession?.id, refreshSessionDiff]);
 
   const hasDiff = (activeSession?.diffFiles.length ?? 0) > 0;
+  const splitSidebarWidth = settings.splitPaneSidebarWidth;
+  const splitWidgetPanelWidth = settings.splitWidgetPanelWidth;
+  const splitWidgetPanelCollapsed = settings.splitWidgetPanelCollapsed;
+
+  const handleSplitPanePointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = splitSidebarWidth;
+    const minWidth = 280;
+    const maxWidth = 560;
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      const nextWidth = Math.min(maxWidth, Math.max(minWidth, Math.round(startWidth + moveEvent.clientX - startX)));
+      patchSettings({ splitPaneSidebarWidth: nextWidth });
+    };
+
+    const handlePointerUp = () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+  }, [patchSettings, splitSidebarWidth]);
+
+  const handleWidgetPanePointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = splitWidgetPanelWidth;
+    const minWidth = 220;
+    const maxWidth = 420;
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      const nextWidth = Math.min(maxWidth, Math.max(minWidth, Math.round(startWidth - (moveEvent.clientX - startX))));
+      patchSettings({
+        splitWidgetPanelWidth: nextWidth,
+        splitWidgetPanelCollapsed: false,
+      });
+    };
+
+    const handlePointerUp = () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+  }, [patchSettings, splitWidgetPanelWidth]);
+
+  const menuContent = (
+    <>
+      <TitleBar />
+      <div style={{
+        flex: 1,
+        overflowY: "auto",
+        overflowX: "hidden",
+        position: "relative",
+        scrollbarWidth: "none",
+        zIndex: 1,
+      }}>
+        <div style={{ padding: "6px 18px 0" }}>
+          <WorkspaceStack />
+        </div>
+
+        <div style={{ padding: "0 18px 12px" }}>
+          <SessionList />
+        </div>
+
+        <AnimatePresence>
+          {hasDiff && (
+            <motion.div
+              key="diff"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.2 }}
+              style={{
+                margin: "0 18px 16px",
+                overflow: "hidden",
+                background: "transparent",
+              }}
+            >
+              <div style={{
+                display: "flex", alignItems: "center", gap: 8,
+                padding: "8px 0 6px",
+                borderTop: "1px solid var(--ci-toolbar-border)",
+              }}>
+                <span style={{
+                  fontSize: 10, fontWeight: 600,
+                  letterSpacing: "0.07em", textTransform: "uppercase",
+                  color: "var(--ci-text-dim)",
+                }}>
+                  变更
+                </span>
+                <span style={{
+                  fontSize: 9.5, padding: "1px 6px", borderRadius: 999,
+                  background: "var(--ci-green-bg)",
+                  border: "1px solid var(--ci-green-bdr)",
+                  color: "var(--ci-green-dark)",
+                  fontWeight: 600,
+                }}>
+                  +{activeSession!.diffFiles.reduce((s, f) => s + f.additions, 0)}
+                </span>
+                <span style={{
+                  fontSize: 9.5, padding: "1px 6px", borderRadius: 999,
+                  background: "var(--ci-deleted-bg)",
+                  border: "1px solid var(--ci-border-med)",
+                  color: "var(--ci-deleted-text)",
+                  fontWeight: 600,
+                }}>
+                  −{activeSession!.diffFiles.reduce((s, f) => s + f.deletions, 0)}
+                </span>
+                <div style={{ flex: 1, height: 1, background: "var(--ci-border)" }} />
+              </div>
+              <div style={{
+                border: "1px solid var(--ci-toolbar-border)",
+                borderRadius: 14,
+                overflow: "hidden",
+                background: "var(--ci-surface)",
+              }}>
+                <DiffViewer files={activeSession!.diffFiles} />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <div style={{
+          position: "sticky",
+          bottom: 0,
+          left: 0,
+          right: 0,
+          height: 28,
+          background: "linear-gradient(to bottom, transparent, var(--ci-bg-grad))",
+          pointerEvents: "none",
+          flexShrink: 0,
+        }} />
+      </div>
+
+      <StatusBar session={activeSession} />
+    </>
+  );
 
   return (
     <>
-      {/* ── PTY 终端展开层（位于 popup 外部，常驻挂载） ── */}
-      <SessionDetail />
+      {isOriginalLayout && <SessionDetail mode="overlay" />}
 
       <div style={{
         width: "100vw",
@@ -671,137 +821,142 @@ export default function App() {
             minHeight: 0,
             flexDirection: "column",
           }}>
-            {/* ── Settings 页面 ── */}
             <Settings />
 
-            {!isSubPageOpen && (
-              <>
-                {/* ── 标题栏（固定不滚动） ── */}
-                <TitleBar />
-
-                {/* ── 可滚动内容区域 ── */}
+            {isOriginalLayout ? (
+              !isSubPageOpen && menuContent
+            ) : (
+              <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
                 <div style={{
-                  flex: 1,
-                  overflowY: "auto",
-                  overflowX: "hidden",
-                  position: "relative",
-                  scrollbarWidth: "none",
-                  zIndex: 1,
+                  width: splitSidebarWidth,
+                  flexShrink: 0,
+                  display: "flex",
+                  flexDirection: "column",
+                  minHeight: 0,
+                  background: isGlass ? "var(--ci-toolbar-bg)" : "transparent",
                 }}>
-                  {/* Workspace 堆叠卡片 */}
-                  <div style={{ padding: "6px 18px 0" }}>
-                    <WorkspaceStack />
-                  </div>
+                  {menuContent}
+                </div>
 
-                  {/* Session 列表（在激活 Workspace 下） */}
-                  <div style={{ padding: "0 18px 12px" }}>
-                    <SessionList />
-                  </div>
-
-                  {/* 当前 Session Diff */}
-                  <AnimatePresence>
-                    {hasDiff && (
-                      <motion.div
-                        key="diff"
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: "auto" }}
-                        exit={{ opacity: 0, height: 0 }}
-                        transition={{ duration: 0.2 }}
-                        style={{
-                          margin: "0 18px 16px",
-                          overflow: "hidden",
-                          background: "transparent",
-                        }}
-                      >
-                        <div style={{
-                          display: "flex", alignItems: "center", gap: 8,
-                          padding: "8px 0 6px",
-                          borderTop: "1px solid var(--ci-toolbar-border)",
-                        }}>
-                          <span style={{
-                            fontSize: 10, fontWeight: 600,
-                            letterSpacing: "0.07em", textTransform: "uppercase",
-                            color: "var(--ci-text-dim)",
-                          }}>
-                            变更
-                          </span>
-                          <span style={{
-                            fontSize: 9.5, padding: "1px 6px", borderRadius: 999,
-                            background: "var(--ci-green-bg)",
-                            border: "1px solid var(--ci-green-bdr)",
-                            color: "var(--ci-green-dark)",
-                            fontWeight: 600,
-                          }}>
-                            +{activeSession!.diffFiles.reduce((s, f) => s + f.additions, 0)}
-                          </span>
-                          <span style={{
-                            fontSize: 9.5, padding: "1px 6px", borderRadius: 999,
-                            background: "var(--ci-deleted-bg)",
-                            border: "1px solid var(--ci-border-med)",
-                            color: "var(--ci-deleted-text)",
-                            fontWeight: 600,
-                          }}>
-                            −{activeSession!.diffFiles.reduce((s, f) => s + f.deletions, 0)}
-                          </span>
-                          <div style={{ flex: 1, height: 1, background: "var(--ci-border)" }} />
-                          <button
-                            onClick={() => refreshSessionDiff(activeSession!.id)}
-                            title="刷新变更"
-                            aria-label="刷新变更"
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              width: 22,
-                              height: 22,
-                              padding: 0,
-                              borderRadius: 6,
-                              border: "none",
-                              background: "transparent",
-                              color: "var(--ci-text-dim)",
-                              cursor: "pointer",
-                              flexShrink: 0,
-                            }}
-                            onMouseEnter={(e) => {
-                              e.currentTarget.style.background = "var(--ci-btn-ghost-bg)";
-                              e.currentTarget.style.color = "var(--ci-text)";
-                            }}
-                            onMouseLeave={(e) => {
-                              e.currentTarget.style.background = "transparent";
-                              e.currentTarget.style.color = "var(--ci-text-dim)";
-                            }}
-                          >
-                            <RefreshIcon />
-                          </button>
-                        </div>
-                        <div style={{
-                          border: "1px solid var(--ci-toolbar-border)",
-                          borderRadius: 14,
-                          overflow: "hidden",
-                          background: "var(--ci-surface)",
-                        }}>
-                          <DiffViewer files={activeSession!.diffFiles} />
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-
-                  {/* 底部淡出遮罩 */}
-                  <div style={{
-                    position: "sticky",
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    height: 28,
-                    background: "linear-gradient(to bottom, transparent, var(--ci-bg-grad))",
-                    pointerEvents: "none",
+                <div
+                  onPointerDown={handleSplitPanePointerDown}
+                  title="拖拽调整分栏宽度"
+                  style={{
+                    width: 10,
+                    marginLeft: -5,
+                    marginRight: -5,
+                    cursor: "col-resize",
+                    zIndex: 3,
+                    touchAction: "none",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
                     flexShrink: 0,
+                  }}
+                >
+                  <div style={{
+                    width: 2,
+                    height: "100%",
+                    background: "var(--ci-toolbar-border)",
+                    borderRadius: 999,
                   }} />
                 </div>
 
-                {/* ── 状态栏（固定在底部） ── */}
-                <StatusBar session={activeSession} />
-              </>
+                <div style={{ flex: 1, minWidth: 0, minHeight: 0, position: "relative", display: "flex", borderLeft: "1px solid var(--ci-toolbar-border)" }}>
+                  <SessionDetail
+                    mode="embedded"
+                    openSessionId={visibleSplitSessionId}
+                    emptyState={
+                      <div style={{
+                        height: "100%",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        padding: 24,
+                      }}>
+                        <div style={{
+                          maxWidth: 260,
+                          padding: "20px 22px",
+                          borderRadius: 18,
+                          background: "var(--ci-surface)",
+                          border: "1px solid var(--ci-toolbar-border)",
+                          color: "var(--ci-text-dim)",
+                          fontSize: 12,
+                          textAlign: "center",
+                          lineHeight: 1.7,
+                        }}>
+                          {expandedSessionId && !visibleSplitSessionId
+                            ? "当前打开的终端不属于这个 workspace。切换回对应 workspace，或重新在左侧展开一个会话。"
+                            : "从左侧会话列表中展开一个终端，中间会显示 PTY 详情。"}
+                        </div>
+                      </div>
+                    }
+                  />
+                </div>
+
+                {!splitWidgetPanelCollapsed && (
+                  <div
+                    onPointerDown={handleWidgetPanePointerDown}
+                    title="拖拽调整组件区宽度"
+                    style={{
+                      width: 10,
+                      marginLeft: -5,
+                      marginRight: -5,
+                      cursor: "col-resize",
+                      zIndex: 3,
+                      touchAction: "none",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      flexShrink: 0,
+                    }}
+                  >
+                    <div style={{
+                      width: 2,
+                      height: "100%",
+                      background: "var(--ci-toolbar-border)",
+                      borderRadius: 999,
+                    }} />
+                  </div>
+                )}
+
+                {splitWidgetPanelCollapsed ? (
+                  <div style={{
+                    width: 36,
+                    flexShrink: 0,
+                    borderLeft: "1px solid var(--ci-toolbar-border)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    background: isGlass ? "var(--ci-toolbar-bg)" : "transparent",
+                  }}>
+                    <button
+                      onClick={() => patchSettings({ splitWidgetPanelCollapsed: false })}
+                      title="展开组件区"
+                      style={{
+                        background: "none",
+                        border: "none",
+                        color: "var(--ci-text-muted)",
+                        cursor: "pointer",
+                        fontSize: 12,
+                        writingMode: "vertical-rl",
+                        padding: 0,
+                      }}
+                    >
+                      展开
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{
+                    width: splitWidgetPanelWidth,
+                    flexShrink: 0,
+                    minHeight: 0,
+                    background: isGlass ? "var(--ci-toolbar-bg)" : "transparent",
+                  }}>
+                    <SplitWidgetPanel />
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </motion.div>

@@ -467,7 +467,7 @@ export function PtyTerminal({
       termRef.current?.focus();
     }, 80);
     return () => clearTimeout(t);
-  }, [active]);
+  }, [active, sessionId]);
 
   // active ref：供 ResizeObserver 回调访问（避免闭包过时）
   const activeRef = useRef(active);

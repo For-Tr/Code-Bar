@@ -420,6 +420,7 @@ export function SessionList() {
   const handleNewSession = async () => {
     if (!activeWorkspace) return;
     const id = addSession(activeWorkspace.id, activeWorkspace.path, undefined, { ...runner });
+    setActiveSession(id);
     setExpandedSession(id);
 
     if ("__TAURI_INTERNALS__" in window) {

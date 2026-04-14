@@ -12,6 +12,7 @@ mod runner;
 mod session_lifecycle;
 mod state;
 mod ui_state;
+mod usage;
 mod util;
 mod window;
 
@@ -251,6 +252,7 @@ pub fn run() {
             ui_state::remove_ui_state,
             ui_state::recover_workspace_sessions,
             ui_state::save_recovery_binding,
+            usage::refresh_runner_usage,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
