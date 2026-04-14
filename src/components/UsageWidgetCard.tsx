@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { RUNNER_LABELS, type RunnerType } from "../store/settingsStore";
 import { useSessionStore } from "../store/sessionStore";
@@ -62,6 +62,7 @@ export function UsageWidgetCard() {
   const expandedSessionId = useSessionStore((s) => s.expandedSessionId);
   const [loading, setLoading] = useState(false);
   const [snapshot, setSnapshot] = useState<RunnerUsageSnapshot | null>(null);
+  const refreshAbortRef = useRef(false);
 
   const runnerType = useMemo<RunnerType>(() => {
     const session = sessions.find((item) => item.id === expandedSessionId) ?? null;
@@ -79,12 +80,15 @@ export function UsageWidgetCard() {
   const handleRefresh = async () => {
     if (loading) return;
     setLoading(true);
+    const requestRunner = runnerType;
     try {
-      const next = await invoke<RunnerUsageSnapshot>("refresh_runner_usage", { runnerType });
+      const next = await invoke<RunnerUsageSnapshot>("refresh_runner_usage", { runnerType: requestRunner });
+      if (refreshAbortRef.current || requestRunner !== runnerType) return;
       setSnapshot(next);
     } catch (error) {
+      if (refreshAbortRef.current || requestRunner !== runnerType) return;
       setSnapshot({
-        runner_type: runnerType,
+        runner_type: requestRunner,
         source: "unsupported",
         auth_status: null,
         usage_summary: null,
@@ -94,9 +98,26 @@ export function UsageWidgetCard() {
         error: error instanceof Error ? error.message : String(error),
       });
     } finally {
-      setLoading(false);
+      if (!refreshAbortRef.current) {
+        setLoading(false);
+      }
     }
   };
+
+  useEffect(() => {
+    refreshAbortRef.current = false;
+    setSnapshot(null);
+    setLoading(false);
+    void handleRefresh();
+    const timer = window.setInterval(() => {
+      void handleRefresh();
+    }, 3 * 60 * 1000);
+    return () => {
+      refreshAbortRef.current = true;
+      window.clearInterval(timer);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runnerType]);
 
   return (
     <div style={{

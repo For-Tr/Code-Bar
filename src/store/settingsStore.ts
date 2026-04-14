@@ -64,6 +64,7 @@ export interface SplitWidgetCanvasItem {
 export interface SplitWidgetCanvas {
   cellSize: number;
   items: SplitWidgetCanvasItem[];
+  filledSnapshot?: SplitWidgetCanvasItem[] | null;
 }
 
 function normalizeSplitWidgetCanvasItem(item: unknown): SplitWidgetCanvasItem | null {
@@ -90,11 +91,11 @@ export function normalizeSplitWidgetCanvas(canvas: unknown): SplitWidgetCanvas {
   const normalizedItems = items.length > 0 ? [...items] : [];
 
   if (!normalizedItems.some((item) => item.type === "terminal")) {
-    normalizedItems.unshift({ id: "terminal-widget-1", type: "terminal", col: 1, row: 1, colSpan: 18, rowSpan: 13, visible: true });
+    normalizedItems.unshift({ id: "terminal-widget-1", type: "terminal", col: 2, row: 16, colSpan: 18, rowSpan: 13, visible: true });
   }
 
   if (!normalizedItems.some((item) => item.type === "usage")) {
-    normalizedItems.push({ id: "usage-widget-1", type: "usage", col: 1, row: 15, colSpan: 18, rowSpan: 10, visible: true });
+    normalizedItems.push({ id: "usage-widget-1", type: "usage", col: 2, row: 2, colSpan: 18, rowSpan: 10, visible: true });
   }
 
   return {
@@ -102,6 +103,9 @@ export function normalizeSplitWidgetCanvas(canvas: unknown): SplitWidgetCanvas {
       ? Math.max(8, Math.round(candidate.cellSize))
       : 12,
     items: normalizedItems,
+    filledSnapshot: Array.isArray(candidate.filledSnapshot)
+      ? candidate.filledSnapshot.map(normalizeSplitWidgetCanvasItem).filter((item): item is SplitWidgetCanvasItem => item !== null)
+      : null,
   };
 }
 
@@ -181,9 +185,10 @@ const DEFAULT_SETTINGS: Settings = {
   splitWidgetCanvas: {
     cellSize: 12,
     items: [
-      { id: "terminal-widget-1", type: "terminal", col: 1, row: 1, colSpan: 18, rowSpan: 13, visible: true },
-      { id: "usage-widget-1", type: "usage", col: 1, row: 15, colSpan: 18, rowSpan: 10, visible: true },
+      { id: "terminal-widget-1", type: "terminal", col: 2, row: 16, colSpan: 18, rowSpan: 13, visible: true },
+      { id: "usage-widget-1", type: "usage", col: 2, row: 2, colSpan: 18, rowSpan: 10, visible: true },
     ],
+    filledSnapshot: null,
   },
 };
 

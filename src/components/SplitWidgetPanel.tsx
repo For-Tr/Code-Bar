@@ -6,11 +6,14 @@ import { UsageWidgetCard } from "./UsageWidgetCard";
 import { useSettingsStore, isGlassTheme, type SplitWidgetCanvasItem } from "../store/settingsStore";
 import { useSessionStore } from "../store/sessionStore";
 
+const WIDGET_GAP = 1;
+const PANEL_MARGIN = 1;
+
 function rectsOverlap(a: SplitWidgetCanvasItem, b: SplitWidgetCanvasItem) {
-  return a.col < b.col + b.colSpan
-    && a.col + a.colSpan > b.col
-    && a.row < b.row + b.rowSpan
-    && a.row + a.rowSpan > b.row;
+  return a.col < b.col + b.colSpan + WIDGET_GAP
+    && a.col + a.colSpan + WIDGET_GAP > b.col
+    && a.row < b.row + b.rowSpan + WIDGET_GAP
+    && a.row + a.rowSpan + WIDGET_GAP > b.row;
 }
 
 function clampRectToBounds(
@@ -24,8 +27,8 @@ function clampRectToBounds(
     ...item,
     colSpan,
     rowSpan,
-    col: Math.max(1, Math.min(item.col, Math.max(1, maxCols - colSpan + 1))),
-    row: Math.max(1, Math.min(item.row, Math.max(1, maxRows - rowSpan + 1))),
+    col: Math.max(PANEL_MARGIN, Math.min(item.col, Math.max(PANEL_MARGIN, maxCols - colSpan - PANEL_MARGIN))),
+    row: Math.max(PANEL_MARGIN, Math.min(item.row, Math.max(PANEL_MARGIN, maxRows - rowSpan - PANEL_MARGIN))),
   };
 }
 
@@ -39,15 +42,15 @@ function findNearestFreePlacement(
   maxCols: number,
   maxRows: number
 ): SplitWidgetCanvasItem | null {
-  const maxColStart = Math.max(1, maxCols - candidate.colSpan + 1);
-  const maxRowStart = Math.max(1, maxRows - candidate.rowSpan + 1);
-  const targetCol = Math.max(1, Math.min(candidate.col, maxColStart));
-  const targetRow = Math.max(1, Math.min(candidate.row, maxRowStart));
+  const maxColStart = Math.max(PANEL_MARGIN, maxCols - candidate.colSpan - PANEL_MARGIN);
+  const maxRowStart = Math.max(PANEL_MARGIN, maxRows - candidate.rowSpan - PANEL_MARGIN);
+  const targetCol = Math.max(PANEL_MARGIN, Math.min(candidate.col, maxColStart));
+  const targetRow = Math.max(PANEL_MARGIN, Math.min(candidate.row, maxRowStart));
   let best: SplitWidgetCanvasItem | null = null;
   let bestDistance = Number.POSITIVE_INFINITY;
 
-  for (let row = 1; row <= maxRowStart; row += 1) {
-    for (let col = 1; col <= maxColStart; col += 1) {
+  for (let row = PANEL_MARGIN; row <= maxRowStart; row += 1) {
+    for (let col = PANEL_MARGIN; col <= maxColStart; col += 1) {
       const next = { ...candidate, col, row };
       if (collides(next, items, candidate.id)) continue;
       const distance = Math.abs(col - targetCol) + Math.abs(row - targetRow);
@@ -73,6 +76,47 @@ function repairLayout(items: SplitWidgetCanvasItem[], maxCols: number, maxRows: 
   return placed;
 }
 
+function shellQuote(value: string) {
+  if (!value) return "''";
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
+}
+
+function expandLayoutToFill(items: SplitWidgetCanvasItem[], maxCols: number, maxRows: number) {
+  const order = [...items].sort((a, b) => {
+    if (a.type === b.type) {
+      if (a.row !== b.row) return a.row - b.row;
+      return a.col - b.col;
+    }
+    return a.type === "terminal" ? -1 : 1;
+  });
+  const current = new Map(order.map((item) => [item.id, { ...item }]));
+
+  for (const seed of order) {
+    let next = current.get(seed.id)!;
+    let changed = true;
+    const growthOrder = next.type === "terminal" ? ["row", "col"] as const : ["col", "row"] as const;
+
+    while (changed) {
+      changed = false;
+      for (const axis of growthOrder) {
+        const candidate = axis === "col"
+          ? clampRectToBounds({ ...next, colSpan: next.colSpan + 1 }, maxCols, maxRows)
+          : clampRectToBounds({ ...next, rowSpan: next.rowSpan + 1 }, maxCols, maxRows);
+        const sameSize = candidate.colSpan === next.colSpan && candidate.rowSpan === next.rowSpan;
+        if (sameSize) continue;
+        const others = [...current.values()].filter((item) => item.id !== next.id);
+        if (!collides(candidate, others, next.id)) {
+          next = candidate;
+          current.set(next.id, next);
+          changed = true;
+        }
+      }
+    }
+  }
+
+  return items.map((item) => current.get(item.id) ?? item);
+}
+
 export function SplitWidgetPanel() {
   const { settings, patchSettings } = useSettingsStore();
   const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
@@ -87,6 +131,13 @@ export function SplitWidgetPanel() {
     [expandedSessionId, sessions]
   );
   const terminalWorkdir = session?.worktreePath ?? session?.workdir ?? "";
+  const widgetTerminalSessionId = session
+    ? `widget-${session.id}-${terminalWorkdir.replace(/[^a-zA-Z0-9_-]/g, "_")}`
+    : "widget-none";
+  const terminalCommand = navigator.userAgent.toLowerCase().includes("windows") ? "cmd.exe" : "sh";
+  const terminalArgs = navigator.userAgent.toLowerCase().includes("windows")
+    ? ["/K", `cd /d "${terminalWorkdir}"`]
+    : ["-lc", `cd ${shellQuote(terminalWorkdir)} && exec zsh -i`];
   const widgets = settings.splitWidgetCanvas.items.filter((item) => item.visible !== false);
   const gridUnit = settings.splitWidgetCanvas.cellSize;
   const maxCols = Math.max(12, Math.floor(panelBounds.width / gridUnit));
@@ -143,7 +194,45 @@ export function SplitWidgetPanel() {
         top: 10,
         right: 14,
         zIndex: 20,
+        display: "flex",
+        gap: 10,
       }}>
+        <button
+          onClick={() => {
+            if (settings.splitWidgetCanvas.filledSnapshot && settings.splitWidgetCanvas.filledSnapshot.length > 0) {
+              patchSettings({
+                splitWidgetCanvas: {
+                  ...settings.splitWidgetCanvas,
+                  items: settings.splitWidgetCanvas.filledSnapshot,
+                  filledSnapshot: null,
+                },
+              });
+              return;
+            }
+            const expanded = expandLayoutToFill(repairedWidgets, maxCols, maxRows);
+            const repaired = repairLayout(expanded, maxCols, maxRows);
+            patchSettings({
+              splitWidgetCanvas: {
+                ...settings.splitWidgetCanvas,
+                items: settings.splitWidgetCanvas.items.map((item) => {
+                  const match = repaired.find((candidate) => candidate.id === item.id);
+                  return match ?? item;
+                }),
+                filledSnapshot: settings.splitWidgetCanvas.items,
+              },
+            });
+          }}
+          style={{
+            background: "none",
+            border: "none",
+            color: "var(--ci-text-muted)",
+            cursor: "pointer",
+            fontSize: 12,
+            padding: 0,
+          }}
+        >
+          {settings.splitWidgetCanvas.filledSnapshot ? "还原" : "铺满"}
+        </button>
         <button
           onClick={() => patchSettings({ splitWidgetPanelCollapsed: true })}
           style={{
@@ -234,9 +323,10 @@ export function SplitWidgetPanel() {
             >
               {widget.type === "terminal" && session && terminalWorkdir ? (
                 <PtyTerminal
-                  sessionId={`widget-${session.id}`}
-                  command={navigator.userAgent.toLowerCase().includes("windows") ? "cmd.exe" : "zsh"}
-                  args={[]}
+                  key={widgetTerminalSessionId}
+                  sessionId={widgetTerminalSessionId}
+                  command={terminalCommand}
+                  args={terminalArgs}
                   workdir={terminalWorkdir}
                   active
                 />
