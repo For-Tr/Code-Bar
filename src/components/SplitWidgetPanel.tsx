@@ -20,6 +20,7 @@ import {
   type SplitWidgetTerminalItem,
   type SplitWidgetTerminalTab,
 } from "../store/settingsStore";
+import { getWorkspaceColor, useWorkspaceStore } from "../store/workspaceStore";
 
 const WIDGET_GAP = 1;
 const PANEL_MARGIN = 1;
@@ -1067,8 +1068,16 @@ export function SplitWidgetPanel() {
                 title={
                   isDetailCard
                     ? (
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-                        <span style={{ color: workspaceAccent, flexShrink: 0 }}>✦</span>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                        <span style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          color: workspaceAccent,
+                          fontSize: 18,
+                          lineHeight: 1,
+                          flexShrink: 0,
+                        }}>✦</span>
                         <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {item.title}
                         </span>

@@ -120,13 +120,43 @@ function SessionDetailBody({
   emptyState?: ReactNode;
   openSessionId?: string | null;
 }) {
-  return (
+  const { detailItemId } = useSplitSwapContext();
+  const isSwappedIntoCard = detailItemId !== SESSION_DETAIL_ITEM_ID;
+
+  const body = (
     <SessionDetail
       mode="embedded"
       showPanelHeader={false}
       emptyState={emptyState}
       openSessionId={openSessionId}
     />
+  );
+
+  if (!isSwappedIntoCard) {
+    return body;
+  }
+
+  return (
+    <div style={{
+      width: "100%",
+      height: "100%",
+      minHeight: 0,
+      padding: 3,
+      boxSizing: "border-box",
+      background: "#0a0a0c",
+      ['--ci-pty-panel-bg' as string]: '#0a0a0c',
+      ['--ci-pty-mask-bg' as string]: '#0a0a0c',
+    }}>
+      <div style={{
+        width: "100%",
+        height: "100%",
+        minHeight: 0,
+        overflow: "hidden",
+        background: "#0a0a0c",
+      }}>
+        {body}
+      </div>
+    </div>
   );
 }
 
