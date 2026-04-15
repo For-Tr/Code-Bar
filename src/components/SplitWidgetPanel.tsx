@@ -696,10 +696,22 @@ export function SplitWidgetPanel() {
         <button
           onClick={() => {
             if (settings.splitWidgetCanvas.filledSnapshot && settings.splitWidgetCanvas.filledSnapshot.length > 0) {
+              const snapshotById = new Map(settings.splitWidgetCanvas.filledSnapshot.map((item) => [item.id, item]));
               patchSettings({
                 splitWidgetCanvas: {
                   ...settings.splitWidgetCanvas,
-                  items: settings.splitWidgetCanvas.filledSnapshot,
+                  items: settings.splitWidgetCanvas.items.map((item) => {
+                    const snapshot = snapshotById.get(item.id);
+                    return snapshot
+                      ? {
+                          ...item,
+                          col: snapshot.col,
+                          row: snapshot.row,
+                          colSpan: snapshot.colSpan,
+                          rowSpan: snapshot.rowSpan,
+                        }
+                      : item;
+                  }),
                   filledSnapshot: null,
                 },
               });
@@ -714,7 +726,13 @@ export function SplitWidgetPanel() {
                   const match = repaired.find((candidate) => candidate.id === item.id);
                   return match ?? item;
                 }),
-                filledSnapshot: settings.splitWidgetCanvas.items,
+                filledSnapshot: settings.splitWidgetCanvas.items.map((item) => ({
+                  id: item.id,
+                  col: item.col,
+                  row: item.row,
+                  colSpan: item.colSpan,
+                  rowSpan: item.rowSpan,
+                })),
               },
             });
           }}

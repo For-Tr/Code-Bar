@@ -79,10 +79,18 @@ export interface SplitWidgetUsageItem extends SplitWidgetCanvasItemBase {
 
 export type SplitWidgetCanvasItem = SplitWidgetTerminalItem | SplitWidgetUsageItem;
 
+export interface SplitWidgetCanvasLayoutSnapshotItem {
+  id: string;
+  col: number;
+  row: number;
+  colSpan: number;
+  rowSpan: number;
+}
+
 export interface SplitWidgetCanvas {
   cellSize: number;
   items: SplitWidgetCanvasItem[];
-  filledSnapshot?: SplitWidgetCanvasItem[] | null;
+  filledSnapshot?: SplitWidgetCanvasLayoutSnapshotItem[] | null;
 }
 
 function createDefaultTerminalTab(index = 1): SplitWidgetTerminalTab {
@@ -135,6 +143,19 @@ function normalizeSplitWidgetTerminalTab(tab: unknown, index: number): SplitWidg
     ptySessionKey: typeof candidate.ptySessionKey === "string" && candidate.ptySessionKey.trim()
       ? candidate.ptySessionKey.trim()
       : `terminal-pty-${id}`,
+  };
+}
+
+function normalizeSplitWidgetCanvasLayoutSnapshotItem(item: unknown): SplitWidgetCanvasLayoutSnapshotItem | null {
+  if (!item || typeof item !== "object") return null;
+  const candidate = item as Partial<SplitWidgetCanvasLayoutSnapshotItem> & Partial<SplitWidgetCanvasItem>;
+  if (!candidate.id || typeof candidate.id !== "string") return null;
+  return {
+    id: candidate.id,
+    col: typeof candidate.col === "number" && Number.isFinite(candidate.col) ? Math.max(1, Math.round(candidate.col)) : 1,
+    row: typeof candidate.row === "number" && Number.isFinite(candidate.row) ? Math.max(1, Math.round(candidate.row)) : 1,
+    colSpan: typeof candidate.colSpan === "number" && Number.isFinite(candidate.colSpan) ? Math.max(12, Math.round(candidate.colSpan)) : 18,
+    rowSpan: typeof candidate.rowSpan === "number" && Number.isFinite(candidate.rowSpan) ? Math.max(10, Math.round(candidate.rowSpan)) : 13,
   };
 }
 
@@ -198,7 +219,9 @@ export function normalizeSplitWidgetCanvas(canvas: unknown): SplitWidgetCanvas {
       : 12,
     items: normalizedItems,
     filledSnapshot: Array.isArray(candidate.filledSnapshot)
-      ? candidate.filledSnapshot.map(normalizeSplitWidgetCanvasItem).filter((item): item is SplitWidgetCanvasItem => item !== null)
+      ? candidate.filledSnapshot
+        .map(normalizeSplitWidgetCanvasLayoutSnapshotItem)
+        .filter((item): item is SplitWidgetCanvasLayoutSnapshotItem => item !== null)
       : null,
   };
 }
