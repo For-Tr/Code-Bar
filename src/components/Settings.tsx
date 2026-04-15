@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { useSettingsStore, type ThemeMode, type LayoutMode, isGlassTheme } from "../store/settingsStore";
+import { useSettingsStore, type ThemeMode, type LayoutMode, type SplitWidgetCanvasItem, isGlassTheme } from "../store/settingsStore";
 
 const C = {
   surface:   "var(--ci-surface)",
@@ -372,6 +372,83 @@ function AppearanceTab() {
   );
 }
 
+const COMPONENT_SETTING_GROUPS: {
+  title: string;
+  items: {
+    type: SplitWidgetCanvasItem["type"];
+    label: string;
+    desc: string;
+  }[];
+}[] = [
+  {
+    title: "右侧组件",
+    items: [
+      {
+        type: "terminal",
+        label: "终端组件",
+        desc: "控制右侧终端组件的显示与隐藏。",
+      },
+      {
+        type: "usage",
+        label: "用量组件",
+        desc: "控制右侧用量组件的显示与隐藏。",
+      },
+    ],
+  },
+];
+
+function ComponentsTab() {
+  const { settings, patchSettings } = useSettingsStore();
+
+  const isTypeVisible = (type: SplitWidgetCanvasItem["type"]) => settings.splitWidgetCanvas.items.some((item) => item.type === type && item.visible !== false);
+
+  const updateTypeVisibility = (type: SplitWidgetCanvasItem["type"], visible: boolean) => {
+    const updateItems = (items: SplitWidgetCanvasItem[] | null | undefined) => {
+      if (!items) return items ?? null;
+      return items.map((item) => (item.type === type ? { ...item, visible } : item));
+    };
+
+    patchSettings({
+      splitWidgetCanvas: {
+        ...settings.splitWidgetCanvas,
+        items: updateItems(settings.splitWidgetCanvas.items) ?? [],
+        filledSnapshot: updateItems(settings.splitWidgetCanvas.filledSnapshot),
+      },
+    });
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+      {COMPONENT_SETTING_GROUPS.map((group) => (
+        <div key={group.title}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: C.textDim, marginBottom: 10 }}>
+            {group.title}
+          </div>
+          <div
+            style={{
+              padding: "0 14px",
+              background: "var(--ci-surface-hi)",
+              borderRadius: 14,
+            }}
+          >
+            {group.items.map((item, index) => (
+              <Toggle
+                key={item.type}
+                value={isTypeVisible(item.type)}
+                onChange={(value) => updateTypeVisibility(item.type, value)}
+                label={item.label}
+                desc={item.desc}
+                showDivider={index < group.items.length - 1}
+                labelStyle={{ fontSize: 14, fontWeight: 600 }}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function SystemTab() {
   const [integrationBusy, setIntegrationBusy] = useState(false);
   const [integrationStatus, setIntegrationStatus] = useState<{
@@ -435,7 +512,7 @@ function SystemTab() {
   );
 }
 
-type VisibleSettingsTab = "system" | "appearance";
+type VisibleSettingsTab = "system" | "appearance" | "components";
 
 const SETTINGS_NAV_ITEMS: {
   value: VisibleSettingsTab;
@@ -448,6 +525,11 @@ const SETTINGS_NAV_ITEMS: {
     icon: "◐",
   },
   {
+    value: "components",
+    label: "组件设置",
+    icon: "◫",
+  },
+  {
     value: "system",
     label: "系统设置",
     icon: "⚙",
@@ -455,15 +537,21 @@ const SETTINGS_NAV_ITEMS: {
 ];
 
 function resolveVisibleSettingsTab(tab: string): VisibleSettingsTab {
-  return tab === "appearance" ? "appearance" : "system";
+  if (tab === "appearance" || tab === "components") return tab;
+  return "system";
 }
 
 export default function Settings() {
-  const { settingsOpen, closeSettings, activeTab, setTab } = useSettingsStore();
+  const { settings, settingsOpen, closeSettings, activeTab, setTab } = useSettingsStore();
   const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
   const textShadow = isGlass ? "var(--ci-glass-text-shadow)" : "none";
   const strongTextShadow = isGlass ? "var(--ci-glass-text-shadow-strong)" : "none";
-  const visibleTab = resolveVisibleSettingsTab(activeTab);
+  const visibleTab = settings.layoutMode !== "split" && activeTab === "components"
+    ? "appearance"
+    : resolveVisibleSettingsTab(activeTab);
+  const navItems = settings.layoutMode === "split"
+    ? SETTINGS_NAV_ITEMS
+    : SETTINGS_NAV_ITEMS.filter((item) => item.value !== "components");
 
   if (!settingsOpen) return null;
 
@@ -559,7 +647,7 @@ export default function Settings() {
               background: "transparent",
               flexShrink: 0,
             }}>
-              {SETTINGS_NAV_ITEMS.map((item) => {
+              {navItems.map((item) => {
                 const active = visibleTab === item.value;
                 return (
                   <button
@@ -593,7 +681,7 @@ export default function Settings() {
               scrollbarWidth: "none",
               padding: "18px",
             }}>
-              {visibleTab === "appearance" ? <AppearanceTab /> : <SystemTab />}
+              {visibleTab === "appearance" ? <AppearanceTab /> : visibleTab === "components" ? <ComponentsTab /> : <SystemTab />}
             </div>
           </div>
         </div>
