@@ -51,7 +51,13 @@ export function normalizeSplitWidgetPanelWidth(width: unknown): number {
   return Math.min(720, Math.max(220, Math.round(width)));
 }
 
-export interface SplitWidgetCanvasItem {
+export interface SplitWidgetTerminalTab {
+  id: string;
+  title: string;
+  ptySessionKey: string;
+}
+
+interface SplitWidgetCanvasItemBase {
   id: string;
   type: "terminal" | "usage";
   col: number;
@@ -61,10 +67,75 @@ export interface SplitWidgetCanvasItem {
   visible: boolean;
 }
 
+export interface SplitWidgetTerminalItem extends SplitWidgetCanvasItemBase {
+  type: "terminal";
+  tabs: SplitWidgetTerminalTab[];
+  activeTabId: string;
+}
+
+export interface SplitWidgetUsageItem extends SplitWidgetCanvasItemBase {
+  type: "usage";
+}
+
+export type SplitWidgetCanvasItem = SplitWidgetTerminalItem | SplitWidgetUsageItem;
+
 export interface SplitWidgetCanvas {
   cellSize: number;
   items: SplitWidgetCanvasItem[];
   filledSnapshot?: SplitWidgetCanvasItem[] | null;
+}
+
+function createDefaultTerminalTab(index = 1): SplitWidgetTerminalTab {
+  return {
+    id: `terminal-tab-${index}`,
+    title: `Terminal ${index}`,
+    ptySessionKey: `terminal-pty-${index}`,
+  };
+}
+
+function createDefaultTerminalWidget(): SplitWidgetTerminalItem {
+  const defaultTab = createDefaultTerminalTab();
+  return {
+    id: "terminal-widget-1",
+    type: "terminal",
+    col: 2,
+    row: 16,
+    colSpan: 18,
+    rowSpan: 13,
+    visible: true,
+    tabs: [defaultTab],
+    activeTabId: defaultTab.id,
+  };
+}
+
+function createDefaultUsageWidget(): SplitWidgetUsageItem {
+  return {
+    id: "usage-widget-1",
+    type: "usage",
+    col: 2,
+    row: 2,
+    colSpan: 18,
+    rowSpan: 10,
+    visible: true,
+  };
+}
+
+function createDefaultSplitWidgetItems(): SplitWidgetCanvasItem[] {
+  return [createDefaultTerminalWidget(), createDefaultUsageWidget()];
+}
+
+function normalizeSplitWidgetTerminalTab(tab: unknown, index: number): SplitWidgetTerminalTab | null {
+  if (!tab || typeof tab !== "object") return null;
+  const candidate = tab as Partial<SplitWidgetTerminalTab>;
+  const fallback = createDefaultTerminalTab(index + 1);
+  const id = typeof candidate.id === "string" && candidate.id.trim() ? candidate.id : fallback.id;
+  return {
+    id,
+    title: typeof candidate.title === "string" && candidate.title.trim() ? candidate.title.trim() : fallback.title,
+    ptySessionKey: typeof candidate.ptySessionKey === "string" && candidate.ptySessionKey.trim()
+      ? candidate.ptySessionKey.trim()
+      : `terminal-pty-${id}`,
+  };
 }
 
 function normalizeSplitWidgetCanvasItem(item: unknown): SplitWidgetCanvasItem | null {
@@ -72,7 +143,7 @@ function normalizeSplitWidgetCanvasItem(item: unknown): SplitWidgetCanvasItem | 
   const candidate = item as Partial<SplitWidgetCanvasItem>;
   if (candidate.type !== "terminal" && candidate.type !== "usage") return null;
   if (!candidate.id || typeof candidate.id !== "string") return null;
-  return {
+  const base = {
     id: candidate.id,
     type: candidate.type,
     col: typeof candidate.col === "number" && Number.isFinite(candidate.col) ? Math.max(1, Math.round(candidate.col)) : 1,
@@ -80,6 +151,29 @@ function normalizeSplitWidgetCanvasItem(item: unknown): SplitWidgetCanvasItem | 
     colSpan: typeof candidate.colSpan === "number" && Number.isFinite(candidate.colSpan) ? Math.max(12, Math.round(candidate.colSpan)) : 18,
     rowSpan: typeof candidate.rowSpan === "number" && Number.isFinite(candidate.rowSpan) ? Math.max(10, Math.round(candidate.rowSpan)) : 13,
     visible: candidate.visible !== false,
+  };
+
+  if (candidate.type === "terminal") {
+    const terminalCandidate = item as Partial<SplitWidgetTerminalItem>;
+    const tabs = Array.isArray(terminalCandidate.tabs)
+      ? terminalCandidate.tabs
+        .map(normalizeSplitWidgetTerminalTab)
+        .filter((tab): tab is SplitWidgetTerminalTab => tab !== null)
+      : [];
+    const normalizedTabs = tabs.length > 0 ? tabs : [createDefaultTerminalTab()];
+    return {
+      ...base,
+      type: "terminal",
+      tabs: normalizedTabs,
+      activeTabId: typeof terminalCandidate.activeTabId === "string" && normalizedTabs.some((tab) => tab.id === terminalCandidate.activeTabId)
+        ? terminalCandidate.activeTabId
+        : normalizedTabs[0].id,
+    };
+  }
+
+  return {
+    ...base,
+    type: "usage",
   };
 }
 
@@ -91,11 +185,11 @@ export function normalizeSplitWidgetCanvas(canvas: unknown): SplitWidgetCanvas {
   const normalizedItems = items.length > 0 ? [...items] : [];
 
   if (!normalizedItems.some((item) => item.type === "terminal")) {
-    normalizedItems.unshift({ id: "terminal-widget-1", type: "terminal", col: 2, row: 16, colSpan: 18, rowSpan: 13, visible: true });
+    normalizedItems.unshift(createDefaultTerminalWidget());
   }
 
   if (!normalizedItems.some((item) => item.type === "usage")) {
-    normalizedItems.push({ id: "usage-widget-1", type: "usage", col: 2, row: 2, colSpan: 18, rowSpan: 10, visible: true });
+    normalizedItems.push(createDefaultUsageWidget());
   }
 
   return {
@@ -180,10 +274,7 @@ const DEFAULT_SETTINGS: Settings = {
   splitWidgetPanelCollapsed: true,
   splitWidgetCanvas: {
     cellSize: 12,
-    items: [
-      { id: "terminal-widget-1", type: "terminal", col: 2, row: 16, colSpan: 18, rowSpan: 13, visible: true },
-      { id: "usage-widget-1", type: "usage", col: 2, row: 2, colSpan: 18, rowSpan: 10, visible: true },
-    ],
+    items: createDefaultSplitWidgetItems(),
     filledSnapshot: null,
   },
 };
