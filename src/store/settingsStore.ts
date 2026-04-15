@@ -282,7 +282,7 @@ const DEFAULT_SETTINGS: Settings = {
 interface SettingsStore {
   settings: Settings;
   settingsOpen: boolean;
-  activeTab: "system" | "appearance";
+  activeTab: "system" | "appearance" | "components";
 
   openSettings: (tab?: SettingsStore["activeTab"]) => void;
   closeSettings: () => void;

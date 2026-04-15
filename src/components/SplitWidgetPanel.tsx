@@ -592,6 +592,7 @@ export function SplitWidgetPanel() {
   const { itemsById, getCardItemId, swapWithDetail } = useSplitSwapSnapshot();
 
   const widgets = settings.splitWidgetCanvas.items.filter((item) => item.visible !== false);
+  const hasHiddenWidgets = settings.splitWidgetCanvas.items.length > 0 && widgets.length === 0;
   const gridUnit = settings.splitWidgetCanvas.cellSize;
   const maxCols = Math.max(12, Math.floor(panelBounds.width / gridUnit));
   const maxRows = Math.max(10, Math.floor(panelBounds.height / gridUnit));
@@ -1181,7 +1182,9 @@ export function SplitWidgetPanel() {
             textAlign: "center",
             lineHeight: 1.7,
           }}>
-            先在中间打开一个会话，右侧会出现可拖拽的 terminal 小组件。
+            {hasHiddenWidgets
+              ? "组件已全部隐藏，可在 设置 > 组件设置 中重新开启。"
+              : "先在中间打开一个会话，右侧会出现可拖拽的 terminal 小组件。"}
           </div>
         </div>
       )}
