@@ -52,6 +52,8 @@ interface SessionStore {
   activeSessionId: string | null;
   expandedSessionId: string | null;
   sessionOrderByWorkspace: Record<string, string[]>;
+  splitDetailItemId: string;
+  splitCardItemIdsBySlot: Record<string, string>;
 
   // worktreeReady：记录 worktree 是否已就绪（创建完成或确认不是 git 仓库）
   // 不持久化，每次应用启动重置；持久化的 session 重新打开时从 worktreePath 推断
@@ -70,6 +72,7 @@ interface SessionStore {
   mergeRecoveredSessions: (sessions: ClaudeSession[]) => void;
   reorderWorkspaceSessions: (workspaceId: string, orderedSessionIds: string[]) => void;
   reorderWorkspaceSessionsByVisibleMove: (workspaceId: string, activeId: string, overId: string) => void;
+  swapSplitDetailWithCard: (slotId: string) => void;
 }
 
 // ── 工厂函数 ─────────────────────────────────────────────────
@@ -165,6 +168,8 @@ export const useSessionStore = create<SessionStore>()(
       activeSessionId: null,
       expandedSessionId: null,
       sessionOrderByWorkspace: {},
+      splitDetailItemId: "session-detail",
+      splitCardItemIdsBySlot: {},
       worktreeReadyIds: new Set<string>(),
 
       addSession: (workspaceId, workdir, name, runner) => {
@@ -204,7 +209,22 @@ export const useSessionStore = create<SessionStore>()(
               ids.filter((sid) => sid !== id),
             ])
           );
-          return { sessions, activeSessionId, expandedSessionId, worktreeReadyIds, sessionOrderByWorkspace };
+          const removedItemId = `session-${id}`;
+          const splitDetailItemId = state.splitDetailItemId === removedItemId
+            ? "session-detail"
+            : state.splitDetailItemId;
+          const splitCardItemIdsBySlot = Object.fromEntries(
+            Object.entries(state.splitCardItemIdsBySlot).filter(([, itemId]) => itemId !== removedItemId)
+          );
+          return {
+            sessions,
+            activeSessionId,
+            expandedSessionId,
+            worktreeReadyIds,
+            sessionOrderByWorkspace,
+            splitDetailItemId,
+            splitCardItemIdsBySlot,
+          };
         }),
 
       setActiveSession: (id) =>
@@ -257,10 +277,25 @@ export const useSessionStore = create<SessionStore>()(
           const removedIds = state.sessions
             .filter((s) => s.workspaceId === workspaceId)
             .map((s) => s.id);
+          const removedItemIds = new Set(removedIds.map((id) => `session-${id}`));
           const worktreeReadyIds = new Set(state.worktreeReadyIds);
           removedIds.forEach((id) => worktreeReadyIds.delete(id));
           const { [workspaceId]: _, ...restOrder } = state.sessionOrderByWorkspace;
-          return { sessions, activeSessionId, expandedSessionId, worktreeReadyIds, sessionOrderByWorkspace: restOrder };
+          const splitDetailItemId = removedItemIds.has(state.splitDetailItemId)
+            ? "session-detail"
+            : state.splitDetailItemId;
+          const splitCardItemIdsBySlot = Object.fromEntries(
+            Object.entries(state.splitCardItemIdsBySlot).filter(([, itemId]) => !removedItemIds.has(itemId))
+          );
+          return {
+            sessions,
+            activeSessionId,
+            expandedSessionId,
+            worktreeReadyIds,
+            sessionOrderByWorkspace: restOrder,
+            splitDetailItemId,
+            splitCardItemIdsBySlot,
+          };
         }),
 
       markWorktreeReady: (id) =>
@@ -370,6 +405,20 @@ export const useSessionStore = create<SessionStore>()(
             sessionOrderByWorkspace: {
               ...state.sessionOrderByWorkspace,
               [workspaceId]: nextManualOrder,
+            },
+          };
+        }),
+
+      swapSplitDetailWithCard: (slotId) =>
+        set((state) => {
+          const cardItemId = state.splitCardItemIdsBySlot[slotId] ?? slotId;
+          const detailItemId = state.splitDetailItemId;
+          if (cardItemId === detailItemId) return {};
+          return {
+            splitDetailItemId: cardItemId,
+            splitCardItemIdsBySlot: {
+              ...state.splitCardItemIdsBySlot,
+              [slotId]: detailItemId,
             },
           };
         }),

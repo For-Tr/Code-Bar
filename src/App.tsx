@@ -11,6 +11,7 @@ import { DiffViewer } from "./components/DiffViewer";
 import { StatusBar } from "./components/StatusBar";
 import { SessionDetail } from "./components/SessionDetail";
 import { SplitWidgetPanel } from "./components/SplitWidgetPanel";
+import { SplitDetailHost, SplitSwapProvider } from "./components/SplitSwapLayout";
 import Settings from "./components/Settings";
 import { useSessionStore, DiffFile, type ClaudeSession } from "./store/sessionStore";
 import {
@@ -807,78 +808,48 @@ export default function App() {
             {isOriginalLayout ? (
               !isSubPageOpen && menuContent
             ) : (
-              <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
-                <div style={{
-                  width: splitSidebarWidth,
-                  flexShrink: 0,
-                  display: "flex",
-                  flexDirection: "column",
-                  minHeight: 0,
-                  background: isGlass ? "var(--ci-toolbar-bg)" : "transparent",
-                }}>
-                  {menuContent}
-                </div>
-
-                <div
-                  onPointerDown={handleSplitPanePointerDown}
-                  title="拖拽调整分栏宽度"
-                  style={{
-                    width: 10,
-                    marginLeft: -5,
-                    marginRight: -5,
-                    cursor: "col-resize",
-                    zIndex: 3,
-                    touchAction: "none",
+              <SplitSwapProvider
+                sessionDetailEmptyState={
+                  <div style={{
+                    height: "100%",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    flexShrink: 0,
-                  }}
-                >
+                    padding: 24,
+                  }}>
+                    <div style={{
+                      maxWidth: 260,
+                      padding: "20px 22px",
+                      borderRadius: 18,
+                      background: "var(--ci-surface)",
+                      border: "1px solid var(--ci-toolbar-border)",
+                      color: "var(--ci-text-dim)",
+                      fontSize: 12,
+                      textAlign: "center",
+                      lineHeight: 1.7,
+                    }}>
+                      {expandedSessionId && !visibleSplitSessionId
+                        ? "当前打开的终端不属于这个 workspace。切换回对应 workspace，或重新在左侧展开一个会话。"
+                        : "从左侧会话列表中展开一个终端，中间会显示 PTY 详情。"}
+                    </div>
+                  </div>
+                }
+              >
+                <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
                   <div style={{
-                    width: 2,
-                    height: "100%",
-                    background: "var(--ci-toolbar-border)",
-                    borderRadius: 999,
-                  }} />
-                </div>
+                    width: splitSidebarWidth,
+                    flexShrink: 0,
+                    display: "flex",
+                    flexDirection: "column",
+                    minHeight: 0,
+                    background: isGlass ? "var(--ci-toolbar-bg)" : "transparent",
+                  }}>
+                    {menuContent}
+                  </div>
 
-                <div style={{ flex: 1, minWidth: 0, minHeight: 0, position: "relative", display: "flex", borderLeft: "1px solid var(--ci-toolbar-border)" }}>
-                  <SessionDetail
-                    mode="embedded"
-                    openSessionId={visibleSplitSessionId}
-                    emptyState={
-                      <div style={{
-                        height: "100%",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        padding: 24,
-                      }}>
-                        <div style={{
-                          maxWidth: 260,
-                          padding: "20px 22px",
-                          borderRadius: 18,
-                          background: "var(--ci-surface)",
-                          border: "1px solid var(--ci-toolbar-border)",
-                          color: "var(--ci-text-dim)",
-                          fontSize: 12,
-                          textAlign: "center",
-                          lineHeight: 1.7,
-                        }}>
-                          {expandedSessionId && !visibleSplitSessionId
-                            ? "当前打开的终端不属于这个 workspace。切换回对应 workspace，或重新在左侧展开一个会话。"
-                            : "从左侧会话列表中展开一个终端，中间会显示 PTY 详情。"}
-                        </div>
-                      </div>
-                    }
-                  />
-                </div>
-
-                {!splitWidgetPanelCollapsed && (
                   <div
-                    onPointerDown={handleWidgetPanePointerDown}
-                    title="拖拽调整组件区宽度"
+                    onPointerDown={handleSplitPanePointerDown}
+                    title="拖拽调整分栏宽度"
                     style={{
                       width: 10,
                       marginLeft: -5,
@@ -899,45 +870,75 @@ export default function App() {
                       borderRadius: 999,
                     }} />
                   </div>
-                )}
 
-                {splitWidgetPanelCollapsed ? (
-                  <div style={{
-                    width: 36,
-                    flexShrink: 0,
-                    borderLeft: "1px solid var(--ci-toolbar-border)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    background: isGlass ? "var(--ci-toolbar-bg)" : "transparent",
-                  }}>
-                    <button
-                      onClick={() => patchSettings({ splitWidgetPanelCollapsed: false })}
-                      title="展开组件区"
+                  <div style={{ flex: 1, minWidth: 0, minHeight: 0, position: "relative", display: "flex", borderLeft: "1px solid var(--ci-toolbar-border)" }}>
+                    <SplitDetailHost />
+                  </div>
+
+                  {!splitWidgetPanelCollapsed && (
+                    <div
+                      onPointerDown={handleWidgetPanePointerDown}
+                      title="拖拽调整组件区宽度"
                       style={{
-                        background: "none",
-                        border: "none",
-                        color: "var(--ci-text-muted)",
-                        cursor: "pointer",
-                        fontSize: 12,
-                        writingMode: "vertical-rl",
-                        padding: 0,
+                        width: 10,
+                        marginLeft: -5,
+                        marginRight: -5,
+                        cursor: "col-resize",
+                        zIndex: 3,
+                        touchAction: "none",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        flexShrink: 0,
                       }}
                     >
-                      展开
-                    </button>
-                  </div>
-                ) : (
-                  <div style={{
-                    width: splitWidgetPanelWidth,
-                    flexShrink: 0,
-                    minHeight: 0,
-                    background: isGlass ? "var(--ci-toolbar-bg)" : "transparent",
-                  }}>
-                    <SplitWidgetPanel />
-                  </div>
-                )}
-              </div>
+                      <div style={{
+                        width: 2,
+                        height: "100%",
+                        background: "var(--ci-toolbar-border)",
+                        borderRadius: 999,
+                      }} />
+                    </div>
+                  )}
+
+                  {splitWidgetPanelCollapsed ? (
+                    <div style={{
+                      width: 36,
+                      flexShrink: 0,
+                      borderLeft: "1px solid var(--ci-toolbar-border)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      background: isGlass ? "var(--ci-toolbar-bg)" : "transparent",
+                    }}>
+                      <button
+                        onClick={() => patchSettings({ splitWidgetPanelCollapsed: false })}
+                        title="展开组件区"
+                        style={{
+                          background: "none",
+                          border: "none",
+                          color: "var(--ci-text-muted)",
+                          cursor: "pointer",
+                          fontSize: 12,
+                          writingMode: "vertical-rl",
+                          padding: 0,
+                        }}
+                      >
+                        展开
+                      </button>
+                    </div>
+                  ) : (
+                    <div style={{
+                      width: splitWidgetPanelWidth,
+                      flexShrink: 0,
+                      minHeight: 0,
+                      background: isGlass ? "var(--ci-toolbar-bg)" : "transparent",
+                    }}>
+                      <SplitWidgetPanel />
+                    </div>
+                  )}
+                </div>
+              </SplitSwapProvider>
             )}
           </div>
         </motion.div>
