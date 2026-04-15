@@ -89,6 +89,19 @@ function getStatusPriority(status: SessionStatus): number {
   return STATUS_PRIORITY[status] ?? 3;
 }
 
+function dedupeSessionIds(ids: string[]): string[] {
+  const seen = new Set<string>();
+  const deduped: string[] = [];
+
+  for (const id of ids) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    deduped.push(id);
+  }
+
+  return deduped;
+}
+
 function buildWorkspaceManualOrder(
   sessions: ClaudeSession[],
   workspaceId: string,
@@ -97,8 +110,11 @@ function buildWorkspaceManualOrder(
   const workspaceSessions = sessions.filter((s) => s.workspaceId === workspaceId);
   const workspaceIds = workspaceSessions.map((s) => s.id);
   const validSet = new Set(workspaceIds);
-  const normalizedPersisted = (persistedOrder ?? []).filter((id) => validSet.has(id));
-  const missing = workspaceIds.filter((id) => !normalizedPersisted.includes(id));
+  const normalizedPersisted = dedupeSessionIds(
+    (persistedOrder ?? []).filter((id) => validSet.has(id))
+  );
+  const normalizedSet = new Set(normalizedPersisted);
+  const missing = workspaceIds.filter((id) => !normalizedSet.has(id));
   return [...normalizedPersisted, ...missing];
 }
 
@@ -374,37 +390,49 @@ export const useSessionStore = create<SessionStore>()(
           );
           const oldIndex = visibleOrdered.findIndex((s) => s.id === activeId);
           const newIndex = visibleOrdered.findIndex((s) => s.id === overId);
-          if (oldIndex < 0 || newIndex < 0) return {};
+          if (oldIndex < 0 || newIndex < 0 || oldIndex === newIndex) return {};
 
           const activeSession = visibleOrdered[oldIndex];
           const overSession = visibleOrdered[newIndex];
-          // 状态分组优先，拖拽只允许调整同优先级分组内部顺序
-          if (getStatusPriority(activeSession.status) !== getStatusPriority(overSession.status)) {
-            return {};
-          }
+          const activePriority = getStatusPriority(activeSession.status);
+          const overPriority = getStatusPriority(overSession.status);
+          if (activePriority !== overPriority) return {};
 
-          const movedVisible = [...visibleOrdered];
-          const [moved] = movedVisible.splice(oldIndex, 1);
-          movedVisible.splice(newIndex, 0, moved);
-          const movedIds = movedVisible.map((s) => s.id);
-          const movedIndex = new Map(movedIds.map((id, index) => [id, index]));
+          const sameGroupVisible = visibleOrdered.filter(
+            (session) => getStatusPriority(session.status) === activePriority
+          );
+          const groupOldIndex = sameGroupVisible.findIndex((s) => s.id === activeId);
+          const groupNewIndex = sameGroupVisible.findIndex((s) => s.id === overId);
+          if (groupOldIndex < 0 || groupNewIndex < 0 || groupOldIndex === groupNewIndex) return {};
+
+          const movedGroup = [...sameGroupVisible];
+          const [moved] = movedGroup.splice(groupOldIndex, 1);
+          movedGroup.splice(groupNewIndex, 0, moved);
+          const movedGroupIds = movedGroup.map((s) => s.id);
+          const movedGroupIndex = new Map(movedGroupIds.map((id, index) => [id, index]));
 
           const manualOrder = buildWorkspaceManualOrder(
             state.sessions,
             workspaceId,
             state.sessionOrderByWorkspace[workspaceId]
           );
-
-          const nextManualOrder = [...manualOrder].sort((a, b) => {
-            const aIdx = movedIndex.get(a) ?? Number.MAX_SAFE_INTEGER;
-            const bIdx = movedIndex.get(b) ?? Number.MAX_SAFE_INTEGER;
+          const nextOrder = [...manualOrder].sort((a, b) => {
+            const aIdx = movedGroupIndex.get(a);
+            const bIdx = movedGroupIndex.get(b);
+            if (aIdx === undefined && bIdx === undefined) return 0;
+            if (aIdx === undefined) return 1;
+            if (bIdx === undefined) return -1;
             return aIdx - bIdx;
           });
+
+          if (nextOrder.every((id, index) => id === manualOrder[index])) {
+            return {};
+          }
 
           return {
             sessionOrderByWorkspace: {
               ...state.sessionOrderByWorkspace,
-              [workspaceId]: nextManualOrder,
+              [workspaceId]: nextOrder,
             },
           };
         }),
@@ -462,8 +490,11 @@ export const useSessionStore = create<SessionStore>()(
         const normalizedOrder: Record<string, string[]> = {};
         for (const [workspaceId, ids] of Object.entries(byWorkspace)) {
           const validSet = new Set(ids);
-          const persisted = (state.sessionOrderByWorkspace?.[workspaceId] ?? []).filter((id) => validSet.has(id));
-          const missing = ids.filter((id) => !persisted.includes(id));
+          const persisted = dedupeSessionIds(
+            (state.sessionOrderByWorkspace?.[workspaceId] ?? []).filter((id) => validSet.has(id))
+          );
+          const persistedSet = new Set(persisted);
+          const missing = ids.filter((id) => !persistedSet.has(id));
           normalizedOrder[workspaceId] = [...persisted, ...missing];
         }
         state.sessionOrderByWorkspace = normalizedOrder;
