@@ -11,9 +11,8 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import { PtyTerminal } from "./PtyTerminal";
 import { DraggableCard } from "./DraggableCard";
-import { UsageWidgetCard } from "./UsageWidgetCard";
+import { SplitDockOutlet, useSplitSwapSnapshot } from "./SplitSwapLayout";
 import {
   useSettingsStore,
   isGlassTheme,
@@ -21,7 +20,7 @@ import {
   type SplitWidgetTerminalItem,
   type SplitWidgetTerminalTab,
 } from "../store/settingsStore";
-import { useSessionStore } from "../store/sessionStore";
+import { getWorkspaceColor, useWorkspaceStore } from "../store/workspaceStore";
 
 const WIDGET_GAP = 1;
 const PANEL_MARGIN = 1;
@@ -128,11 +127,6 @@ function reconcileCanvasLayout(items: SplitWidgetCanvasItem[], maxCols: number, 
   });
 }
 
-function shellQuote(value: string) {
-  if (!value) return "''";
-  return `'${value.replace(/'/g, `'"'"'`)}'`;
-}
-
 function insetRect(item: SplitWidgetCanvasItem, maxCols: number, maxRows: number) {
   return clampRectToBounds({
     ...item,
@@ -182,10 +176,6 @@ function stopEvent(event: { preventDefault: () => void; stopPropagation: () => v
   event.stopPropagation();
 }
 
-function sanitizeSessionKey(value: string) {
-  return value.replace(/[^a-zA-Z0-9_-]/g, "_");
-}
-
 function createTerminalTab(tabs: SplitWidgetTerminalTab[]): SplitWidgetTerminalTab {
   const numericTitles = tabs
     .map((tab) => Number(tab.title.match(/^Terminal\s+(\d+)$/)?.[1] ?? Number.NaN))
@@ -201,10 +191,6 @@ function createTerminalTab(tabs: SplitWidgetTerminalTab[]): SplitWidgetTerminalT
 
 function createTerminalWidgetId() {
   return `terminal-widget-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function buildWidgetTerminalSessionId(sessionId: string, ptySessionKey: string) {
-  return `widget-${sanitizeSessionKey(sessionId)}-${sanitizeSessionKey(ptySessionKey)}`;
 }
 
 function getFallbackActiveTabId(tabs: SplitWidgetTerminalTab[], removedIndex: number) {
@@ -490,6 +476,7 @@ function TerminalTabChip({
   onSelect,
   onClose,
   canClose,
+  draggable = true,
 }: {
   widgetId: string;
   tab: SplitWidgetTerminalTab;
@@ -497,19 +484,21 @@ function TerminalTabChip({
   onSelect: () => void;
   onClose: () => void;
   canClose: boolean;
+  draggable?: boolean;
 }) {
   const [hovered, setHovered] = useState(false);
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: `terminal-tab-${widgetId}-${tab.id}`,
     data: { type: "terminal-tab", widgetId, tabId: tab.id },
+    disabled: !draggable,
   });
   const showHover = hovered && !isDragging && !isActive;
 
   return (
     <div
       ref={setNodeRef}
-      {...listeners}
-      {...attributes}
+      {...(draggable ? listeners : {})}
+      {...(draggable ? attributes : {})}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
@@ -531,7 +520,7 @@ function TerminalTabChip({
         transform: transform ? CSS.Transform.toString(transform) : undefined,
         opacity: isDragging ? 0 : 1,
         zIndex: isDragging ? 2 : 1,
-        cursor: isDragging ? "grabbing" : "grab",
+        cursor: draggable ? (isDragging ? "grabbing" : "grab") : "default",
         touchAction: "none",
         transition: "background 0.15s, border-color 0.15s, box-shadow 0.15s",
       }}
@@ -592,24 +581,16 @@ function TerminalTabChip({
 export function SplitWidgetPanel() {
   const { settings, patchSettings } = useSettingsStore();
   const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
-  const sessions = useSessionStore((s) => s.sessions);
-  const expandedSessionId = useSessionStore((s) => s.expandedSessionId);
+  const activeWorkspace = useWorkspaceStore((s) => s.workspaces.find((workspace) => workspace.id === s.activeWorkspaceId) ?? null);
+  const workspaceAccent = activeWorkspace ? getWorkspaceColor(activeWorkspace.color) : "var(--ci-accent)";
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [panelBounds, setPanelBounds] = useState({ width: 0, height: 0 });
   const [activeDragType, setActiveDragType] = useState<SplitWidgetDragData["type"] | null>(null);
   const [activeDraggedTab, setActiveDraggedTab] = useState<ActiveDraggedTab | null>(null);
   const [detachedPreviewRect, setDetachedPreviewRect] = useState<SplitWidgetTerminalItem | null>(null);
+  const { itemsById, getCardItemId, swapWithDetail } = useSplitSwapSnapshot();
 
-  const session = useMemo(
-    () => sessions.find((item) => item.id === expandedSessionId) ?? null,
-    [expandedSessionId, sessions]
-  );
-  const terminalWorkdir = session?.worktreePath ?? session?.workdir ?? "";
-  const terminalCommand = navigator.userAgent.toLowerCase().includes("windows") ? "cmd.exe" : "sh";
-  const terminalArgs = navigator.userAgent.toLowerCase().includes("windows")
-    ? ["/K", `cd /d "${terminalWorkdir}"`]
-    : ["-lc", `cd ${shellQuote(terminalWorkdir)} && exec zsh -i`];
   const widgets = settings.splitWidgetCanvas.items.filter((item) => item.visible !== false);
   const hasHiddenWidgets = settings.splitWidgetCanvas.items.length > 0 && widgets.length === 0;
   const gridUnit = settings.splitWidgetCanvas.cellSize;
@@ -1003,8 +984,13 @@ export function SplitWidgetPanel() {
             ) : null}
           </DragOverlay>
           {repairedWidgets.map((widget) => {
-            const headerActions = widget.type === "terminal" ? (
-              <TerminalCardDropZone widgetId={widget.id} activeDragType={activeDragType}>
+            const slotId = widget.id;
+            const itemId = getCardItemId(slotId);
+            const item = itemsById.get(itemId) ?? itemsById.get(slotId) ?? itemsById.get("session-detail")!;
+            const canDropIntoTerminalSlot = item.kind === "terminal" && item.id === widget.id;
+            const isDetailCard = item.kind === "session-detail";
+            const headerActions = item.kind === "terminal" ? (
+              <TerminalCardDropZone widgetId={widget.id} activeDragType={canDropIntoTerminalSlot ? activeDragType : null}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
                   <div style={{
                     display: "flex",
@@ -1015,24 +1001,25 @@ export function SplitWidgetPanel() {
                     overflowX: "auto",
                     scrollbarWidth: "none",
                   }}>
-                    {widget.tabs.map((tab) => {
-                      const isActive = tab.id === widget.activeTabId;
+                    {item.widget.tabs.map((tab) => {
+                      const isActive = tab.id === item.widget.activeTabId;
                       return (
                         <TerminalTabChip
                           key={tab.id}
                           widgetId={widget.id}
                           tab={tab}
                           isActive={isActive}
-                          canClose={widget.tabs.length > 1}
+                          canClose={item.widget.tabs.length > 1}
+                          draggable={item.id === widget.id}
                           onSelect={() => {
-                            if (tab.id === widget.activeTabId) return;
-                            updateTerminalWidget(widget.id, (current) => ({
+                            if (tab.id === item.widget.activeTabId) return;
+                            updateTerminalWidget(item.id, (current) => ({
                               ...current,
                               activeTabId: tab.id,
                             }));
                           }}
                           onClose={() => {
-                            updateTerminalWidget(widget.id, (current) => removeTabFromWidget(current, tab.id).nextWidget ?? current);
+                            updateTerminalWidget(item.id, (current) => removeTabFromWidget(current, tab.id).nextWidget ?? current);
                           }}
                         />
                       );
@@ -1043,7 +1030,7 @@ export function SplitWidgetPanel() {
                     onPointerDown={stopEvent}
                     onClick={(event) => {
                       stopEvent(event);
-                      updateTerminalWidget(widget.id, (current) => {
+                      updateTerminalWidget(item.id, (current) => {
                         const nextTab = createTerminalTab(current.tabs);
                         return {
                           ...current,
@@ -1079,10 +1066,56 @@ export function SplitWidgetPanel() {
               <DraggableCard
                 key={widget.id}
                 id={widget.id}
-                title={widget.type === "terminal" ? (terminalWorkdir || "Terminal") : null}
+                title={
+                  isDetailCard
+                    ? (
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                        <span style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          color: workspaceAccent,
+                          fontSize: 18,
+                          lineHeight: 1,
+                          flexShrink: 0,
+                        }}>✦</span>
+                        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {item.title}
+                        </span>
+                      </span>
+                    )
+                    : item.title
+                }
                 headerActions={headerActions}
+                headerControls={
+                  <button
+                    onPointerDown={stopEvent}
+                    onClick={(event) => {
+                      stopEvent(event);
+                      swapWithDetail(slotId);
+                    }}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      width: 22,
+                      height: 22,
+                      borderRadius: 8,
+                      background: isDetailCard ? `${workspaceAccent}1A` : "none",
+                      border: `1px solid ${isDetailCard ? `${workspaceAccent}55` : "var(--ci-toolbar-border)"}`,
+                      color: isDetailCard ? workspaceAccent : "var(--ci-text-muted)",
+                      cursor: "pointer",
+                      fontSize: 12,
+                      padding: 0,
+                    }}
+                    aria-label="与 detail 互换"
+                    title="与 detail 互换"
+                  >
+                    ⇄
+                  </button>
+                }
                 dragData={{
-                  type: widget.type === "terminal" ? "terminal-card" : "widget-card",
+                  type: item.kind === "terminal" && item.id === widget.id ? "terminal-card" : "widget-card",
                   widgetId: widget.id,
                 }}
                 gridUnit={gridUnit}
@@ -1125,40 +1158,7 @@ export function SplitWidgetPanel() {
                   });
                 }}
               >
-                {widget.type === "terminal" ? (
-                  <div style={{ position: "relative", width: "100%", height: "100%" }}>
-                    {widget.tabs.map((tab) => {
-                      const ptySessionId = session
-                        ? buildWidgetTerminalSessionId(session.id, tab.ptySessionKey)
-                        : `widget-none-${tab.ptySessionKey}`;
-                      const isActiveTab = tab.id === widget.activeTabId;
-                      return (
-                        <div
-                          key={ptySessionId}
-                          style={{
-                            position: "absolute",
-                            inset: 0,
-                            opacity: isActiveTab ? 1 : 0,
-                            pointerEvents: isActiveTab ? "auto" : "none",
-                            zIndex: isActiveTab ? 1 : 0,
-                          }}
-                        >
-                          {session && terminalWorkdir ? (
-                            <PtyTerminal
-                              sessionId={ptySessionId}
-                              command={terminalCommand}
-                              args={terminalArgs}
-                              workdir={terminalWorkdir}
-                              active={isActiveTab}
-                            />
-                          ) : null}
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : widget.type === "usage" ? (
-                  <UsageWidgetCard />
-                ) : null}
+                <SplitDockOutlet itemId={item.id} />
               </DraggableCard>
             );
           })}

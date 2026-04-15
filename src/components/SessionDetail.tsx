@@ -161,6 +161,7 @@ interface PanelProps {
   isOpen: boolean;
   onClose: () => void;
   presentation: DetailPresentation;
+  showHeader: boolean;
 }
 
 function hasNativeResumeBinding(
@@ -171,7 +172,7 @@ function hasNativeResumeBinding(
   return runnerType === "claude-code" || runnerType === "codex";
 }
 
-function SessionPanel({ sessionId, isOpen, onClose, presentation }: PanelProps) {
+function SessionPanel({ sessionId, isOpen, onClose, presentation, showHeader }: PanelProps) {
   const isWindows = navigator.userAgent.toLowerCase().includes("windows");
   const session = useSessionStore((s) => s.sessions.find((x) => x.id === sessionId));
   const worktreeReady = useSessionStore((s) => s.worktreeReadyIds.has(sessionId));
@@ -617,87 +618,87 @@ function SessionPanel({ sessionId, isOpen, onClose, presentation }: PanelProps) 
         textShadow,
       }}
     >
-      {/* ── 标题栏（data-tauri-drag-region={isOverlay ? "true" : undefined} 让整条都可拖动窗口）── */}
-      <div
-        data-tauri-drag-region={isOverlay ? "true" : undefined}
-        style={{
-          display: "flex", alignItems: "center", gap: 10,
-          padding: "12px 16px 10px",
-          borderBottom: titlebarBorder,
-          flexShrink: 0,
-          cursor: isOverlay ? "grab" : "default",
-          userSelect: "none",
-          WebkitUserSelect: "none",
-          background: titlebarBackground,
-        }}
-      >
-        {isOverlay ? <TrafficLights onClose={onClose} size={12} gap={6} /> : <div style={{ width: 54, flexShrink: 0 }} />}
-
-        <span data-tauri-drag-region={isOverlay ? "true" : undefined} style={{
-          flex: 1, fontSize: 12, fontWeight: 600,
-          color: titlebarText,
-          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-          cursor: isOverlay ? "grab" : "default",
-          letterSpacing: -0.2,
-        }}>
-          {installing ? `正在安装 ${runnerBadge}…` : session.name}
-        </span>
-
-        {/* Runner 标识 */}
-        <span
+      {showHeader && (
+        <div
           data-tauri-drag-region={isOverlay ? "true" : undefined}
           style={{
-            fontSize: 10, padding: "2px 8px", borderRadius: 99,
-            background: runnerChipBackground,
-            border: runnerChipBorder,
-            color: runnerChipText, fontFamily: "monospace",
-            cursor: "default",
+            display: "flex", alignItems: "center", gap: 10,
+            padding: "12px 16px 10px",
+            borderBottom: titlebarBorder,
+            flexShrink: 0,
+            cursor: isOverlay ? "grab" : "default",
+            userSelect: "none",
+            WebkitUserSelect: "none",
+            background: titlebarBackground,
           }}
         >
-          {runnerBadge}
-        </span>
+          {isOverlay ? <TrafficLights onClose={onClose} size={12} gap={6} /> : <div style={{ width: 54, flexShrink: 0 }} />}
 
-        {installing && (
-          <button
+          <span data-tauri-drag-region={isOverlay ? "true" : undefined} style={{
+            flex: 1, fontSize: 12, fontWeight: 600,
+            color: titlebarText,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            cursor: isOverlay ? "grab" : "default",
+            letterSpacing: -0.2,
+          }}>
+            {installing ? `正在安装 ${runnerBadge}…` : session.name}
+          </span>
+
+          <span
             data-tauri-drag-region={isOverlay ? "true" : undefined}
-            onClick={() => { setInstalling(false); recheckCli(); }}
-            onMouseDown={(e) => e.stopPropagation()}
             style={{
-              background: actionButtonBackground,
-              border: actionButtonBorder,
-              borderRadius: 6, padding: "2px 8px",
-              color: actionButtonText, fontSize: 11, cursor: "pointer",
+              fontSize: 10, padding: "2px 8px", borderRadius: 99,
+              background: runnerChipBackground,
+              border: runnerChipBorder,
+              color: runnerChipText, fontFamily: "monospace",
+              cursor: "default",
             }}
           >
-            取消
-          </button>
-        )}
+            {runnerBadge}
+          </span>
 
-        {!installing && (
-          <button
-            data-tauri-drag-region={isOverlay ? "true" : undefined}
-            onClick={onClose}
-            onMouseDown={(e) => e.stopPropagation()}
-            style={{
-              background: actionButtonBackground,
-              border: actionButtonBorder,
-              borderRadius: 6, padding: "2px 8px",
-              color: actionButtonText, fontSize: 11, cursor: "pointer",
-              transition: "background 0.15s, color 0.15s",
-            }}
-            onMouseEnter={e => {
-              e.currentTarget.style.background = actionButtonHoverBackground;
-              e.currentTarget.style.color = actionButtonHoverText;
-            }}
-            onMouseLeave={e => {
-              e.currentTarget.style.background = actionButtonBackground;
-              e.currentTarget.style.color = actionButtonText;
-            }}
-          >
-            收起
-          </button>
-        )}
-      </div>
+          {installing && (
+            <button
+              data-tauri-drag-region={isOverlay ? "true" : undefined}
+              onClick={() => { setInstalling(false); recheckCli(); }}
+              onMouseDown={(e) => e.stopPropagation()}
+              style={{
+                background: actionButtonBackground,
+                border: actionButtonBorder,
+                borderRadius: 6, padding: "2px 8px",
+                color: actionButtonText, fontSize: 11, cursor: "pointer",
+              }}
+            >
+              取消
+            </button>
+          )}
+
+          {!installing && (
+            <button
+              data-tauri-drag-region={isOverlay ? "true" : undefined}
+              onClick={onClose}
+              onMouseDown={(e) => e.stopPropagation()}
+              style={{
+                background: actionButtonBackground,
+                border: actionButtonBorder,
+                borderRadius: 6, padding: "2px 8px",
+                color: actionButtonText, fontSize: 11, cursor: "pointer",
+                transition: "background 0.15s, color 0.15s",
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.background = actionButtonHoverBackground;
+                e.currentTarget.style.color = actionButtonHoverText;
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.background = actionButtonBackground;
+                e.currentTarget.style.color = actionButtonText;
+              }}
+            >
+              收起
+            </button>
+          )}
+        </div>
+      )}
 
       {/* ── 内容区域 ── */}
       <div style={{ flex: 1, overflow: "hidden", position: "relative", display: "flex", flexDirection: "column" }}>
@@ -957,10 +958,12 @@ export function SessionDetail({
   mode,
   emptyState,
   openSessionId,
+  showPanelHeader = true,
 }: {
   mode: DetailPresentation;
   emptyState?: ReactNode;
   openSessionId?: string | null;
+  showPanelHeader?: boolean;
 }) {
   const { expandedSessionId, setExpandedSession, sessions } = useSessionStore();
   const visibleSessionId = openSessionId === undefined ? expandedSessionId : openSessionId;
@@ -998,6 +1001,7 @@ export function SessionDetail({
             isOpen={visibleSessionId === sid}
             onClose={() => setExpandedSession(null)}
             presentation="embedded"
+            showHeader={showPanelHeader}
           />
         ))}
         {!visibleSessionId && (
@@ -1016,6 +1020,7 @@ export function SessionDetail({
           isOpen={visibleSessionId === sid}
           onClose={() => setExpandedSession(null)}
           presentation="overlay"
+          showHeader={showPanelHeader}
         />
       ))}
     </>

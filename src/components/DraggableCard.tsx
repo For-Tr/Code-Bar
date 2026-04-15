@@ -48,6 +48,7 @@ export function DraggableCard({
   id,
   title,
   headerActions,
+  headerControls,
   dragData,
   gridUnit,
   col,
@@ -60,6 +61,7 @@ export function DraggableCard({
   id: string;
   title: ReactNode;
   headerActions?: ReactNode;
+  headerControls?: ReactNode;
   dragData?: Record<string, unknown>;
   gridUnit: number;
   col: number;
@@ -177,6 +179,12 @@ export function DraggableCard({
               {title}
             </span>
           </div>
+
+          {headerControls && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+              {headerControls}
+            </div>
+          )}
         </div>
 
         {headerActions && (
