@@ -580,6 +580,8 @@ function TerminalTabChip({
 export function SplitWidgetPanel() {
   const { settings, patchSettings } = useSettingsStore();
   const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
+  const activeWorkspace = useWorkspaceStore((s) => s.workspaces.find((workspace) => workspace.id === s.activeWorkspaceId) ?? null);
+  const workspaceAccent = activeWorkspace ? getWorkspaceColor(activeWorkspace.color) : "var(--ci-accent)";
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [panelBounds, setPanelBounds] = useState({ width: 0, height: 0 });
@@ -984,6 +986,7 @@ export function SplitWidgetPanel() {
             const itemId = getCardItemId(slotId);
             const item = itemsById.get(itemId) ?? itemsById.get(slotId) ?? itemsById.get("session-detail")!;
             const canDropIntoTerminalSlot = item.kind === "terminal" && item.id === widget.id;
+            const isDetailCard = item.kind === "session-detail";
             const headerActions = item.kind === "terminal" ? (
               <TerminalCardDropZone widgetId={widget.id} activeDragType={canDropIntoTerminalSlot ? activeDragType : null}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
@@ -1055,21 +1058,24 @@ export function SplitWidgetPanel() {
                   </button>
                 </div>
               </TerminalCardDropZone>
-            ) : item.kind === "session-detail" ? (
-              <div style={{
-                fontSize: 11,
-                color: "var(--ci-text-dim)",
-                lineHeight: 1.4,
-              }}>
-                当前 detail 内容
-              </div>
             ) : undefined;
 
             return (
               <DraggableCard
                 key={widget.id}
                 id={widget.id}
-                title={item.title}
+                title={
+                  isDetailCard
+                    ? (
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                        <span style={{ color: workspaceAccent, flexShrink: 0 }}>✦</span>
+                        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {item.title}
+                        </span>
+                      </span>
+                    )
+                    : item.title
+                }
                 headerActions={headerActions}
                 headerControls={
                   <button
@@ -1085,9 +1091,9 @@ export function SplitWidgetPanel() {
                       width: 22,
                       height: 22,
                       borderRadius: 8,
-                      background: "none",
-                      border: "1px solid var(--ci-toolbar-border)",
-                      color: "var(--ci-text-muted)",
+                      background: isDetailCard ? `${workspaceAccent}1A` : "none",
+                      border: `1px solid ${isDetailCard ? `${workspaceAccent}55` : "var(--ci-toolbar-border)"}`,
+                      color: isDetailCard ? workspaceAccent : "var(--ci-text-muted)",
                       cursor: "pointer",
                       fontSize: 12,
                       padding: 0,
