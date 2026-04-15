@@ -9,6 +9,7 @@ mod provider_sessions;
 mod pty;
 mod runtime_scope;
 mod runner;
+mod session_files;
 mod session_lifecycle;
 mod state;
 mod ui_state;
@@ -213,6 +214,11 @@ pub fn run() {
             // Git diff
             git::diff::get_git_diff,
             git::diff::get_git_diff_branch,
+            // Session files
+            session_files::remember_session_workdir,
+            session_files::remove_session_workdir,
+            session_files::read_session_file,
+            session_files::write_session_file,
             // Git 分支管理
             git::branch::git_current_branch,
             git::branch::git_branch_create,

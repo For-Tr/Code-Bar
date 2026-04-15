@@ -12,6 +12,7 @@ import { StatusBar } from "./components/StatusBar";
 import { SessionDetail } from "./components/SessionDetail";
 import { SplitWidgetPanel } from "./components/SplitWidgetPanel";
 import { SplitDetailHost, SplitSwapProvider } from "./components/SplitSwapLayout";
+import { ExploreSidebar, ExploreEditor } from "./components/ExploreMode";
 import Settings from "./components/Settings";
 import { useSessionStore, DiffFile, type ClaudeSession } from "./store/sessionStore";
 import {
@@ -28,11 +29,14 @@ export default function App() {
     sessions,
     activeSessionId,
     expandedSessionId,
+    splitMode,
+    exploreSessionId,
     appendOutput,
     updateSession,
     setDiffFiles,
     setActiveSession,
     setExpandedSession,
+    closeExploreMode,
   } = useSessionStore();
 
   const { settings, patchSettings } = useSettingsStore();
@@ -42,6 +46,7 @@ export default function App() {
   const isGlass = isGlassTheme(settings.theme);
   const isOriginalLayout = settings.layoutMode === "original";
   const overlaySessionOpen = isOriginalLayout && expandedSessionId !== null;
+  const isExploreMode = !isOriginalLayout && splitMode === "explore";
   const isSubPageOpen = settingsOpen || overlaySessionOpen;
 
   // ── 主题注入：根据 settings.theme 向 :root 写入 CSS 变量 ──────
@@ -343,6 +348,9 @@ export default function App() {
   const visibleSplitSessionId = expandedSession?.workspaceId === activeWorkspaceId
     ? expandedSession.id
     : null;
+  const exploreSession = sessions.find(
+    (s) => s.id === exploreSessionId && s.workspaceId === activeWorkspaceId
+  ) ?? null;
 
   const refreshSessionDiff = useCallback((sessionId?: string | null) => {
     if (!("__TAURI_INTERNALS__" in window)) return;
@@ -379,12 +387,16 @@ export default function App() {
         closeSettings();
         return;
       }
+      if (isExploreMode) {
+        closeExploreMode();
+        return;
+      }
       if (isOriginalLayout && expandedSessionId !== null) return;
       invoke("close_popup").catch(() => {});
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [settingsOpen, closeSettings, isOriginalLayout, expandedSessionId]);
+  }, [settingsOpen, closeSettings, isExploreMode, closeExploreMode, isOriginalLayout, expandedSessionId]);
 
   // ── 浮窗位置 / 大小记忆：用户拖动/调整后防抖 500ms 写盘 ──
   // 注意：只在基础状态（非展开）下保存，展开状态是临时的，不应覆盖记忆。
@@ -462,6 +474,7 @@ export default function App() {
           : (aid ?? ss[ss.length - 1]?.id ?? null);
       if (target) {
         requestAnimationFrame(() => {
+          setActiveSession(target);
           setExpandedSession(target);
           refreshSessionDiff(target);
         });
@@ -625,6 +638,12 @@ export default function App() {
     if (!activeSession?.id) return;
     refreshSessionDiff(activeSession.id);
   }, [activeSession?.id, refreshSessionDiff]);
+
+  useEffect(() => {
+    if (!isExploreMode) return;
+    if (exploreSession) return;
+    closeExploreMode();
+  }, [closeExploreMode, exploreSession, isExploreMode]);
 
   const hasDiff = (activeSession?.diffFiles.length ?? 0) > 0;
   const splitSidebarWidth = settings.splitPaneSidebarWidth;
@@ -844,7 +863,15 @@ export default function App() {
                     minHeight: 0,
                     background: isGlass ? "var(--ci-toolbar-bg)" : "transparent",
                   }}>
-                    {menuContent}
+                    {isExploreMode ? (
+                      <>
+                        <TitleBar />
+                        <div style={{ flex: 1, minHeight: 0 }}>
+                          <ExploreSidebar session={exploreSession} onRefreshDiff={refreshSessionDiff} />
+                        </div>
+                        <StatusBar session={exploreSession ?? undefined} />
+                      </>
+                    ) : menuContent}
                   </div>
 
                   <div
@@ -872,7 +899,9 @@ export default function App() {
                   </div>
 
                   <div style={{ flex: 1, minWidth: 0, minHeight: 0, position: "relative", display: "flex", borderLeft: "1px solid var(--ci-toolbar-border)" }}>
-                    <SplitDetailHost />
+                    {isExploreMode
+                      ? <div style={{ flex: 1, minWidth: 0, minHeight: 0 }}><ExploreEditor session={exploreSession} onRefreshDiff={refreshSessionDiff} /></div>
+                      : <SplitDetailHost />}
                   </div>
 
                   {!splitWidgetPanelCollapsed && (

@@ -47,10 +47,14 @@ export interface ClaudeSession {
   providerSessionId?: string; // 绑定的 provider 原生会话 ID（用于 codex/claude resume）
 }
 
+export type SplitMode = "default" | "explore";
+
 interface SessionStore {
   sessions: ClaudeSession[];
   activeSessionId: string | null;
   expandedSessionId: string | null;
+  splitMode: SplitMode;
+  exploreSessionId: string | null;
   sessionOrderByWorkspace: Record<string, string[]>;
   splitDetailItemId: string;
   splitCardItemIdsBySlot: Record<string, string>;
@@ -67,6 +71,8 @@ interface SessionStore {
   clearOutput: (id: string) => void;
   setDiffFiles: (id: string, files: DiffFile[]) => void;
   setExpandedSession: (id: string | null) => void;
+  openExploreMode: (sessionId: string) => void;
+  closeExploreMode: () => void;
   removeSessionsByWorkspace: (workspaceId: string) => void;
   markWorktreeReady: (id: string) => void;
   mergeRecoveredSessions: (sessions: ClaudeSession[]) => void;
@@ -167,6 +173,8 @@ export const useSessionStore = create<SessionStore>()(
       sessions: [],
       activeSessionId: null,
       expandedSessionId: null,
+      splitMode: "default",
+      exploreSessionId: null,
       sessionOrderByWorkspace: {},
       splitDetailItemId: "session-detail",
       splitCardItemIdsBySlot: {},
@@ -201,6 +209,10 @@ export const useSessionStore = create<SessionStore>()(
             state.expandedSessionId === id
               ? null
               : state.expandedSessionId;
+          const exploreSessionId = state.exploreSessionId === id
+            ? null
+            : state.exploreSessionId;
+          const splitMode = state.exploreSessionId === id ? "default" : state.splitMode;
           const worktreeReadyIds = new Set(state.worktreeReadyIds);
           worktreeReadyIds.delete(id);
           const sessionOrderByWorkspace = Object.fromEntries(
@@ -220,6 +232,8 @@ export const useSessionStore = create<SessionStore>()(
             sessions,
             activeSessionId,
             expandedSessionId,
+            splitMode,
+            exploreSessionId,
             worktreeReadyIds,
             sessionOrderByWorkspace,
             splitDetailItemId,
@@ -232,6 +246,19 @@ export const useSessionStore = create<SessionStore>()(
 
       setExpandedSession: (id) =>
         set({ expandedSessionId: id }),
+
+      openExploreMode: (sessionId) =>
+        set({
+          splitMode: "explore",
+          exploreSessionId: sessionId,
+          activeSessionId: sessionId,
+        }),
+
+      closeExploreMode: () =>
+        set({
+          splitMode: "default",
+          exploreSessionId: null,
+        }),
 
       updateSession: (id, patch) =>
         set((state) => ({
@@ -274,6 +301,11 @@ export const useSessionStore = create<SessionStore>()(
             state.sessions.find((s) => s.id === state.expandedSessionId)?.workspaceId === workspaceId
               ? null
               : state.expandedSessionId;
+          const exploreSessionId =
+            state.sessions.find((s) => s.id === state.exploreSessionId)?.workspaceId === workspaceId
+              ? null
+              : state.exploreSessionId;
+          const splitMode = exploreSessionId ? state.splitMode : "default";
           const removedIds = state.sessions
             .filter((s) => s.workspaceId === workspaceId)
             .map((s) => s.id);
@@ -291,6 +323,8 @@ export const useSessionStore = create<SessionStore>()(
             sessions,
             activeSessionId,
             expandedSessionId,
+            splitMode,
+            exploreSessionId,
             worktreeReadyIds,
             sessionOrderByWorkspace: restOrder,
             splitDetailItemId,
@@ -347,6 +381,8 @@ export const useSessionStore = create<SessionStore>()(
             worktreeReadyIds,
             sessionOrderByWorkspace,
             activeSessionId: state.activeSessionId ?? recoveredSessions[0]?.id ?? null,
+            splitMode: state.splitMode,
+            exploreSessionId: state.exploreSessionId,
           };
         }),
 
@@ -437,6 +473,8 @@ export const useSessionStore = create<SessionStore>()(
           pid: undefined,
         })),
         activeSessionId: state.activeSessionId,
+        splitMode: state.splitMode,
+        exploreSessionId: state.exploreSessionId,
         sessionOrderByWorkspace: state.sessionOrderByWorkspace,
       }),
       // 恢复时：修复 _counter，并将已有 worktreePath 的 session 标记为 worktreeReady
@@ -453,6 +491,10 @@ export const useSessionStore = create<SessionStore>()(
           state.sessions.filter((s) => s.worktreePath).map((s) => s.id)
         );
         state.worktreeReadyIds = readyIds;
+        if (!state.exploreSessionId || !state.sessions.some((s) => s.id === state.exploreSessionId)) {
+          state.exploreSessionId = null;
+          state.splitMode = "default";
+        }
 
         // 修复每个 workspace 的 session 顺序：补齐遗漏、去掉无效项
         const byWorkspace = state.sessions.reduce<Record<string, string[]>>((acc, s) => {

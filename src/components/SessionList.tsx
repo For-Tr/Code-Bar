@@ -75,7 +75,7 @@ function StatusDot({ status }: { status: SessionStatus }) {
 
 // ── Session 卡片 ─────────────────────────────────────────────
 function SessionCard({
-  session, isSelected, isOpened, accentColor, isGlass, showExpandButton, isDeleteConfirming, onClick, onExpand, onRemove, onRotateSuspend,
+  session, isSelected, isOpened, accentColor, isGlass, showExpandButton, isDeleteConfirming, onClick, onExpand, onOpenExplore, onRemove, onRotateSuspend,
 }: {
   session: ClaudeSession;
   isSelected: boolean;
@@ -86,6 +86,7 @@ function SessionCard({
   isDeleteConfirming: boolean;
   onClick: () => void;
   onExpand: () => void;
+  onOpenExplore: () => void;
   onRemove: () => void;
   onRotateSuspend: () => void;
 }) {
@@ -290,6 +291,41 @@ function SessionCard({
         </button>
       )}
 
+      <button
+        onClick={(e) => { e.stopPropagation(); onOpenExplore(); }}
+        onMouseDown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+        title="打开文件树"
+        style={{
+          background: "var(--ci-btn-ghost-bg)",
+          border: "1px solid transparent",
+          color: "var(--ci-text-dim)",
+          cursor: "pointer",
+          padding: "4px 6px",
+          borderRadius: 6,
+          flexShrink: 0,
+          display: "flex",
+          alignItems: "center",
+          transition: isGlass ? "color 0.12s" : "color 0.12s, background 0.12s, border-color 0.12s",
+        }}
+        onMouseEnter={e => {
+          e.currentTarget.style.color = accentColor;
+          e.currentTarget.style.background = isGlass ? "var(--ci-btn-ghost-bg)" : `${accentColor}15`;
+          e.currentTarget.style.borderColor = isGlass ? "transparent" : `${accentColor}30`;
+        }}
+        onMouseLeave={e => {
+          e.currentTarget.style.color = "var(--ci-text-dim)";
+          e.currentTarget.style.background = "var(--ci-btn-ghost-bg)";
+          e.currentTarget.style.borderColor = "transparent";
+        }}
+      >
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" style={{ display: "block" }}>
+          <path d="M1.75 3.75A1.25 1.25 0 0 1 3 2.5h3.1c.32 0 .63.13.85.35l.8.8c.23.22.53.35.85.35H13a1.25 1.25 0 0 1 1.25 1.25v6.5A1.25 1.25 0 0 1 13 13H3a1.25 1.25 0 0 1-1.25-1.25v-8Z" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round"/>
+        </svg>
+      </button>
+
       {showExpandButton && (
         <button
           onClick={(e) => { e.stopPropagation(); onExpand(); }}
@@ -429,6 +465,7 @@ export function SessionList() {
     removeSession,
     setActiveSession,
     setExpandedSession,
+    openExploreMode,
     addSession,
     markWorktreeReady,
     reorderWorkspaceSessionsByVisibleMove,
@@ -483,6 +520,12 @@ export function SessionList() {
       }).catch((e) => {
         console.warn("[ui-state] clear deleted session failed:", e);
       });
+      await invoke("remember_session_workdir", {
+        sessionId: id,
+        workdir: activeWorkspace.path,
+      }).catch((e) => {
+        console.warn("[session-files] remember workdir failed:", e);
+      });
     }
 
     if ("__TAURI_INTERNALS__" in window) {
@@ -497,6 +540,12 @@ export function SessionList() {
         });
 
         if (result) {
+          await invoke("remember_session_workdir", {
+            sessionId: id,
+            workdir: result.worktree_path,
+          }).catch((e) => {
+            console.warn("[session-files] remember worktree failed:", e);
+          });
           useSessionStore.getState().updateSession(id, {
             workdir: result.worktree_path,
             worktreePath: result.worktree_path,
@@ -522,6 +571,11 @@ export function SessionList() {
         workspaceRefs: [],
       }).catch((e) => {
         console.warn("[ui-state] mark deleted session failed:", e);
+      });
+      await invoke("remove_session_workdir", {
+        sessionId: session.id,
+      }).catch((e) => {
+        console.warn("[session-files] remove workdir failed:", e);
       });
     }
 
@@ -619,6 +673,11 @@ export function SessionList() {
                         setPendingDeleteSessionId(null);
                         setActiveSession(session.id);
                         setExpandedSession(session.id);
+                      }}
+                      onOpenExplore={() => {
+                        setPendingDeleteSessionId(null);
+                        setActiveSession(session.id);
+                        openExploreMode(session.id);
                       }}
                       onRemove={() => {
                         if (pendingDeleteSessionId === session.id) {
