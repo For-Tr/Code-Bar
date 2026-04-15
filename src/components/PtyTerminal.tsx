@@ -96,6 +96,13 @@ function getTerminalMetrics() {
   };
 }
 
+function getClampedTerminalSize(term: Terminal) {
+  return {
+    cols: Math.max(term.cols, 20),
+    rows: Math.max(term.rows, 5),
+  };
+}
+
 function wheelDeltaToLines(event: WheelEvent, rows: number): number {
   if (event.deltaY === 0) return 0;
 
@@ -467,9 +474,7 @@ export function PtyTerminal({
       const term = termRef.current;
       term?.focus();
       if (!term) return;
-      const cols = Math.max(term.cols, 20);
-      const rows = Math.max(term.rows, 5);
-      invoke("resize_pty", { sessionId, cols, rows }).catch(() => {});
+      invoke("resize_pty", { sessionId, ...getClampedTerminalSize(term) }).catch(() => {});
     }, 80);
     return () => clearTimeout(t);
   }, [active, sessionId]);
@@ -491,9 +496,7 @@ export function PtyTerminal({
       fit.fit();
       // 仅在面板可见时同步给 Rust，防止收起时 cols/rows 为 0 导致进程崩溃
       if (!activeRef.current) return;
-      const cols = Math.max(term.cols, 20);
-      const rows = Math.max(term.rows, 5);
-      invoke("resize_pty", { sessionId, cols, rows }).catch(() => {});
+      invoke("resize_pty", { sessionId, ...getClampedTerminalSize(term) }).catch(() => {});
     });
     ro.observe(el);
     return () => ro.disconnect();

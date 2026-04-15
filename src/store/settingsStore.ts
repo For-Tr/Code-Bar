@@ -93,6 +93,37 @@ function createDefaultTerminalTab(index = 1): SplitWidgetTerminalTab {
   };
 }
 
+function createDefaultTerminalWidget(): SplitWidgetTerminalItem {
+  const defaultTab = createDefaultTerminalTab();
+  return {
+    id: "terminal-widget-1",
+    type: "terminal",
+    col: 2,
+    row: 16,
+    colSpan: 18,
+    rowSpan: 13,
+    visible: true,
+    tabs: [defaultTab],
+    activeTabId: defaultTab.id,
+  };
+}
+
+function createDefaultUsageWidget(): SplitWidgetUsageItem {
+  return {
+    id: "usage-widget-1",
+    type: "usage",
+    col: 2,
+    row: 2,
+    colSpan: 18,
+    rowSpan: 10,
+    visible: true,
+  };
+}
+
+function createDefaultSplitWidgetItems(): SplitWidgetCanvasItem[] {
+  return [createDefaultTerminalWidget(), createDefaultUsageWidget()];
+}
+
 function normalizeSplitWidgetTerminalTab(tab: unknown, index: number): SplitWidgetTerminalTab | null {
   if (!tab || typeof tab !== "object") return null;
   const candidate = tab as Partial<SplitWidgetTerminalTab>;
@@ -154,22 +185,11 @@ export function normalizeSplitWidgetCanvas(canvas: unknown): SplitWidgetCanvas {
   const normalizedItems = items.length > 0 ? [...items] : [];
 
   if (!normalizedItems.some((item) => item.type === "terminal")) {
-    const defaultTab = createDefaultTerminalTab();
-    normalizedItems.unshift({
-      id: "terminal-widget-1",
-      type: "terminal",
-      col: 2,
-      row: 16,
-      colSpan: 18,
-      rowSpan: 13,
-      visible: true,
-      tabs: [defaultTab],
-      activeTabId: defaultTab.id,
-    });
+    normalizedItems.unshift(createDefaultTerminalWidget());
   }
 
   if (!normalizedItems.some((item) => item.type === "usage")) {
-    normalizedItems.push({ id: "usage-widget-1", type: "usage", col: 2, row: 2, colSpan: 18, rowSpan: 10, visible: true });
+    normalizedItems.push(createDefaultUsageWidget());
   }
 
   return {
@@ -254,23 +274,7 @@ const DEFAULT_SETTINGS: Settings = {
   splitWidgetPanelCollapsed: true,
   splitWidgetCanvas: {
     cellSize: 12,
-    items: (() => {
-      const defaultTab = createDefaultTerminalTab();
-      return [
-        {
-          id: "terminal-widget-1",
-          type: "terminal",
-          col: 2,
-          row: 16,
-          colSpan: 18,
-          rowSpan: 13,
-          visible: true,
-          tabs: [defaultTab],
-          activeTabId: defaultTab.id,
-        },
-        { id: "usage-widget-1", type: "usage", col: 2, row: 2, colSpan: 18, rowSpan: 10, visible: true },
-      ];
-    })(),
+    items: createDefaultSplitWidgetItems(),
     filledSnapshot: null,
   },
 };

@@ -235,6 +235,38 @@ function removeTabFromWidget(widget: SplitWidgetTerminalItem, tabId: string) {
   };
 }
 
+function detachTerminalTab(
+  items: SplitWidgetCanvasItem[],
+  sourceLayout: SplitWidgetCanvasItem,
+  sourceWidgetId: string,
+  tabId: string
+) {
+  const sourceWidget = items.find(
+    (item): item is SplitWidgetTerminalItem => item.type === "terminal" && item.id === sourceWidgetId
+  );
+  if (!sourceWidget) {
+    return { itemsWithoutSource: items, removedTab: null as SplitWidgetTerminalTab | null };
+  }
+  const { nextWidget, removedTab } = removeTabFromWidget(sourceWidget, tabId);
+  if (!removedTab) {
+    return { itemsWithoutSource: items, removedTab };
+  }
+  return {
+    itemsWithoutSource: items.flatMap((item) => {
+      if (item.id !== sourceWidgetId) return [item];
+      if (!nextWidget) return [];
+      return [{
+        ...nextWidget,
+        col: sourceLayout.col,
+        row: sourceLayout.row,
+        colSpan: sourceLayout.colSpan,
+        rowSpan: sourceLayout.rowSpan,
+      }];
+    }),
+    removedTab,
+  };
+}
+
 function readDragData(value: unknown): SplitWidgetDragData | null {
   if (!value || typeof value !== "object" || !("type" in value)) return null;
   const candidate = value as Partial<SplitWidgetDragData>;
@@ -288,7 +320,7 @@ function getTerminalWidgetAtPoint(
   return null;
 }
 
-function getDetachedPreviewRect(
+function getDetachedTabState(
   items: SplitWidgetCanvasItem[],
   repairedWidgetMap: Map<string, SplitWidgetCanvasItem>,
   sourceWidgetId: string,
@@ -302,27 +334,12 @@ function getDetachedPreviewRect(
   maxRows: number,
   snapToFreeSpace: boolean,
   clampToBounds: boolean
-): SplitWidgetTerminalItem | null {
+): { itemsWithoutSource: SplitWidgetCanvasItem[]; detachedItem: SplitWidgetTerminalItem } | null {
   const sourceLayout = repairedWidgetMap.get(sourceWidgetId);
-  const sourceWidget = items.find(
-    (item): item is SplitWidgetTerminalItem => item.type === "terminal" && item.id === sourceWidgetId
-  );
-  if (!sourceLayout || !sourceWidget) return null;
+  if (!sourceLayout) return null;
 
-  const { nextWidget, removedTab } = removeTabFromWidget(sourceWidget, tabId);
+  const { itemsWithoutSource, removedTab } = detachTerminalTab(items, sourceLayout, sourceWidgetId, tabId);
   if (!removedTab) return null;
-
-  const itemsWithoutSource = items.flatMap((item) => {
-    if (item.id !== sourceWidgetId) return [item];
-    if (!nextWidget) return [];
-    return [{
-      ...nextWidget,
-      col: sourceLayout.col,
-      row: sourceLayout.row,
-      colSpan: sourceLayout.colSpan,
-      rowSpan: sourceLayout.rowSpan,
-    }];
-  });
 
   const occupiedItems = itemsWithoutSource
     .filter((item) => item.visible !== false)
@@ -356,7 +373,9 @@ function getDetachedPreviewRect(
     ? findNearestFreePlacement(detachedCandidate, occupiedItems, maxCols, maxRows)
     : detachedCandidate;
 
-  return resolvedDetached && resolvedDetached.type === "terminal" ? resolvedDetached : null;
+  return resolvedDetached && resolvedDetached.type === "terminal"
+    ? { itemsWithoutSource, detachedItem: resolvedDetached }
+    : null;
 }
 
 function moveTerminalTabToWidget(
@@ -796,7 +815,7 @@ export function SplitWidgetPanel() {
               return;
             }
 
-            setDetachedPreviewRect(getDetachedPreviewRect(
+            setDetachedPreviewRect(getDetachedTabState(
               settings.splitWidgetCanvas.items,
               repairedWidgetMap,
               dragData.widgetId,
@@ -810,7 +829,7 @@ export function SplitWidgetPanel() {
               maxRows,
               true,
               true
-            ));
+            )?.detachedItem ?? null);
           }}
           onDragCancel={() => {
             setActiveDragType(null);
@@ -863,27 +882,7 @@ export function SplitWidgetPanel() {
 
               if (Math.abs(delta.x) < gridUnit && Math.abs(delta.y) < gridUnit) return;
 
-              const sourceWidget = settings.splitWidgetCanvas.items.find(
-                (item): item is SplitWidgetTerminalItem => item.type === "terminal" && item.id === dragData.widgetId
-              );
-              if (!sourceLayout || !sourceWidget) return;
-
-              const { nextWidget, removedTab } = removeTabFromWidget(sourceWidget, dragData.tabId);
-              if (!removedTab) return;
-
-              const itemsWithoutSource = settings.splitWidgetCanvas.items.flatMap((item) => {
-                if (item.id !== dragData.widgetId) return [item];
-                if (!nextWidget) return [];
-                return [{
-                  ...nextWidget,
-                  col: sourceLayout.col,
-                  row: sourceLayout.row,
-                  colSpan: sourceLayout.colSpan,
-                  rowSpan: sourceLayout.rowSpan,
-                }];
-              });
-
-              const resolvedDetached = getDetachedPreviewRect(
+              const detachedState = getDetachedTabState(
                 settings.splitWidgetCanvas.items,
                 repairedWidgetMap,
                 dragData.widgetId,
@@ -899,9 +898,9 @@ export function SplitWidgetPanel() {
                 true
               );
 
-              if (!resolvedDetached) return;
+              if (!detachedState) return;
 
-              patchCanvasItems([...itemsWithoutSource, resolvedDetached], true);
+              patchCanvasItems([...detachedState.itemsWithoutSource, detachedState.detachedItem], true);
               return;
             }
 
@@ -1032,22 +1031,7 @@ export function SplitWidgetPanel() {
                             }));
                           }}
                           onClose={() => {
-                            updateTerminalWidget(widget.id, (current) => {
-                              if (current.tabs.length <= 1) return current;
-                              const closingIndex = current.tabs.findIndex((item) => item.id === tab.id);
-                              if (closingIndex === -1) return current;
-                              const nextTabs = current.tabs.filter((item) => item.id !== tab.id);
-                              if (nextTabs.length === 0) return current;
-                              const fallbackTab = nextTabs[Math.max(0, closingIndex - 1)] ?? nextTabs[closingIndex] ?? nextTabs[0];
-                              const nextActiveTabId = current.activeTabId === tab.id
-                                ? fallbackTab.id
-                                : current.activeTabId;
-                              return {
-                                ...current,
-                                tabs: nextTabs,
-                                activeTabId: nextActiveTabId,
-                              };
-                            });
+                            updateTerminalWidget(widget.id, (current) => removeTabFromWidget(current, tab.id).nextWidget ?? current);
                           }}
                         />
                       );
