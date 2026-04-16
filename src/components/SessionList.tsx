@@ -182,7 +182,7 @@ function SessionCard({
           <p
             style={{
               margin: "2px 0 0", fontSize: 11,
-              color: "var(--ci-yellow-dark)",
+              color: "var(--ci-text-dim)",
               display: "flex", alignItems: "center", gap: 4,
             }}
           >
@@ -195,9 +195,7 @@ function SessionCard({
         {!isWaiting && session.currentTask && (
           <p style={{
             margin: "2px 0 0", fontSize: 11,
-            color: isRunning
-              ? "var(--ci-green-dark)"
-              : isError
+            color: isError
               ? "var(--ci-deleted-text)"
               : "var(--ci-text-dim)",
             overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
