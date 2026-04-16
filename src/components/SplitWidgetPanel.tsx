@@ -11,7 +11,7 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import { DraggableCard } from "./DraggableCard";
+import { DraggableCard, type ResizeEdge } from "./DraggableCard";
 import { SplitDockOutlet, useSplitSwapSnapshot } from "./SplitSwapLayout";
 import {
   useSettingsStore,
@@ -133,6 +133,44 @@ function insetRect(item: SplitWidgetCanvasItem, maxCols: number, maxRows: number
     colSpan: Math.max(12, item.colSpan),
     rowSpan: Math.max(10, item.rowSpan),
   }, maxCols - RIGHT_EDGE_MARGIN + 1, maxRows - PANEL_MARGIN + 1);
+}
+
+function resizeWidgetRect(
+  widget: SplitWidgetCanvasItem,
+  edge: ResizeEdge,
+  deltaCols: number,
+  deltaRows: number,
+  maxCols: number,
+  maxRows: number
+) {
+  const minColSpan = 12;
+  const minRowSpan = 10;
+  const right = widget.col + widget.colSpan;
+  const bottom = widget.row + widget.rowSpan;
+
+  let next = { ...widget };
+
+  if (edge === "left" || edge === "top-left" || edge === "bottom-left") {
+    const requestedCol = widget.col - deltaCols;
+    next.col = Math.max(PANEL_MARGIN, Math.min(requestedCol, right - minColSpan));
+    next.colSpan = right - next.col;
+  }
+
+  if (edge === "right" || edge === "top-right" || edge === "corner") {
+    next.colSpan = Math.max(minColSpan, widget.colSpan + deltaCols);
+  }
+
+  if (edge === "top" || edge === "top-left" || edge === "top-right") {
+    const requestedRow = widget.row - deltaRows;
+    next.row = Math.max(PANEL_MARGIN, Math.min(requestedRow, bottom - minRowSpan));
+    next.rowSpan = bottom - next.row;
+  }
+
+  if (edge === "bottom" || edge === "bottom-left" || edge === "corner") {
+    next.rowSpan = Math.max(minRowSpan, widget.rowSpan + deltaRows);
+  }
+
+  return clampRectToBounds(next, maxCols, maxRows);
 }
 
 function expandLayoutToFill(items: SplitWidgetCanvasItem[], maxCols: number, maxRows: number) {
@@ -1123,25 +1161,19 @@ export function SplitWidgetPanel() {
                 row={widget.row}
                 colSpan={widget.colSpan}
                 rowSpan={widget.rowSpan}
-                onResize={(deltaCols, deltaRows) => {
-                  const candidate = clampRectToBounds({
-                    ...widget,
-                    colSpan: Math.max(12, widget.colSpan + deltaCols),
-                    rowSpan: Math.max(10, widget.rowSpan + deltaRows),
-                  }, maxCols, maxRows);
+                onResize={(edge, deltaCols, deltaRows) => {
+                  const candidate = resizeWidgetRect(widget, edge, deltaCols, deltaRows, maxCols, maxRows);
                   let resolved = candidate;
                   if (collides(candidate, repairedWidgets, widget.id)) {
-                    let nextColSpan = candidate.colSpan;
-                    let nextRowSpan = candidate.rowSpan;
-                    while ((nextColSpan > widget.colSpan || nextRowSpan > widget.rowSpan) && collides({ ...candidate, colSpan: nextColSpan, rowSpan: nextRowSpan }, repairedWidgets, widget.id)) {
-                      if (nextColSpan > widget.colSpan) nextColSpan -= 1;
-                      if (nextRowSpan > widget.rowSpan) nextRowSpan -= 1;
+                    let nextDeltaCols = deltaCols;
+                    let nextDeltaRows = deltaRows;
+                    while ((nextDeltaCols !== 0 || nextDeltaRows !== 0) && collides(resizeWidgetRect(widget, edge, nextDeltaCols, nextDeltaRows, maxCols, maxRows), repairedWidgets, widget.id)) {
+                      if (nextDeltaCols > 0) nextDeltaCols -= 1;
+                      else if (nextDeltaCols < 0) nextDeltaCols += 1;
+                      if (nextDeltaRows > 0) nextDeltaRows -= 1;
+                      else if (nextDeltaRows < 0) nextDeltaRows += 1;
                     }
-                    resolved = {
-                      ...candidate,
-                      colSpan: Math.max(12, nextColSpan),
-                      rowSpan: Math.max(10, nextRowSpan),
-                    };
+                    resolved = resizeWidgetRect(widget, edge, nextDeltaCols, nextDeltaRows, maxCols, maxRows);
                     if (collides(resolved, repairedWidgets, widget.id)) {
                       resolved = widget;
                     }
