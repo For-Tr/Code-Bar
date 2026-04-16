@@ -15,6 +15,8 @@ use crate::util::{background_command, home_dir, normalize_expanded_path};
 const UI_STATE_DIR: &str = "ui-state";
 const DELETED_UI_STATE_KEY: &str = "code-bar-deleted-items";
 const RECOVERY_BINDINGS_KEY: &str = "code-bar-recovery-bindings";
+const SESSION_ID_STATE_KEY: &str = "code-bar-session-id-state";
+static SESSION_ID_STATE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -108,6 +110,17 @@ struct RecoveryBinding {
     worktree_path: Option<String>,
     #[serde(default)]
     updated_at_ms: u64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionIdState {
+    #[serde(default = "default_next_session_id")]
+    next_session_id: u64,
+}
+
+fn default_next_session_id() -> u64 {
+    1
 }
 
 fn normalize_optional_string(value: Option<String>) -> Option<String> {
@@ -344,6 +357,26 @@ fn read_recovery_bindings(app: &tauri::AppHandle) -> Result<Vec<RecoveryBinding>
     serde_json::from_str::<Vec<RecoveryBinding>>(&content)
         .map(|items| items.into_iter().filter_map(RecoveryBinding::normalized).collect())
         .map_err(|e| format!("解析恢复绑定失败: {e}"))
+}
+
+fn read_session_id_state(app: &tauri::AppHandle) -> Result<SessionIdState, String> {
+    let Some(content) = read_ui_state(app, SESSION_ID_STATE_KEY)? else {
+        return Ok(SessionIdState::default());
+    };
+
+    serde_json::from_str::<SessionIdState>(&content)
+        .map(|state| SessionIdState {
+            next_session_id: state.next_session_id.max(default_next_session_id()),
+        })
+        .map_err(|e| format!("解析 session ID 状态失败: {e}"))
+}
+
+fn write_session_id_state(app: &tauri::AppHandle, state: &SessionIdState) -> Result<(), String> {
+    let payload = serde_json::to_string(&SessionIdState {
+        next_session_id: state.next_session_id.max(default_next_session_id()),
+    })
+    .map_err(|e| format!("序列化 session ID 状态失败: {e}"))?;
+    write_ui_state(app, SESSION_ID_STATE_KEY, &payload)
 }
 
 fn write_recovery_bindings(app: &tauri::AppHandle, bindings: &[RecoveryBinding]) -> Result<(), String> {
@@ -722,6 +755,106 @@ fn numeric_session_id(name: &str) -> Option<String> {
     }
 }
 
+fn parse_numeric_session_id(value: &str) -> Option<u64> {
+    value.trim().parse::<u64>().ok()
+}
+
+fn collect_known_session_id_floor(
+    deleted_state: &DeletedUiState,
+    recovery_bindings: &[RecoveryBinding],
+    workspaces: &[RecoverWorkspaceInput],
+    existing_session_ids: &[String],
+) -> u64 {
+    let mut max_seen = 0_u64;
+
+    for id in existing_session_ids {
+        if let Some(value) = parse_numeric_session_id(id) {
+            max_seen = max_seen.max(value);
+        }
+    }
+
+    for id in &deleted_state.session_ids {
+        if let Some(value) = parse_numeric_session_id(id) {
+            max_seen = max_seen.max(value);
+        }
+    }
+
+    for entry in &deleted_state.sessions {
+        if let Some(value) = parse_numeric_session_id(&entry.session_id) {
+            max_seen = max_seen.max(value);
+        }
+    }
+
+    for binding in recovery_bindings {
+        if let Some(value) = parse_numeric_session_id(&binding.session_id) {
+            max_seen = max_seen.max(value);
+        }
+    }
+
+    for workspace in workspaces {
+        let normalized_workspace_path = normalize_path(Some(workspace.workspace_path.clone())).unwrap_or_default();
+        if normalized_workspace_path.is_empty() {
+            continue;
+        }
+
+        let repo_root = PathBuf::from(&normalized_workspace_path);
+        let Some(parent) = repo_root.parent() else {
+            continue;
+        };
+
+        let worktree_root = parent.join(session_worktree_root_dir());
+        let Ok(entries) = fs::read_dir(&worktree_root) else {
+            continue;
+        };
+
+        for entry in entries.flatten() {
+            let worktree_path = entry.path();
+            if !worktree_path.is_dir() {
+                continue;
+            }
+
+            let Some(dir_name) = worktree_path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            let Some(session_id) = numeric_session_id(dir_name) else {
+                continue;
+            };
+            let Some(value) = parse_numeric_session_id(&session_id) else {
+                continue;
+            };
+
+            max_seen = max_seen.max(value);
+        }
+    }
+
+    max_seen
+}
+
+#[tauri::command]
+pub fn reserve_session_id(
+    app: tauri::AppHandle,
+    workspaces: Vec<RecoverWorkspaceInput>,
+    existing_session_ids: Vec<String>,
+) -> Result<String, String> {
+    let _lock = SESSION_ID_STATE_LOCK
+        .lock()
+        .map_err(|e| format!("锁定 session ID 状态失败: {e}"))?;
+    let deleted_state = read_deleted_ui_state(&app)?;
+    let recovery_bindings = read_recovery_bindings(&app)?;
+    let mut state = read_session_id_state(&app)?;
+    let floor = collect_known_session_id_floor(
+        &deleted_state,
+        &recovery_bindings,
+        &workspaces,
+        &existing_session_ids,
+    );
+
+    let candidate = state.next_session_id.max(floor.saturating_add(1));
+    state.next_session_id = candidate.saturating_add(1).max(default_next_session_id());
+    write_session_id_state(&app, &state)?;
+    Ok(candidate.to_string())
+}
+
 #[tauri::command]
 pub fn load_ui_states(
     app: tauri::AppHandle,
@@ -969,8 +1102,7 @@ pub fn recover_workspace_sessions(
                 continue;
             };
 
-            let branch_name = current_branch(&worktree_path)
-                .or_else(|| Some(format!("ci/session-{session_id}")));
+            let branch_name = current_branch(&worktree_path);
             let workdir = worktree_path.to_string_lossy().to_string();
             let current_task = hint.current_task.clone();
 

@@ -41,7 +41,7 @@ export interface ClaudeSession {
   output: string[];
   runner: RunnerConfig;
   pid?: number;
-  branchName?: string;     // AI 在本 session 中使用的 git 分支名（如 ci/session-3）
+  branchName?: string;     // AI 在本 session 中使用的 git 分支名（如 ci/1a2b3c/session-3）
   baseBranch?: string;     // 任务开始时的基础分支（如 main/master）
   worktreePath?: string;   // git worktree 路径
   providerSessionId?: string; // 绑定的 provider 原生会话 ID（用于 codex/claude resume）
@@ -59,7 +59,7 @@ interface SessionStore {
   // 不持久化，每次应用启动重置；持久化的 session 重新打开时从 worktreePath 推断
   worktreeReadyIds: Set<string>;
 
-  addSession: (workspaceId: string, workdir: string, name: string | undefined, runner: RunnerConfig) => string;
+  addSession: (id: string, workspaceId: string, workdir: string, name: string | undefined, runner: RunnerConfig) => string;
   removeSession: (id: string) => void;
   setActiveSession: (id: string | null) => void;
   updateSession: (id: string, patch: Partial<ClaudeSession>) => void;
@@ -76,8 +76,6 @@ interface SessionStore {
 }
 
 // ── 工厂函数 ─────────────────────────────────────────────────
-
-let _counter = 1;
 
 const STATUS_PRIORITY: Partial<Record<SessionStatus, number>> = {
   waiting: 0,
@@ -143,12 +141,10 @@ function hydrateRunnerConfig(runner: RunnerConfig): RunnerConfig {
 }
 
 function makeSession(
-  overrides: Partial<Omit<ClaudeSession, "runner">> & { workspaceId: string; workdir: string; runner: RunnerConfig }
+  overrides: Partial<Omit<ClaudeSession, "runner">> & { id: string; workspaceId: string; workdir: string; runner: RunnerConfig }
 ): ClaudeSession {
-  const id = String(_counter++);
   return {
-    id,
-    name: `会话 ${id}`,
+    name: `会话 ${overrides.id}`,
     status: "idle",
     currentTask: "",
     createdAt: Date.now(),
@@ -172,8 +168,9 @@ export const useSessionStore = create<SessionStore>()(
       splitCardItemIdsBySlot: {},
       worktreeReadyIds: new Set<string>(),
 
-      addSession: (workspaceId, workdir, name, runner) => {
+      addSession: (id, workspaceId, workdir, name, runner) => {
         const s = makeSession({
+          id,
           workspaceId,
           workdir,
           ...(name ? { name } : {}),
@@ -439,14 +436,10 @@ export const useSessionStore = create<SessionStore>()(
         activeSessionId: state.activeSessionId,
         sessionOrderByWorkspace: state.sessionOrderByWorkspace,
       }),
-      // 恢复时：修复 _counter，并将已有 worktreePath 的 session 标记为 worktreeReady
+      // 恢复时：将已有 worktreePath 的 session 标记为 worktreeReady
       // 这些 session 的 worktree 可能已存在（或被孤儿清理），但不再新建——直接用持久化路径
       onRehydrateStorage: () => (state) => {
         if (!state) return;
-        const ids = state.sessions.map((s) => Number(s.id)).filter((n) => !isNaN(n));
-        if (ids.length > 0) {
-          _counter = Math.max(...ids) + 1;
-        }
         // 有 worktreePath 的持久化 session：worktree 已在文件系统中（由启动时的清理机制保证有效性）
         // 直接标记为 ready，不重新创建
         const readyIds = new Set<string>(
