@@ -7,6 +7,9 @@ import { CSS } from "@dnd-kit/utilities";
 import { ClaudeSession, SessionStatus, orderWorkspaceSessions, useSessionStore } from "../store/sessionStore";
 import { useWorkspaceStore, getWorkspaceColor } from "../store/workspaceStore";
 import { useSettingsStore, RUNNER_LABELS, sanitizeRunnerConfig, isGlassTheme } from "../store/settingsStore";
+import { useWorkbenchStore } from "../store/workbenchStore";
+import { useScmStore } from "../store/scmStore";
+import { showExplorer, showSessionSurface } from "../services/workbenchCommands";
 
 // ── 状态配置（使用 CSS 变量）────────────────────────────────
 const STATUS_CONFIG: Record<SessionStatus, {
@@ -91,6 +94,9 @@ function SessionCard({
   onRotateSuspend: () => void;
 }) {
   const runnerLabel = RUNNER_LABELS[session.runner.type];
+  const scmFiles = useScmStore((s) => s.snapshotBySessionId[session.id]?.files ?? session.diffFiles);
+  const totalAdditions = scmFiles.reduce((sum, file) => sum + file.additions, 0);
+  const totalDeletions = scmFiles.reduce((sum, file) => sum + file.deletions, 0);
   const cfg = STATUS_CONFIG[session.status];
   const isWaiting = session.status === "waiting";
   const isSuspended = session.status === "suspended";
@@ -188,7 +194,7 @@ function SessionCard({
             }}
           >
             <span style={{ fontSize: 10 }}>⚡</span>
-            {showExpandButton ? "点击展开终端查看并输入" : "点击卡片查看并输入"}
+            {showExpandButton ? "点击展开终端查看并输入" : "点击卡片聚焦会话"}
           </p>
         )}
 
@@ -226,32 +232,32 @@ function SessionCard({
             }}>
               ⎇ {session.branchName.replace("ci/", "")}
             </span>
-            {session.diffFiles.length > 0 && (
+            {scmFiles.length > 0 && (
               <>
                 <span style={{ opacity: 0.35 }}>·</span>
                 <span style={{ color: "var(--ci-green-dark)", fontWeight: 600 }}>
-                  +{session.diffFiles.reduce((s, f) => s + f.additions, 0)}
+                  +{totalAdditions}
                 </span>
                 <span style={{ color: "var(--ci-deleted-text)", fontWeight: 600 }}>
-                  −{session.diffFiles.reduce((s, f) => s + f.deletions, 0)}
+                  −{totalDeletions}
                 </span>
               </>
             )}
           </p>
         )}
 
-        {!session.branchName && session.diffFiles.length > 0 && (
+        {!session.branchName && scmFiles.length > 0 && (
           <p style={{
             margin: "2px 0 0", fontSize: 10,
             color: "var(--ci-text-dim)",
             display: "flex", alignItems: "center", gap: 4,
           }}>
-            {session.diffFiles.length} 变更{" "}
+            {scmFiles.length} 变更{" "}
             <span style={{ color: "var(--ci-green-dark)", fontWeight: 600 }}>
-              +{session.diffFiles.reduce((s, f) => s + f.additions, 0)}
+              +{totalAdditions}
             </span>{" "}
             <span style={{ color: "var(--ci-deleted-text)", fontWeight: 600 }}>
-              −{session.diffFiles.reduce((s, f) => s + f.deletions, 0)}
+              −{totalDeletions}
             </span>
           </p>
         )}
@@ -465,13 +471,13 @@ export function SessionList() {
     removeSession,
     setActiveSession,
     setExpandedSession,
-    openExploreMode,
     addSession,
     markWorktreeReady,
     reorderWorkspaceSessionsByVisibleMove,
     updateSession,
   } = useSessionStore();
   const { activeWorkspaceId } = useWorkspaceStore();
+  const focusSession = useWorkbenchStore((s) => s.focusSession);
   const activeWorkspace = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === activeWorkspaceId)
   );
@@ -510,6 +516,7 @@ export function SessionList() {
     const id = addSession(activeWorkspace.id, activeWorkspace.path, undefined, { ...runner });
     setActiveSession(id);
     setExpandedSession(id);
+    focusSession(id);
 
     if ("__TAURI_INTERNALS__" in window) {
       await invoke("clear_deleted_items", {
@@ -666,18 +673,19 @@ export function SessionList() {
                       isDeleteConfirming={pendingDeleteSessionId === session.id}
                       onClick={() => {
                         setPendingDeleteSessionId(null);
+                        if (isSplitLayout) {
+                          showSessionSurface(session.id);
+                          return;
+                        }
                         setActiveSession(session.id);
-                        if (isSplitLayout) setExpandedSession(session.id);
                       }}
                       onExpand={() => {
                         setPendingDeleteSessionId(null);
-                        setActiveSession(session.id);
-                        setExpandedSession(session.id);
+                        showSessionSurface(session.id);
                       }}
                       onOpenExplore={() => {
                         setPendingDeleteSessionId(null);
-                        setActiveSession(session.id);
-                        openExploreMode(session.id);
+                        showExplorer(session.id);
                       }}
                       onRemove={() => {
                         if (pendingDeleteSessionId === session.id) {

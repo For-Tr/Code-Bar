@@ -6,6 +6,7 @@ use std::{
 };
 
 use serde::Serialize;
+use tauri::Manager;
 
 use crate::util::expand_path;
 

@@ -214,6 +214,7 @@ pub fn run() {
             // Git diff
             git::diff::get_git_diff,
             git::diff::get_git_diff_branch,
+            git::diff::get_git_diff_session_worktree,
             // Session files
             session_files::remember_session_workdir,
             session_files::remove_session_workdir,
