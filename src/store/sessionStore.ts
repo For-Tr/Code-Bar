@@ -102,6 +102,35 @@ function dedupeSessionIds(ids: string[]): string[] {
   return deduped;
 }
 
+function normalizeSessionIdentityValue(value: string | undefined): string | null {
+  const normalized = value?.trim();
+  return normalized ? normalized : null;
+}
+
+function isSameLogicalSession(existing: ClaudeSession, incoming: ClaudeSession): boolean {
+  const existingWorktree = normalizeSessionIdentityValue(existing.worktreePath);
+  const incomingWorktree = normalizeSessionIdentityValue(incoming.worktreePath);
+  if (existingWorktree && incomingWorktree) {
+    return existing.workspaceId === incoming.workspaceId && existingWorktree === incomingWorktree;
+  }
+
+  const existingProviderSessionId = normalizeSessionIdentityValue(existing.providerSessionId);
+  const incomingProviderSessionId = normalizeSessionIdentityValue(incoming.providerSessionId);
+  if (existingProviderSessionId && incomingProviderSessionId) {
+    return existing.workspaceId === incoming.workspaceId
+      && existing.runner.type === incoming.runner.type
+      && existingProviderSessionId === incomingProviderSessionId;
+  }
+
+  const existingBranchName = normalizeSessionIdentityValue(existing.branchName);
+  const incomingBranchName = normalizeSessionIdentityValue(incoming.branchName);
+  if (existingBranchName && incomingBranchName) {
+    return existing.workspaceId === incoming.workspaceId && existingBranchName === incomingBranchName;
+  }
+
+  return existing.workspaceId === incoming.workspaceId && existing.createdAt === incoming.createdAt;
+}
+
 function buildWorkspaceManualOrder(
   sessions: ClaudeSession[],
   workspaceId: string,
@@ -325,30 +354,57 @@ export const useSessionStore = create<SessionStore>()(
         set((state) => {
           if (recoveredSessions.length === 0) return {};
 
-          const existingIds = new Set(state.sessions.map((s) => s.id));
           const sessions = [...state.sessions];
           const worktreeReadyIds = new Set(state.worktreeReadyIds);
           const sessionOrderByWorkspace = { ...state.sessionOrderByWorkspace };
           let added = false;
+          let merged = false;
+          let firstRecoveredSessionId: string | null = null;
 
           for (const recovered of recoveredSessions) {
-            if (existingIds.has(recovered.id)) continue;
-
-            sessions.push({
+            const hydratedRecovered: ClaudeSession = {
               ...recovered,
               runner: hydrateRunnerConfig(recovered.runner),
               diffFiles: [...recovered.diffFiles],
               output: [...recovered.output],
-            });
-            existingIds.add(recovered.id);
-            added = true;
+            };
+            firstRecoveredSessionId ??= hydratedRecovered.id;
 
-            if (recovered.worktreePath) {
-              worktreeReadyIds.add(recovered.id);
+            const existingIndex = sessions.findIndex((session) => session.id === hydratedRecovered.id);
+            if (existingIndex >= 0) {
+              const existingSession = sessions[existingIndex];
+              if (!isSameLogicalSession(existingSession, hydratedRecovered)) {
+                console.warn("[session-store] skip recovered session with conflicting duplicate id", {
+                  sessionId: hydratedRecovered.id,
+                  existingWorkspaceId: existingSession.workspaceId,
+                  recoveredWorkspaceId: hydratedRecovered.workspaceId,
+                  existingWorktreePath: existingSession.worktreePath,
+                  recoveredWorktreePath: hydratedRecovered.worktreePath,
+                  existingProviderSessionId: existingSession.providerSessionId,
+                  recoveredProviderSessionId: hydratedRecovered.providerSessionId,
+                });
+                continue;
+              }
+
+              sessions[existingIndex] = {
+                ...existingSession,
+                ...hydratedRecovered,
+                runner: hydrateRunnerConfig(hydratedRecovered.runner),
+                diffFiles: [...hydratedRecovered.diffFiles],
+                output: [...hydratedRecovered.output],
+              };
+              merged = true;
+            } else {
+              sessions.push(hydratedRecovered);
+              added = true;
             }
 
-            const workspaceId = recovered.workspaceId;
-            const nextOrder = [...(sessionOrderByWorkspace[workspaceId] ?? []), recovered.id];
+            if (hydratedRecovered.worktreePath) {
+              worktreeReadyIds.add(hydratedRecovered.id);
+            }
+
+            const workspaceId = hydratedRecovered.workspaceId;
+            const nextOrder = [...(sessionOrderByWorkspace[workspaceId] ?? []), hydratedRecovered.id];
             sessionOrderByWorkspace[workspaceId] = buildWorkspaceManualOrder(
               sessions,
               workspaceId,
@@ -356,13 +412,13 @@ export const useSessionStore = create<SessionStore>()(
             );
           }
 
-          if (!added) return {};
+          if (!added && !merged) return {};
 
           return {
             sessions,
             worktreeReadyIds,
             sessionOrderByWorkspace,
-            activeSessionId: state.activeSessionId ?? recoveredSessions[0]?.id ?? null,
+            activeSessionId: state.activeSessionId ?? firstRecoveredSessionId,
           };
         }),
 
@@ -471,6 +527,19 @@ export const useSessionStore = create<SessionStore>()(
       // 这些 session 的 worktree 可能已存在（或被孤儿清理），但不再新建——直接用持久化路径
       onRehydrateStorage: () => (state) => {
         if (!state) return;
+        const sessionIdCounts = new Map<string, number>();
+        for (const session of state.sessions) {
+          sessionIdCounts.set(session.id, (sessionIdCounts.get(session.id) ?? 0) + 1);
+        }
+        const duplicateSessionIds = [...sessionIdCounts.entries()]
+          .filter(([, count]) => count > 1)
+          .map(([id]) => id);
+        if (duplicateSessionIds.length > 0) {
+          console.warn("[session-store] duplicate session ids found during rehydrate", {
+            sessionIds: duplicateSessionIds,
+          });
+        }
+
         const ids = state.sessions.map((s) => Number(s.id)).filter((n) => !isNaN(n));
         if (ids.length > 0) {
           _counter = Math.max(...ids) + 1;
