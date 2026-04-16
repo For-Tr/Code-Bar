@@ -41,7 +41,7 @@ export interface ClaudeSession {
   output: string[];
   runner: RunnerConfig;
   pid?: number;
-  branchName?: string;     // AI 在本 session 中使用的 git 分支名（如 ci/session-3）
+  branchName?: string;     // AI 在本 session 中使用的 git 分支名（如 ci/1a2b3c/session-3）
   baseBranch?: string;     // 任务开始时的基础分支（如 main/master）
   worktreePath?: string;   // git worktree 路径
   providerSessionId?: string; // 绑定的 provider 原生会话 ID（用于 codex/claude resume）
@@ -59,7 +59,7 @@ interface SessionStore {
   // 不持久化，每次应用启动重置；持久化的 session 重新打开时从 worktreePath 推断
   worktreeReadyIds: Set<string>;
 
-  addSession: (workspaceId: string, workdir: string, name: string | undefined, runner: RunnerConfig) => string;
+  addSession: (id: string, workspaceId: string, workdir: string, name: string | undefined, runner: RunnerConfig) => string;
   removeSession: (id: string) => void;
   setActiveSession: (id: string | null) => void;
   updateSession: (id: string, patch: Partial<ClaudeSession>) => void;
@@ -77,8 +77,6 @@ interface SessionStore {
 
 // ── 工厂函数 ─────────────────────────────────────────────────
 
-let _counter = 1;
-
 const STATUS_PRIORITY: Partial<Record<SessionStatus, number>> = {
   waiting: 0,
   running: 1,
@@ -89,6 +87,48 @@ function getStatusPriority(status: SessionStatus): number {
   return STATUS_PRIORITY[status] ?? 3;
 }
 
+function dedupeSessionIds(ids: string[]): string[] {
+  const seen = new Set<string>();
+  const deduped: string[] = [];
+
+  for (const id of ids) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    deduped.push(id);
+  }
+
+  return deduped;
+}
+
+function normalizeSessionIdentityValue(value: string | undefined): string | null {
+  const normalized = value?.trim();
+  return normalized ? normalized : null;
+}
+
+function isSameLogicalSession(existing: ClaudeSession, incoming: ClaudeSession): boolean {
+  const existingWorktree = normalizeSessionIdentityValue(existing.worktreePath);
+  const incomingWorktree = normalizeSessionIdentityValue(incoming.worktreePath);
+  if (existingWorktree && incomingWorktree) {
+    return existing.workspaceId === incoming.workspaceId && existingWorktree === incomingWorktree;
+  }
+
+  const existingProviderSessionId = normalizeSessionIdentityValue(existing.providerSessionId);
+  const incomingProviderSessionId = normalizeSessionIdentityValue(incoming.providerSessionId);
+  if (existingProviderSessionId && incomingProviderSessionId) {
+    return existing.workspaceId === incoming.workspaceId
+      && existing.runner.type === incoming.runner.type
+      && existingProviderSessionId === incomingProviderSessionId;
+  }
+
+  const existingBranchName = normalizeSessionIdentityValue(existing.branchName);
+  const incomingBranchName = normalizeSessionIdentityValue(incoming.branchName);
+  if (existingBranchName && incomingBranchName) {
+    return existing.workspaceId === incoming.workspaceId && existingBranchName === incomingBranchName;
+  }
+
+  return existing.workspaceId === incoming.workspaceId && existing.createdAt === incoming.createdAt;
+}
+
 function buildWorkspaceManualOrder(
   sessions: ClaudeSession[],
   workspaceId: string,
@@ -97,8 +137,11 @@ function buildWorkspaceManualOrder(
   const workspaceSessions = sessions.filter((s) => s.workspaceId === workspaceId);
   const workspaceIds = workspaceSessions.map((s) => s.id);
   const validSet = new Set(workspaceIds);
-  const normalizedPersisted = (persistedOrder ?? []).filter((id) => validSet.has(id));
-  const missing = workspaceIds.filter((id) => !normalizedPersisted.includes(id));
+  const normalizedPersisted = dedupeSessionIds(
+    (persistedOrder ?? []).filter((id) => validSet.has(id))
+  );
+  const normalizedSet = new Set(normalizedPersisted);
+  const missing = workspaceIds.filter((id) => !normalizedSet.has(id));
   return [...normalizedPersisted, ...missing];
 }
 
@@ -143,12 +186,10 @@ function hydrateRunnerConfig(runner: RunnerConfig): RunnerConfig {
 }
 
 function makeSession(
-  overrides: Partial<Omit<ClaudeSession, "runner">> & { workspaceId: string; workdir: string; runner: RunnerConfig }
+  overrides: Partial<Omit<ClaudeSession, "runner">> & { id: string; workspaceId: string; workdir: string; runner: RunnerConfig }
 ): ClaudeSession {
-  const id = String(_counter++);
   return {
-    id,
-    name: `会话 ${id}`,
+    name: `会话 ${overrides.id}`,
     status: "idle",
     currentTask: "",
     createdAt: Date.now(),
@@ -172,8 +213,9 @@ export const useSessionStore = create<SessionStore>()(
       splitCardItemIdsBySlot: {},
       worktreeReadyIds: new Set<string>(),
 
-      addSession: (workspaceId, workdir, name, runner) => {
+      addSession: (id, workspaceId, workdir, name, runner) => {
         const s = makeSession({
+          id,
           workspaceId,
           workdir,
           ...(name ? { name } : {}),
@@ -309,30 +351,57 @@ export const useSessionStore = create<SessionStore>()(
         set((state) => {
           if (recoveredSessions.length === 0) return {};
 
-          const existingIds = new Set(state.sessions.map((s) => s.id));
           const sessions = [...state.sessions];
           const worktreeReadyIds = new Set(state.worktreeReadyIds);
           const sessionOrderByWorkspace = { ...state.sessionOrderByWorkspace };
           let added = false;
+          let merged = false;
+          let firstRecoveredSessionId: string | null = null;
 
           for (const recovered of recoveredSessions) {
-            if (existingIds.has(recovered.id)) continue;
-
-            sessions.push({
+            const hydratedRecovered: ClaudeSession = {
               ...recovered,
               runner: hydrateRunnerConfig(recovered.runner),
               diffFiles: [...recovered.diffFiles],
               output: [...recovered.output],
-            });
-            existingIds.add(recovered.id);
-            added = true;
+            };
+            firstRecoveredSessionId ??= hydratedRecovered.id;
 
-            if (recovered.worktreePath) {
-              worktreeReadyIds.add(recovered.id);
+            const existingIndex = sessions.findIndex((session) => session.id === hydratedRecovered.id);
+            if (existingIndex >= 0) {
+              const existingSession = sessions[existingIndex];
+              if (!isSameLogicalSession(existingSession, hydratedRecovered)) {
+                console.warn("[session-store] skip recovered session with conflicting duplicate id", {
+                  sessionId: hydratedRecovered.id,
+                  existingWorkspaceId: existingSession.workspaceId,
+                  recoveredWorkspaceId: hydratedRecovered.workspaceId,
+                  existingWorktreePath: existingSession.worktreePath,
+                  recoveredWorktreePath: hydratedRecovered.worktreePath,
+                  existingProviderSessionId: existingSession.providerSessionId,
+                  recoveredProviderSessionId: hydratedRecovered.providerSessionId,
+                });
+                continue;
+              }
+
+              sessions[existingIndex] = {
+                ...existingSession,
+                ...hydratedRecovered,
+                runner: hydrateRunnerConfig(hydratedRecovered.runner),
+                diffFiles: [...hydratedRecovered.diffFiles],
+                output: [...hydratedRecovered.output],
+              };
+              merged = true;
+            } else {
+              sessions.push(hydratedRecovered);
+              added = true;
             }
 
-            const workspaceId = recovered.workspaceId;
-            const nextOrder = [...(sessionOrderByWorkspace[workspaceId] ?? []), recovered.id];
+            if (hydratedRecovered.worktreePath) {
+              worktreeReadyIds.add(hydratedRecovered.id);
+            }
+
+            const workspaceId = hydratedRecovered.workspaceId;
+            const nextOrder = [...(sessionOrderByWorkspace[workspaceId] ?? []), hydratedRecovered.id];
             sessionOrderByWorkspace[workspaceId] = buildWorkspaceManualOrder(
               sessions,
               workspaceId,
@@ -340,13 +409,13 @@ export const useSessionStore = create<SessionStore>()(
             );
           }
 
-          if (!added) return {};
+          if (!added && !merged) return {};
 
           return {
             sessions,
             worktreeReadyIds,
             sessionOrderByWorkspace,
-            activeSessionId: state.activeSessionId ?? recoveredSessions[0]?.id ?? null,
+            activeSessionId: state.activeSessionId ?? firstRecoveredSessionId,
           };
         }),
 
@@ -374,37 +443,49 @@ export const useSessionStore = create<SessionStore>()(
           );
           const oldIndex = visibleOrdered.findIndex((s) => s.id === activeId);
           const newIndex = visibleOrdered.findIndex((s) => s.id === overId);
-          if (oldIndex < 0 || newIndex < 0) return {};
+          if (oldIndex < 0 || newIndex < 0 || oldIndex === newIndex) return {};
 
           const activeSession = visibleOrdered[oldIndex];
           const overSession = visibleOrdered[newIndex];
-          // 状态分组优先，拖拽只允许调整同优先级分组内部顺序
-          if (getStatusPriority(activeSession.status) !== getStatusPriority(overSession.status)) {
-            return {};
-          }
+          const activePriority = getStatusPriority(activeSession.status);
+          const overPriority = getStatusPriority(overSession.status);
+          if (activePriority !== overPriority) return {};
 
-          const movedVisible = [...visibleOrdered];
-          const [moved] = movedVisible.splice(oldIndex, 1);
-          movedVisible.splice(newIndex, 0, moved);
-          const movedIds = movedVisible.map((s) => s.id);
-          const movedIndex = new Map(movedIds.map((id, index) => [id, index]));
+          const sameGroupVisible = visibleOrdered.filter(
+            (session) => getStatusPriority(session.status) === activePriority
+          );
+          const groupOldIndex = sameGroupVisible.findIndex((s) => s.id === activeId);
+          const groupNewIndex = sameGroupVisible.findIndex((s) => s.id === overId);
+          if (groupOldIndex < 0 || groupNewIndex < 0 || groupOldIndex === groupNewIndex) return {};
+
+          const movedGroup = [...sameGroupVisible];
+          const [moved] = movedGroup.splice(groupOldIndex, 1);
+          movedGroup.splice(groupNewIndex, 0, moved);
+          const movedGroupIds = movedGroup.map((s) => s.id);
+          const movedGroupIndex = new Map(movedGroupIds.map((id, index) => [id, index]));
 
           const manualOrder = buildWorkspaceManualOrder(
             state.sessions,
             workspaceId,
             state.sessionOrderByWorkspace[workspaceId]
           );
-
-          const nextManualOrder = [...manualOrder].sort((a, b) => {
-            const aIdx = movedIndex.get(a) ?? Number.MAX_SAFE_INTEGER;
-            const bIdx = movedIndex.get(b) ?? Number.MAX_SAFE_INTEGER;
+          const nextOrder = [...manualOrder].sort((a, b) => {
+            const aIdx = movedGroupIndex.get(a);
+            const bIdx = movedGroupIndex.get(b);
+            if (aIdx === undefined && bIdx === undefined) return 0;
+            if (aIdx === undefined) return 1;
+            if (bIdx === undefined) return -1;
             return aIdx - bIdx;
           });
+
+          if (nextOrder.every((id, index) => id === manualOrder[index])) {
+            return {};
+          }
 
           return {
             sessionOrderByWorkspace: {
               ...state.sessionOrderByWorkspace,
-              [workspaceId]: nextManualOrder,
+              [workspaceId]: nextOrder,
             },
           };
         }),
@@ -439,14 +520,23 @@ export const useSessionStore = create<SessionStore>()(
         activeSessionId: state.activeSessionId,
         sessionOrderByWorkspace: state.sessionOrderByWorkspace,
       }),
-      // 恢复时：修复 _counter，并将已有 worktreePath 的 session 标记为 worktreeReady
+      // 恢复时：将已有 worktreePath 的 session 标记为 worktreeReady
       // 这些 session 的 worktree 可能已存在（或被孤儿清理），但不再新建——直接用持久化路径
       onRehydrateStorage: () => (state) => {
         if (!state) return;
-        const ids = state.sessions.map((s) => Number(s.id)).filter((n) => !isNaN(n));
-        if (ids.length > 0) {
-          _counter = Math.max(...ids) + 1;
+        const sessionIdCounts = new Map<string, number>();
+        for (const session of state.sessions) {
+          sessionIdCounts.set(session.id, (sessionIdCounts.get(session.id) ?? 0) + 1);
         }
+        const duplicateSessionIds = [...sessionIdCounts.entries()]
+          .filter(([, count]) => count > 1)
+          .map(([id]) => id);
+        if (duplicateSessionIds.length > 0) {
+          console.warn("[session-store] duplicate session ids found during rehydrate", {
+            sessionIds: duplicateSessionIds,
+          });
+        }
+
         // 有 worktreePath 的持久化 session：worktree 已在文件系统中（由启动时的清理机制保证有效性）
         // 直接标记为 ready，不重新创建
         const readyIds = new Set<string>(
@@ -462,8 +552,11 @@ export const useSessionStore = create<SessionStore>()(
         const normalizedOrder: Record<string, string[]> = {};
         for (const [workspaceId, ids] of Object.entries(byWorkspace)) {
           const validSet = new Set(ids);
-          const persisted = (state.sessionOrderByWorkspace?.[workspaceId] ?? []).filter((id) => validSet.has(id));
-          const missing = ids.filter((id) => !persisted.includes(id));
+          const persisted = dedupeSessionIds(
+            (state.sessionOrderByWorkspace?.[workspaceId] ?? []).filter((id) => validSet.has(id))
+          );
+          const persistedSet = new Set(persisted);
+          const missing = ids.filter((id) => !persistedSet.has(id));
           normalizedOrder[workspaceId] = [...persisted, ...missing];
         }
         state.sessionOrderByWorkspace = normalizedOrder;

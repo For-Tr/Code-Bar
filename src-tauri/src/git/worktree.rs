@@ -1,9 +1,23 @@
-use std::{fs, path::Path};
+use std::{fs, path::Path, time::{SystemTime, UNIX_EPOCH}};
 
 use crate::runtime_scope::session_worktree_root_dir;
 use crate::util::{background_command, expand_path, normalize_expanded_path};
 
 // ── 辅助函数 ──────────────────────────────────────────────────────
+pub fn session_branch_prefix() -> String {
+    let millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0);
+    let token = format!("{:06x}", millis % 0x1000000);
+    format!("ci/{token}")
+}
+
+pub fn session_branch_name(prefix: &str, session_id: &str) -> String {
+    format!("{prefix}/session-{session_id}")
+}
+
 /// 从 worktree 目录的 HEAD 文件读取分支名
 pub fn read_worktree_branch(worktree_path: &Path) -> Option<String> {
     // worktree 中的 HEAD 格式：ref: refs/heads/<branch>
@@ -229,7 +243,8 @@ pub async fn setup_session_worktree(
             session_worktree_root_dir(),
             session_id_clone
         );
-        let branch = format!("ci/session-{}", session_id_clone);
+        let branch_prefix = session_branch_prefix();
+        let branch = session_branch_name(&branch_prefix, &session_id_clone);
 
         // 幂等：先清理同名的旧 worktree/分支
         let _ = background_command("git")

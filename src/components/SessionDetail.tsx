@@ -431,7 +431,7 @@ function SessionPanel({ sessionId, isOpen, onClose, presentation, showHeader }: 
       ["CODE_BAR_WORKSPACE_ID", session.workspaceId],
       ["CODE_BAR_WORKSPACE_NAME", workspace?.name ?? ""],
       ["CODE_BAR_CONCURRENT_SESSIONS", String(siblingSessions.length)],
-      ["CODE_BAR_SUGGESTED_BRANCH", `ci/session-${session.id}`],
+      ["CODE_BAR_SUGGESTED_BRANCH", session.branchName ?? `ci/session-${session.id}`],
       // Worktree 信息：告知 AI CLI 当前在独立 worktree 工作，不用自己创建分支
       ...(session.worktreePath ? [
         ["CODE_BAR_WORKTREE_PATH", session.worktreePath] as [string, string],

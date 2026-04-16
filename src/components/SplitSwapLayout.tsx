@@ -123,38 +123,34 @@ function SessionDetailBody({
   const { detailItemId } = useSplitSwapContext();
   const isSwappedIntoCard = detailItemId !== SESSION_DETAIL_ITEM_ID;
 
-  const body = (
-    <SessionDetail
-      mode="embedded"
-      showPanelHeader={false}
-      emptyState={emptyState}
-      openSessionId={openSessionId}
-    />
-  );
-
-  if (!isSwappedIntoCard) {
-    return body;
-  }
-
   return (
     <div style={{
       width: "100%",
       height: "100%",
       minHeight: 0,
-      padding: 3,
+      padding: isSwappedIntoCard ? 3 : 0,
       boxSizing: "border-box",
-      background: "#0a0a0c",
-      ['--ci-pty-panel-bg' as string]: '#0a0a0c',
-      ['--ci-pty-mask-bg' as string]: '#0a0a0c',
+      background: isSwappedIntoCard ? "#0a0a0c" : "transparent",
+      ...(isSwappedIntoCard
+        ? {
+            ['--ci-pty-panel-bg' as string]: '#0a0a0c',
+            ['--ci-pty-mask-bg' as string]: '#0a0a0c',
+          }
+        : {}),
     }}>
       <div style={{
         width: "100%",
         height: "100%",
         minHeight: 0,
         overflow: "hidden",
-        background: "#0a0a0c",
+        background: isSwappedIntoCard ? "#0a0a0c" : "transparent",
       }}>
-        {body}
+        <SessionDetail
+          mode="embedded"
+          showPanelHeader={false}
+          emptyState={emptyState}
+          openSessionId={openSessionId}
+        />
       </div>
     </div>
   );

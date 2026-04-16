@@ -189,7 +189,7 @@ function SessionCard({
           <p
             style={{
               margin: "2px 0 0", fontSize: 11,
-              color: "var(--ci-yellow-dark)",
+              color: "var(--ci-text-dim)",
               display: "flex", alignItems: "center", gap: 4,
             }}
           >
@@ -202,9 +202,7 @@ function SessionCard({
         {!isWaiting && session.currentTask && (
           <p style={{
             margin: "2px 0 0", fontSize: 11,
-            color: isRunning
-              ? "var(--ci-green-dark)"
-              : isError
+            color: isError
               ? "var(--ci-deleted-text)"
               : "var(--ci-text-dim)",
             overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
@@ -230,7 +228,7 @@ function SessionCard({
               overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
               maxWidth: 140,
             }}>
-              ⎇ {session.branchName.replace("ci/", "")}
+              ⎇ s-{session.id}
             </span>
             {scmFiles.length > 0 && (
               <>
@@ -478,6 +476,7 @@ export function SessionList() {
   } = useSessionStore();
   const { activeWorkspaceId } = useWorkspaceStore();
   const focusSession = useWorkbenchStore((s) => s.focusSession);
+  const workspaces = useWorkspaceStore((s) => s.workspaces);
   const activeWorkspace = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === activeWorkspaceId)
   );
@@ -513,7 +512,30 @@ export function SessionList() {
 
   const handleNewSession = async () => {
     if (!activeWorkspace) return;
-    const id = addSession(activeWorkspace.id, activeWorkspace.path, undefined, { ...runner });
+
+    let id: string;
+    if ("__TAURI_INTERNALS__" in window) {
+      try {
+        id = await invoke<string>("reserve_session_id", {
+          workspaces: workspaces.map((workspace) => ({
+            workspaceId: workspace.id,
+            workspacePath: workspace.path,
+          })),
+          existingSessionIds: sessions.map((session) => session.id),
+        });
+      } catch (e) {
+        console.warn("[ui-state] reserve session id failed:", e);
+        return;
+      }
+    } else {
+      const maxId = sessions
+        .map((session) => Number(session.id))
+        .filter((value) => !Number.isNaN(value))
+        .reduce((max, value) => Math.max(max, value), 0);
+      id = String(maxId + 1);
+    }
+
+    addSession(id, activeWorkspace.id, activeWorkspace.path, undefined, { ...runner });
     setActiveSession(id);
     setExpandedSession(id);
     focusSession(id);

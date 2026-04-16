@@ -257,6 +257,7 @@ pub fn run() {
             ui_state::clear_deleted_items,
             ui_state::save_ui_state,
             ui_state::remove_ui_state,
+            ui_state::reserve_session_id,
             ui_state::recover_workspace_sessions,
             ui_state::save_recovery_binding,
             usage::refresh_runner_usage,
