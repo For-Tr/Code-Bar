@@ -79,6 +79,8 @@ function Section({
   defaultExpanded?: boolean;
   children: React.ReactNode;
 }) {
+  if (count === 0) return null;
+
   const [expanded, setExpanded] = useState(defaultExpanded);
 
   return (
