@@ -1,4 +1,5 @@
-import { GitBranch, Plus, Minus, ArrowUp, ArrowDown, Trash2 } from "lucide-react";
+import { useState } from "react";
+import { ChevronDown, ChevronRight, GitBranch, Plus, Minus, ArrowUp, ArrowDown, Trash2 } from "lucide-react";
 import { type DiffFile, type ClaudeSession } from "../../store/sessionStore";
 import {
   commitScm,
@@ -67,39 +68,74 @@ function ActionButton({
   );
 }
 
-function GroupSection({
+function Section({
   title,
+  count,
+  defaultExpanded = true,
+  children,
+}: {
+  title: string;
+  count?: number;
+  defaultExpanded?: boolean;
+  children: React.ReactNode;
+}) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
+
+  return (
+    <div style={{ marginBottom: 6 }}>
+      <button
+        onClick={() => setExpanded((value) => !value)}
+        style={{
+          width: "100%",
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          padding: "2px 12px 6px",
+          background: "none",
+          border: "none",
+          color: "var(--ci-text-dim)",
+          cursor: "pointer",
+          textAlign: "left",
+        }}
+      >
+        <span style={{ width: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          {expanded ? <ChevronDown size={12} strokeWidth={1.8} /> : <ChevronRight size={12} strokeWidth={1.8} />}
+        </span>
+        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>{title}</span>
+        {typeof count === "number" && <span style={{ fontSize: 10, marginLeft: "auto" }}>{count}</span>}
+      </button>
+      {expanded && children}
+    </div>
+  );
+}
+
+function GroupSection({
   group,
   files,
   sessionId,
   selectedPath,
   busy,
 }: {
-  title: string;
   group: ScmEntryGroup;
   files: ScmStatusEntry[];
   sessionId: string;
   selectedPath: string | null;
   busy: boolean;
 }) {
-  if (files.length === 0) return null;
   return (
-    <div style={{ marginBottom: 10 }}>
-      <div style={{ fontSize: 10, color: "var(--ci-text-dim)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", padding: "0 12px 6px" }}>
-        {title}
-      </div>
+    <>
       {files.map((file) => {
         const isSelected = selectedPath === file.path;
         return (
           <div
-            key={`${title}:${file.path}`}
+            key={`${group}:${file.path}`}
             style={{
               width: "100%",
               display: "flex",
               alignItems: "center",
               gap: 8,
               minHeight: 22,
-              padding: "0 8px 0 12px",
+              padding: "0 8px 0 24px",
               background: isSelected ? "var(--ci-accent-bg)" : "transparent",
               color: isSelected ? "var(--ci-text)" : "var(--ci-text-muted)",
               borderLeft: isSelected ? "1px solid var(--ci-accent)" : "1px solid transparent",
@@ -146,7 +182,7 @@ function GroupSection({
           </div>
         );
       })}
-    </div>
+    </>
   );
 }
 
@@ -294,16 +330,25 @@ export function ScmSidebar({ session }: { session: ClaudeSession | null }) {
           </div>
         ) : (
           <>
-            <GroupSection title="Committed in Session" group="committed" files={committedEntries} sessionId={session.id} selectedPath={selectedEntry?.group === "committed" ? selectedEntry.path : null} busy={busy} />
+            <Section title="Committed in Session" count={committedEntries.length} defaultExpanded={committedEntries.length > 0}>
+              <GroupSection group="committed" files={committedEntries} sessionId={session.id} selectedPath={selectedEntry?.group === "committed" ? selectedEntry.path : null} busy={busy} />
+            </Section>
             {hasGroupedStatus && (
-              <div style={{ fontSize: 10, color: "var(--ci-text-dim)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", padding: "4px 12px 8px" }}>
-                Working Tree
-              </div>
+              <Section title="Working Tree" count={groups.conflicts.length + groups.staged.length + groups.unstaged.length + groups.untracked.length}>
+                <Section title="Conflicts" count={groups.conflicts.length} defaultExpanded={groups.conflicts.length > 0}>
+                  <GroupSection group="conflicts" files={groups.conflicts} sessionId={session.id} selectedPath={selectedEntry?.group === "conflicts" ? selectedEntry.path : null} busy={busy} />
+                </Section>
+                <Section title="Staged" count={groups.staged.length} defaultExpanded={groups.staged.length > 0}>
+                  <GroupSection group="staged" files={groups.staged} sessionId={session.id} selectedPath={selectedEntry?.group === "staged" ? selectedEntry.path : null} busy={busy} />
+                </Section>
+                <Section title="Changes" count={groups.unstaged.length} defaultExpanded={groups.unstaged.length > 0}>
+                  <GroupSection group="unstaged" files={groups.unstaged} sessionId={session.id} selectedPath={selectedEntry?.group === "unstaged" ? selectedEntry.path : null} busy={busy} />
+                </Section>
+                <Section title="Untracked" count={groups.untracked.length} defaultExpanded={groups.untracked.length > 0}>
+                  <GroupSection group="untracked" files={groups.untracked} sessionId={session.id} selectedPath={selectedEntry?.group === "untracked" ? selectedEntry.path : null} busy={busy} />
+                </Section>
+              </Section>
             )}
-            <GroupSection title="Conflicts" group="conflicts" files={groups.conflicts} sessionId={session.id} selectedPath={selectedEntry?.group === "conflicts" ? selectedEntry.path : null} busy={busy} />
-            <GroupSection title="Staged" group="staged" files={groups.staged} sessionId={session.id} selectedPath={selectedEntry?.group === "staged" ? selectedEntry.path : null} busy={busy} />
-            <GroupSection title="Changes" group="unstaged" files={groups.unstaged} sessionId={session.id} selectedPath={selectedEntry?.group === "unstaged" ? selectedEntry.path : null} busy={busy} />
-            <GroupSection title="Untracked" group="untracked" files={groups.untracked} sessionId={session.id} selectedPath={selectedEntry?.group === "untracked" ? selectedEntry.path : null} busy={busy} />
           </>
         )}
       </div>
