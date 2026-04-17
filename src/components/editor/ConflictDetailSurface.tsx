@@ -1,6 +1,8 @@
+import { GitMerge, Check } from "lucide-react";
 import { resolveConflict } from "../../services/scmCommands";
 import { useScmStore } from "../../store/scmStore";
 import { CodeEditorSurface } from "./CodeEditorSurface";
+import { WorkbenchTooltip } from "../ui/WorkbenchTooltip";
 
 export function ConflictDetailSurface({
   sessionId,
@@ -24,55 +26,74 @@ export function ConflictDetailSurface({
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
       <div style={{
-        padding: "10px 12px",
+        padding: "8px 12px",
         borderBottom: "1px solid var(--ci-toolbar-border)",
         background: "var(--ci-toolbar-bg)",
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
       }}>
-        <div style={{ fontSize: 11, color: "var(--ci-text-dim)", marginBottom: 4 }}>SCM · Conflict</div>
-        <div style={{ fontSize: 12, color: "var(--ci-text)", fontWeight: 600 }}>{path}</div>
-        <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
-          <button
-            onClick={() => void resolveConflict(sessionId, path, "ours")}
-            disabled={busy}
-            style={{
-              background: busy ? "var(--ci-btn-ghost-bg)" : "var(--ci-accent-bg)",
-              border: `1px solid ${busy ? "var(--ci-toolbar-border)" : "var(--ci-accent-bdr)"}`,
-              color: busy ? "var(--ci-text-dim)" : "var(--ci-accent)",
-              borderRadius: 8,
-              padding: "6px 10px",
-              fontSize: 11,
-              cursor: busy ? "default" : "pointer",
-            }}
-          >
-            Accept Ours
-          </button>
-          <button
-            onClick={() => void resolveConflict(sessionId, path, "theirs")}
-            disabled={busy}
-            style={{
-              background: busy ? "var(--ci-btn-ghost-bg)" : "var(--ci-surface)",
-              border: "1px solid var(--ci-toolbar-border)",
-              color: busy ? "var(--ci-text-dim)" : "var(--ci-text-muted)",
-              borderRadius: 8,
-              padding: "6px 10px",
-              fontSize: 11,
-              cursor: busy ? "default" : "pointer",
-            }}
-          >
-            Accept Theirs
-          </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--ci-text-dim)", fontSize: 11 }}>
+          <GitMerge size={12} strokeWidth={1.8} />
+          SCM · Conflict
         </div>
-        {actionError && (
-          <div style={{ marginTop: 8, fontSize: 11, color: "var(--ci-deleted-text)", lineHeight: 1.6 }}>
-            {actionError}
-          </div>
-        )}
+        <div style={{ minWidth: 0, flex: 1, fontSize: 11, color: "var(--ci-text)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {path}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
+          <WorkbenchTooltip label="Accept Ours">
+            <button
+              onClick={() => void resolveConflict(sessionId, path, "ours")}
+              disabled={busy}
+              style={{
+                background: "none",
+                border: "none",
+                color: busy ? "var(--ci-text-dim)" : "var(--ci-accent)",
+                width: 22,
+                height: 22,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: busy ? "default" : "pointer",
+                padding: 0,
+              }}
+            >
+              <Check size={13} strokeWidth={2} />
+            </button>
+          </WorkbenchTooltip>
+          <WorkbenchTooltip label="Accept Theirs">
+            <button
+              onClick={() => void resolveConflict(sessionId, path, "theirs")}
+              disabled={busy}
+              style={{
+                background: "none",
+                border: "none",
+                color: busy ? "var(--ci-text-dim)" : "var(--ci-text-muted)",
+                width: 22,
+                height: 22,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: busy ? "default" : "pointer",
+                padding: 0,
+              }}
+            >
+              <GitMerge size={13} strokeWidth={1.8} />
+            </button>
+          </WorkbenchTooltip>
+        </div>
       </div>
+
+      {actionError && (
+        <div style={{ padding: "6px 12px", borderBottom: "1px solid var(--ci-toolbar-border)", fontSize: 11, color: "var(--ci-deleted-text)", lineHeight: 1.6 }}>
+          {actionError}
+        </div>
+      )}
 
       <div style={{ flex: 1, minHeight: 0, overflow: "auto", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0 }}>
         {payload.versions.map((version) => (
-          <div key={version.label} style={{ minHeight: 0, display: "flex", flexDirection: "column", borderRight: version.label === "ours" || version.label === "working" ? "none" : "1px solid var(--ci-toolbar-border)" }}>
-            <div style={{ padding: "8px 10px", borderBottom: "1px solid var(--ci-toolbar-border)", background: "var(--ci-toolbar-bg)", fontSize: 11, color: "var(--ci-text-dim)", textTransform: "uppercase" }}>
+          <div key={version.label} style={{ minHeight: 0, display: "flex", flexDirection: "column", borderRight: version.label === "ours" || version.label === "working" ? "none" : "1px solid var(--ci-toolbar-border)", borderBottom: version.label === "base" || version.label === "ours" ? "1px solid var(--ci-toolbar-border)" : "none" }}>
+            <div style={{ padding: "6px 10px", borderBottom: "1px solid var(--ci-toolbar-border)", background: "var(--ci-toolbar-bg)", fontSize: 10, color: "var(--ci-text-dim)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
               {version.label}
             </div>
             {version.missing ? (

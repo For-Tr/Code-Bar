@@ -1,3 +1,4 @@
+import { GitBranch, Plus, Minus, ArrowUp, ArrowDown, Trash2 } from "lucide-react";
 import { type DiffFile, type ClaudeSession } from "../../store/sessionStore";
 import {
   commitScm,
@@ -8,6 +9,7 @@ import {
 } from "../../services/scmCommands";
 import { resetWorkbenchMode } from "../../services/workbenchCommands";
 import { EMPTY_SCM_GROUPS, type ScmEntryGroup, type ScmStatusEntry, useScmStore } from "../../store/scmStore";
+import { WorkbenchTooltip } from "../ui/WorkbenchTooltip";
 
 function mapDiffFileToStatusEntry(file: DiffFile): ScmStatusEntry {
   return {
@@ -28,32 +30,40 @@ function buildCommittedEntries(snapshot: DiffFile[], localPaths: Set<string>): S
 
 function ActionButton({
   label,
+  icon,
   onClick,
   disabled,
 }: {
   label: string;
+  icon: React.ReactNode;
   onClick: () => void;
   disabled?: boolean;
 }) {
   return (
-    <button
-      onClick={(event) => {
-        event.stopPropagation();
-        void onClick();
-      }}
-      disabled={disabled}
-      style={{
-        background: disabled ? "var(--ci-btn-ghost-bg)" : "var(--ci-surface)",
-        border: "1px solid var(--ci-toolbar-border)",
-        color: disabled ? "var(--ci-text-dim)" : "var(--ci-text-muted)",
-        borderRadius: 6,
-        padding: "2px 6px",
-        fontSize: 10,
-        cursor: disabled ? "default" : "pointer",
-      }}
-    >
-      {label}
-    </button>
+    <WorkbenchTooltip label={label}>
+      <button
+        onClick={(event) => {
+          event.stopPropagation();
+          void onClick();
+        }}
+        disabled={disabled}
+        style={{
+          background: "none",
+          border: "none",
+          color: disabled ? "var(--ci-text-dim)" : "var(--ci-text-dim)",
+          width: 18,
+          height: 18,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          cursor: disabled ? "default" : "pointer",
+          padding: 0,
+          opacity: disabled ? 0.35 : 0.78,
+        }}
+      >
+        {icon}
+      </button>
+    </WorkbenchTooltip>
   );
 }
 
@@ -74,8 +84,8 @@ function GroupSection({
 }) {
   if (files.length === 0) return null;
   return (
-    <div style={{ marginBottom: 12 }}>
-      <div style={{ fontSize: 10, color: "var(--ci-text-dim)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", padding: "0 4px 6px" }}>
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ fontSize: 10, color: "var(--ci-text-dim)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", padding: "0 12px 6px" }}>
         {title}
       </div>
       {files.map((file) => {
@@ -88,11 +98,11 @@ function GroupSection({
               display: "flex",
               alignItems: "center",
               gap: 8,
-              padding: "6px 8px",
-              borderRadius: 8,
-              border: isSelected ? "1px solid var(--ci-accent-bdr)" : "1px solid transparent",
-              background: isSelected ? "var(--ci-accent-bg)" : "none",
+              minHeight: 22,
+              padding: "0 8px 0 12px",
+              background: isSelected ? "var(--ci-accent-bg)" : "transparent",
               color: isSelected ? "var(--ci-text)" : "var(--ci-text-muted)",
+              borderLeft: isSelected ? "1px solid var(--ci-accent)" : "1px solid transparent",
             }}
           >
             <button
@@ -108,29 +118,29 @@ function GroupSection({
                 color: "inherit",
                 cursor: "pointer",
                 textAlign: "left",
-                padding: 0,
+                padding: "3px 0",
               }}
               title={group === "untracked" ? `打开 ${file.path} 的文件内容` : `打开 ${file.path} 的实际变更 diff`}
             >
-              <span style={{ width: 12, textAlign: "center", color: file.kind === "added" ? "var(--ci-green)" : file.kind === "deleted" ? "var(--ci-red)" : file.kind === "conflicted" ? "var(--ci-red)" : "var(--ci-yellow)", fontSize: 10 }}>
+              <span style={{ width: 12, textAlign: "center", color: file.kind === "added" ? "var(--ci-green)" : file.kind === "deleted" ? "var(--ci-red)" : file.kind === "conflicted" ? "var(--ci-red)" : "var(--ci-yellow)", fontSize: 10, fontWeight: 700 }}>
                 {file.kind === "added" ? "A" : file.kind === "deleted" ? "D" : file.kind === "conflicted" ? "!" : file.kind === "renamed" ? "R" : "M"}
               </span>
               <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 11 }}>
                 {file.path}
               </span>
             </button>
-            <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
               {(group === "unstaged" || group === "untracked") && (
-                <ActionButton label="Stage" onClick={() => stageScmFile(sessionId, file.path)} disabled={busy} />
+                <ActionButton label="Stage" icon={<ArrowUp size={12} strokeWidth={1.8} />} onClick={() => stageScmFile(sessionId, file.path)} disabled={busy} />
               )}
               {group === "staged" && (
-                <ActionButton label="Unstage" onClick={() => unstageScmFile(sessionId, file.path)} disabled={busy} />
+                <ActionButton label="Unstage" icon={<ArrowDown size={12} strokeWidth={1.8} />} onClick={() => unstageScmFile(sessionId, file.path)} disabled={busy} />
               )}
               {group === "unstaged" && (
-                <ActionButton label="Discard" onClick={() => discardScmFile(sessionId, file.path, "unstaged")} disabled={busy} />
+                <ActionButton label="Discard" icon={<Minus size={12} strokeWidth={1.8} />} onClick={() => discardScmFile(sessionId, file.path, "unstaged")} disabled={busy} />
               )}
               {group === "untracked" && (
-                <ActionButton label="Delete" onClick={() => discardScmFile(sessionId, file.path, "untracked")} disabled={busy} />
+                <ActionButton label="Delete" icon={<Trash2 size={12} strokeWidth={1.8} />} onClick={() => discardScmFile(sessionId, file.path, "untracked")} disabled={busy} />
               )}
             </div>
           </div>
@@ -181,20 +191,21 @@ export function ScmSidebar({ session }: { session: ClaudeSession | null }) {
     : snapshot.map(mapDiffFileToStatusEntry);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0, background: "var(--ci-toolbar-bg)" }}>
       <div style={{
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
         gap: 8,
-        padding: "12px 14px 10px",
+        padding: "8px 10px",
         borderBottom: "1px solid var(--ci-toolbar-border)",
       }}>
         <div>
-          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--ci-text-dim)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
-            SCM
+          <div style={{ fontSize: 10, fontWeight: 700, color: "var(--ci-text-dim)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
+            Source Control
           </div>
-          <div style={{ marginTop: 6, color: "var(--ci-text)", fontSize: 12, fontWeight: 700 }}>
+          <div style={{ marginTop: 4, display: "flex", alignItems: "center", gap: 6, color: "var(--ci-text)", fontSize: 11, fontWeight: 600 }}>
+            <GitBranch size={11} strokeWidth={1.8} />
             {session.name}
           </div>
         </div>
@@ -215,34 +226,37 @@ export function ScmSidebar({ session }: { session: ClaudeSession | null }) {
       </div>
 
       <div style={{
-        padding: "8px 14px",
+        padding: "8px 12px",
         borderBottom: "1px solid var(--ci-toolbar-border)",
         display: "flex",
         alignItems: "center",
-        gap: 6,
+        gap: 8,
         fontSize: 10,
         color: "var(--ci-text-dim)",
       }}>
-        <span>{snapshot.length} 个变更文件</span>
+        <span>{snapshot.length} files</span>
         <span style={{ color: "var(--ci-green-dark)", fontWeight: 700 }}>+{totalAdditions}</span>
         <span style={{ color: "var(--ci-deleted-text)", fontWeight: 700 }}>−{totalDeletions}</span>
       </div>
 
-      <div style={{ padding: "10px 12px", borderBottom: "1px solid var(--ci-toolbar-border)", display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ padding: "8px 12px 10px", borderBottom: "1px solid var(--ci-toolbar-border)", display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ fontSize: 10, color: "var(--ci-text-dim)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+          Commit
+        </div>
         <textarea
           value={commitMessage}
           onChange={(event) => setCommitMessage(session.id, event.target.value)}
-          placeholder="Commit message"
+          placeholder="Message"
           rows={3}
           style={{
             width: "100%",
             resize: "vertical",
-            borderRadius: 10,
+            borderRadius: 0,
             border: "1px solid var(--ci-toolbar-border)",
             background: "var(--ci-surface)",
             color: "var(--ci-text)",
             fontSize: 11,
-            padding: "8px 10px",
+            padding: "6px 8px",
             boxSizing: "border-box",
           }}
         />
@@ -254,13 +268,17 @@ export function ScmSidebar({ session }: { session: ClaudeSession | null }) {
             background: busy || commitMessage.trim().length === 0 ? "var(--ci-btn-ghost-bg)" : "var(--ci-accent-bg)",
             border: `1px solid ${busy || commitMessage.trim().length === 0 ? "var(--ci-toolbar-border)" : "var(--ci-accent-bdr)"}`,
             color: busy || commitMessage.trim().length === 0 ? "var(--ci-text-dim)" : "var(--ci-accent)",
-            borderRadius: 8,
-            padding: "6px 10px",
+            borderRadius: 2,
+            padding: "4px 8px",
             fontSize: 11,
             cursor: busy || commitMessage.trim().length === 0 ? "default" : "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
           }}
         >
-          {busy ? "处理中…" : "Commit Staged"}
+          <Plus size={12} strokeWidth={1.8} />
+          {busy ? "处理中…" : "Commit"}
         </button>
         {actionError && (
           <div style={{ fontSize: 11, color: "var(--ci-deleted-text)", lineHeight: 1.6 }}>
@@ -269,16 +287,16 @@ export function ScmSidebar({ session }: { session: ClaudeSession | null }) {
         )}
       </div>
 
-      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "8px 10px 12px" }}>
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "8px 0 12px" }}>
         {!hasGroupedStatus && snapshot.length === 0 ? (
-          <div style={{ padding: "12px 4px", color: "var(--ci-text-dim)", fontSize: 12 }}>
+          <div style={{ padding: "12px", color: "var(--ci-text-dim)", fontSize: 12 }}>
             当前会话暂无代码变更。
           </div>
         ) : (
           <>
             <GroupSection title="Committed in Session" group="committed" files={committedEntries} sessionId={session.id} selectedPath={selectedEntry?.group === "committed" ? selectedEntry.path : null} busy={busy} />
             {hasGroupedStatus && (
-              <div style={{ fontSize: 10, color: "var(--ci-text-dim)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", padding: "4px 4px 8px" }}>
+              <div style={{ fontSize: 10, color: "var(--ci-text-dim)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", padding: "4px 12px 8px" }}>
                 Working Tree
               </div>
             )}

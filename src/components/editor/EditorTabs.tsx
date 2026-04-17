@@ -1,8 +1,10 @@
 import { useEffect, useMemo } from "react";
+import { FileCode2, GitCommitHorizontal, X } from "lucide-react";
 import { closeTab } from "../../services/editorCommands";
 import { useEditorBufferStore } from "../../store/editorBufferStore";
 import { useEditorStore } from "../../store/editorStore";
 import { type ClaudeSession } from "../../store/sessionStore";
+import { WorkbenchTooltip } from "../ui/WorkbenchTooltip";
 
 const EMPTY_TAB_ID_ARRAY: string[] = [];
 
@@ -32,7 +34,7 @@ export function EditorTabs({ session }: { session: ClaudeSession | null }) {
     <div style={{
       display: "flex",
       alignItems: "stretch",
-      minHeight: 36,
+      minHeight: 34,
       borderBottom: "1px solid var(--ci-toolbar-border)",
       overflowX: "auto",
       scrollbarWidth: "none",
@@ -56,8 +58,9 @@ export function EditorTabs({ session }: { session: ClaudeSession | null }) {
               gap: 8,
               minWidth: 0,
               maxWidth: 220,
-              padding: "0 10px 0 12px",
+              padding: "0 10px",
               borderRight: "1px solid var(--ci-toolbar-border)",
+              borderTop: isActive ? "1px solid var(--ci-accent)" : "1px solid transparent",
               background: isActive ? "var(--ci-surface)" : "transparent",
             }}
           >
@@ -72,7 +75,7 @@ export function EditorTabs({ session }: { session: ClaudeSession | null }) {
                 gap: 6,
                 background: "none",
                 border: "none",
-                padding: "9px 0",
+                padding: "7px 0 6px",
                 color: isActive ? "var(--ci-text)" : "var(--ci-text-muted)",
                 cursor: "pointer",
                 textAlign: "left",
@@ -80,26 +83,35 @@ export function EditorTabs({ session }: { session: ClaudeSession | null }) {
               }}
               title={tab.path}
             >
+              <span style={{ width: 12, display: "flex", alignItems: "center", justifyContent: "center", color: tab.viewMode === "diff" ? "var(--ci-purple)" : "var(--ci-text-dim)", flexShrink: 0 }}>
+                {tab.viewMode === "diff" ? <GitCommitHorizontal size={11} strokeWidth={1.8} /> : <FileCode2 size={11} strokeWidth={1.8} />}
+              </span>
               <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{tab.title}</span>
-              {tab.viewMode === "diff" && <span style={{ color: "var(--ci-text-dim)", fontSize: 10, flexShrink: 0 }}>Diff</span>}
-              {buffer?.dirty && <span style={{ color: "var(--ci-accent)", fontSize: 11, flexShrink: 0 }}>●</span>}
-              {tab.preview && <span style={{ color: "var(--ci-text-dim)", fontSize: 10, flexShrink: 0 }}>预览</span>}
+              {buffer?.dirty && <span style={{ color: "var(--ci-accent)", fontSize: 10, flexShrink: 0 }}>●</span>}
+              {tab.preview && <span style={{ color: "var(--ci-text-dim)", fontSize: 9, flexShrink: 0 }}>preview</span>}
             </button>
-            <button
-              onClick={() => closeTab(tabId)}
-              style={{
-                background: "none",
-                border: "none",
-                color: "var(--ci-text-dim)",
-                cursor: "pointer",
-                padding: 0,
-                fontSize: 12,
-                flexShrink: 0,
-              }}
-              title={`关闭 ${tab.title}`}
-            >
-              ×
-            </button>
+            <WorkbenchTooltip label={`关闭 ${tab.title}`}>
+              <button
+                onClick={() => closeTab(tabId)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "var(--ci-text-dim)",
+                  cursor: "pointer",
+                  padding: 0,
+                  width: 16,
+                  height: 16,
+                  flexShrink: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  opacity: isActive ? 0.9 : 0.5,
+                }}
+                title={`关闭 ${tab.title}`}
+              >
+                <X size={12} strokeWidth={1.8} />
+              </button>
+            </WorkbenchTooltip>
           </div>
         );
       })}

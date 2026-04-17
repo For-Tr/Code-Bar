@@ -1,7 +1,9 @@
+import { FileCode2, GitCommitHorizontal, X } from "lucide-react";
 import { closeTab } from "../../services/editorCommands";
 import { useEditorBufferStore } from "../../store/editorBufferStore";
 import { useEditorStore } from "../../store/editorStore";
 import { type ClaudeSession } from "../../store/sessionStore";
+import { WorkbenchTooltip } from "../ui/WorkbenchTooltip";
 
 export function OpenEditorsPane({ session }: { session: ClaudeSession }) {
   const activeTabId = useEditorStore((s) => s.activeTabId);
@@ -14,8 +16,8 @@ export function OpenEditorsPane({ session }: { session: ClaudeSession }) {
   if (tabIds.length === 0) return null;
 
   return (
-    <div style={{ padding: "8px 8px 10px", borderBottom: "1px solid var(--ci-toolbar-border)" }}>
-      <div style={{ fontSize: 10, color: "var(--ci-text-dim)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", padding: "0 4px 6px" }}>
+    <div style={{ padding: "6px 0 8px", borderBottom: "1px solid var(--ci-toolbar-border)" }}>
+      <div style={{ fontSize: 10, color: "var(--ci-text-dim)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", padding: "0 12px 6px" }}>
         Open Editors
       </div>
       {tabIds.map((tabId) => {
@@ -30,10 +32,11 @@ export function OpenEditorsPane({ session }: { session: ClaudeSession }) {
               display: "flex",
               alignItems: "center",
               gap: 6,
-              padding: "4px 6px",
-              borderRadius: 8,
+              padding: "0 8px 0 12px",
+              minHeight: 22,
               background: isActive ? "var(--ci-accent-bg)" : "transparent",
               color: isActive ? "var(--ci-text)" : "var(--ci-text-muted)",
+              borderLeft: isActive ? "1px solid var(--ci-accent)" : "1px solid transparent",
             }}
           >
             <button
@@ -46,7 +49,7 @@ export function OpenEditorsPane({ session }: { session: ClaudeSession }) {
                 gap: 6,
                 background: "none",
                 border: "none",
-                padding: 0,
+                padding: "3px 0",
                 textAlign: "left",
                 color: "inherit",
                 cursor: "pointer",
@@ -54,29 +57,35 @@ export function OpenEditorsPane({ session }: { session: ClaudeSession }) {
               }}
               title={tab.path}
             >
-              <span style={{ width: 12, textAlign: "center", color: tab.viewMode === "diff" ? "var(--ci-purple)" : "var(--ci-text-dim)", fontSize: 10 }}>
-                {tab.viewMode === "diff" ? "≋" : "•"}
+              <span style={{ width: 12, display: "flex", alignItems: "center", justifyContent: "center", color: tab.viewMode === "diff" ? "var(--ci-purple)" : "var(--ci-text-dim)" }}>
+                {tab.viewMode === "diff" ? <GitCommitHorizontal size={11} strokeWidth={1.8} /> : <FileCode2 size={11} strokeWidth={1.8} />}
               </span>
               <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {tab.title}
               </span>
-              {dirty && <span style={{ color: "var(--ci-accent)", fontSize: 11 }}>●</span>}
+              {dirty && <span style={{ color: "var(--ci-accent)", fontSize: 10 }}>●</span>}
             </button>
-            <button
-              onClick={() => closeTab(tabId)}
-              style={{
-                background: "none",
-                border: "none",
-                color: "var(--ci-text-dim)",
-                cursor: "pointer",
-                padding: 0,
-                fontSize: 12,
-                lineHeight: 1,
-              }}
-              title={`关闭 ${tab.title}`}
-            >
-              ×
-            </button>
+            <WorkbenchTooltip label={`关闭 ${tab.title}`}>
+              <button
+                onClick={() => closeTab(tabId)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "var(--ci-text-dim)",
+                  cursor: "pointer",
+                  padding: 0,
+                  width: 16,
+                  height: 16,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  opacity: isActive ? 0.9 : 0.5,
+                }}
+                title={`关闭 ${tab.title}`}
+              >
+                <X size={12} strokeWidth={1.8} />
+              </button>
+            </WorkbenchTooltip>
           </div>
         );
       })}

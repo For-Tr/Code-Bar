@@ -1,13 +1,21 @@
 import { useEffect, useMemo } from "react";
+import {
+  ChevronDown,
+  ChevronRight,
+  FileCode2,
+  Folder,
+  GitBranch,
+  RefreshCw,
+} from "lucide-react";
 import { openFile, loadDirectory } from "../../services/editorCommands";
 import { showScm, resetWorkbenchMode } from "../../services/workbenchCommands";
 import { useEditorBufferStore } from "../../store/editorBufferStore";
 import { type ExplorerEntry, useExplorerStore } from "../../store/explorerStore";
 import { EMPTY_SCM_GROUPS, useScmStore } from "../../store/scmStore";
-import { useSettingsStore, isGlassTheme } from "../../store/settingsStore";
-import { getWorkspaceColor, useWorkspaceStore } from "../../store/workspaceStore";
+import { useSettingsStore } from "../../store/settingsStore";
 import { type ClaudeSession } from "../../store/sessionStore";
 import { OpenEditorsPane } from "./OpenEditorsPane";
+import { WorkbenchTooltip } from "../ui/WorkbenchTooltip";
 
 type FileNode = {
   type: "file";
@@ -85,14 +93,43 @@ function buildTreeNodes(
 }
 
 function FileStatusGlyph({ kind }: { kind: "added" | "modified" | "deleted" | "renamed" | "untracked" | "conflicted" | null }) {
-  if (kind === "conflicted") return <span style={{ color: "var(--ci-red)", fontSize: 10, width: 12, textAlign: "center" }}>!</span>;
-  if (kind === "untracked") return <span style={{ color: "var(--ci-green)", fontSize: 10, width: 12, textAlign: "center" }}>U</span>;
-  if (kind === "added") return <span style={{ color: "var(--ci-green)", fontSize: 10, width: 12, textAlign: "center" }}>A</span>;
-  if (kind === "deleted") return <span style={{ color: "var(--ci-red)", fontSize: 10, width: 12, textAlign: "center" }}>D</span>;
-  if (kind === "renamed") return <span style={{ color: "var(--ci-purple)", fontSize: 10, width: 12, textAlign: "center" }}>R</span>;
-  if (kind === "modified") return <span style={{ color: "var(--ci-yellow)", fontSize: 10, width: 12, textAlign: "center" }}>M</span>;
-  return <span style={{ color: "var(--ci-text-dim)", fontSize: 10, width: 12, textAlign: "center" }}>•</span>;
+  const color = kind === "conflicted"
+    ? "var(--ci-red)"
+    : kind === "untracked" || kind === "added"
+    ? "var(--ci-green)"
+    : kind === "deleted"
+    ? "var(--ci-red)"
+    : kind === "renamed"
+    ? "var(--ci-purple)"
+    : kind === "modified"
+    ? "var(--ci-yellow)"
+    : "var(--ci-text-dim)";
+  const text = kind === "conflicted"
+    ? "!"
+    : kind === "untracked"
+    ? "U"
+    : kind === "added"
+    ? "A"
+    : kind === "deleted"
+    ? "D"
+    : kind === "renamed"
+    ? "R"
+    : kind === "modified"
+    ? "M"
+    : "";
+  return <span style={{ color, fontSize: 10, width: 12, textAlign: "center", fontWeight: 700 }}>{text}</span>;
 }
+
+const rowBaseStyle = {
+  width: "100%",
+  display: "flex",
+  alignItems: "center",
+  gap: 6,
+  minHeight: 22,
+  border: "none",
+  background: "transparent",
+  textAlign: "left" as const,
+};
 
 export function ExplorerPane({
   session,
@@ -101,9 +138,7 @@ export function ExplorerPane({
   session: ClaudeSession;
   onRefreshDiff: (sessionId?: string | null) => void;
 }) {
-  const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
-  const activeWorkspace = useWorkspaceStore((s) => s.workspaces.find((workspace) => workspace.id === s.activeWorkspaceId) ?? null);
-  const accentColor = activeWorkspace ? getWorkspaceColor(activeWorkspace.color) : "var(--ci-accent)";
+  const theme = useSettingsStore((s) => s.settings.theme);
   const expandedDirsBySession = useExplorerStore((s) => s.expandedDirsBySession);
   const selectedPathBySession = useExplorerStore((s) => s.selectedPathBySession);
   const childrenBySessionPath = useExplorerStore((s) => s.childrenBySessionPath);
@@ -120,6 +155,7 @@ export function ExplorerPane({
   const rootKey = `${session.id}:`;
   const rootLoading = loadingBySessionPath[rootKey] ?? false;
   const rootError = errorBySessionPath[rootKey] ?? null;
+  const rowActiveBackground = theme === "dark" ? "rgba(255,255,255,0.05)" : "rgba(0,122,255,0.10)";
 
   useEffect(() => {
     if (!(rootKey in childrenBySessionPath) && !rootLoading && !rootError) {
@@ -160,79 +196,79 @@ export function ExplorerPane({
   const workingTreeCount = scmGroups.conflicts.length + scmGroups.staged.length + scmGroups.unstaged.length + scmGroups.untracked.length;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0, background: "var(--ci-toolbar-bg)" }}>
       <div style={{
         display: "flex",
         alignItems: "center",
-        gap: 8,
         justifyContent: "space-between",
-        padding: "12px 14px 10px",
+        gap: 8,
+        padding: "8px 10px",
         borderBottom: "1px solid var(--ci-toolbar-border)",
       }}>
         <div style={{ minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-            <button
-              onClick={resetWorkbenchMode}
-              style={{ background: "none", border: "none", color: "var(--ci-text-muted)", cursor: "pointer", padding: 0, fontSize: 12, flexShrink: 0 }}
-              title="返回会话视图"
-            >
-              ←
-            </button>
-            <span style={{ fontSize: 11, fontWeight: 700, color: "var(--ci-text-dim)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
-              Explorer
-            </span>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "var(--ci-text-dim)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
+            Explorer
           </div>
-          <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-            <span style={{ color: "var(--ci-text)", fontSize: 12, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <div style={{ marginTop: 4, display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+            <span style={{ color: "var(--ci-text)", fontSize: 11, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {session.name}
             </span>
             {session.branchName && (
-              <span style={{ fontSize: 9.5, padding: "1px 6px", borderRadius: 999, background: "var(--ci-purple-bg)", border: "1px solid var(--ci-purple-bdr)", color: "var(--ci-purple)", fontFamily: "monospace", flexShrink: 0 }}>
-                ⎇ {session.branchName.replace("ci/", "")}
+              <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: "var(--ci-text-dim)" }}>
+                <GitBranch size={11} strokeWidth={1.8} />
+                <span style={{ fontFamily: "monospace" }}>{session.branchName.replace("ci/", "")}</span>
               </span>
             )}
           </div>
         </div>
-        <button
-          onClick={() => onRefreshDiff(session.id)}
-          style={{ background: "none", border: "none", color: accentColor, cursor: "pointer", padding: 0, fontSize: 12, flexShrink: 0 }}
-          title="刷新变更"
-        >
-          刷新
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+          <WorkbenchTooltip label="刷新变更">
+            <button
+              onClick={() => onRefreshDiff(session.id)}
+              style={{ background: "none", border: "none", color: "var(--ci-text-dim)", cursor: "pointer", padding: 2, width: 18, height: 18, display: "flex", alignItems: "center", justifyContent: "center" }}
+              title="刷新变更"
+            >
+              <RefreshCw size={13} strokeWidth={1.8} />
+            </button>
+          </WorkbenchTooltip>
+          <WorkbenchTooltip label="返回会话视图">
+            <button
+              onClick={resetWorkbenchMode}
+              style={{ background: "none", border: "none", color: "var(--ci-text-dim)", cursor: "pointer", padding: 2, width: 18, height: 18, display: "flex", alignItems: "center", justifyContent: "center" }}
+              title="返回会话视图"
+            >
+              <ChevronLeftGlyph />
+            </button>
+          </WorkbenchTooltip>
+        </div>
       </div>
 
       <OpenEditorsPane session={session} />
 
-      <div style={{
-        padding: "8px 12px 10px",
-        borderBottom: "1px solid var(--ci-toolbar-border)",
-        display: "flex",
-        flexDirection: "column",
-        gap: 8,
-      }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+      <div style={{ padding: "8px 0 10px", borderBottom: "1px solid var(--ci-toolbar-border)" }}>
+        <div style={{ padding: "0 12px 6px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
           <div style={{ fontSize: 10, color: "var(--ci-text-dim)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>
             Source Control
           </div>
           <button
             onClick={() => showScm(session.id)}
             style={{
-              background: "var(--ci-btn-ghost-bg)",
-              border: "1px solid var(--ci-toolbar-border)",
-              color: "var(--ci-text-muted)",
-              borderRadius: 8,
-              padding: "4px 8px",
-              fontSize: 11,
+              background: "none",
+              border: "none",
+              color: "var(--ci-text-dim)",
+              padding: 0,
+              fontSize: 10,
               cursor: "pointer",
+              textTransform: "uppercase",
+              letterSpacing: "0.04em",
             }}
           >
-            打开
+            Open
           </button>
         </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, fontSize: 10 }}>
-          <span style={{ color: "var(--ci-text-dim)" }}>{workingTreeCount} 项工作区变更</span>
-          {scmGroups.conflicts.length > 0 && <span style={{ color: "var(--ci-red)", fontWeight: 700 }}>{scmGroups.conflicts.length} 冲突</span>}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, padding: "0 12px", fontSize: 10, color: "var(--ci-text-dim)" }}>
+          <span>{workingTreeCount} changes</span>
+          {scmGroups.conflicts.length > 0 && <span style={{ color: "var(--ci-red)", fontWeight: 700 }}>{scmGroups.conflicts.length} conflicts</span>}
           {scmGroups.staged.length > 0 && <span style={{ color: "var(--ci-green-dark)", fontWeight: 700 }}>{scmGroups.staged.length} staged</span>}
           {scmGroups.unstaged.length > 0 && <span style={{ color: "var(--ci-yellow-dark)", fontWeight: 700 }}>{scmGroups.unstaged.length} changes</span>}
           {scmGroups.untracked.length > 0 && <span style={{ color: "var(--ci-green)", fontWeight: 700 }}>{scmGroups.untracked.length} untracked</span>}
@@ -243,17 +279,17 @@ export function ExplorerPane({
         Files
       </div>
 
-      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0 8px 10px" }}>
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0 0 10px" }}>
         {rootLoading ? (
-          <div style={{ padding: "18px 10px", fontSize: 12, color: "var(--ci-text-dim)", lineHeight: 1.7 }}>
+          <div style={{ padding: "18px 12px", fontSize: 12, color: "var(--ci-text-dim)", lineHeight: 1.7 }}>
             正在载入项目文件…
           </div>
         ) : rootError ? (
-          <div style={{ padding: "18px 10px", fontSize: 12, color: "var(--ci-deleted-text)", lineHeight: 1.7 }}>
+          <div style={{ padding: "18px 12px", fontSize: 12, color: "var(--ci-deleted-text)", lineHeight: 1.7 }}>
             {rootError}
           </div>
         ) : nodes.length === 0 ? (
-          <div style={{ padding: "18px 10px", fontSize: 12, color: "var(--ci-text-dim)", lineHeight: 1.7 }}>
+          <div style={{ padding: "18px 12px", fontSize: 12, color: "var(--ci-text-dim)", lineHeight: 1.7 }}>
             当前目录没有可显示文件。
           </div>
         ) : nodes.map((node) => {
@@ -268,15 +304,25 @@ export function ExplorerPane({
                       void loadDirectory(session.id, node.path);
                     }
                   }}
-                  style={{ width: "100%", display: "flex", alignItems: "center", gap: 6, padding: "4px 8px", paddingLeft: 8 + node.depth * 14, borderRadius: 8, border: "none", background: "none", color: "var(--ci-text-muted)", cursor: "pointer", textAlign: "left" }}
+                  style={{
+                    ...rowBaseStyle,
+                    padding: "0 10px",
+                    paddingLeft: 8 + node.depth * 14,
+                    color: "var(--ci-text-muted)",
+                    cursor: "pointer",
+                  }}
                 >
-                  <span style={{ width: 10, fontSize: 9, color: "var(--ci-text-dim)", flexShrink: 0 }}>{isOpen ? "▼" : "▶"}</span>
-                  <span style={{ fontSize: 11, flexShrink: 0 }}>📁</span>
+                  <span style={{ width: 12, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--ci-text-dim)", flexShrink: 0 }}>
+                    {isOpen ? <ChevronDown size={12} strokeWidth={1.8} /> : <ChevronRight size={12} strokeWidth={1.8} />}
+                  </span>
+                  <span style={{ width: 12, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--ci-text-dim)", flexShrink: 0 }}>
+                    <Folder size={12} strokeWidth={1.8} />
+                  </span>
                   <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 11 }}>{node.name}</span>
                   {node.loading && <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--ci-text-dim)" }}>…</span>}
                 </button>
                 {node.error && (
-                  <div style={{ paddingLeft: 28 + node.depth * 14, paddingTop: 2, paddingBottom: 6, fontSize: 10, color: "var(--ci-deleted-text)" }}>
+                  <div style={{ paddingLeft: 34 + node.depth * 14, paddingTop: 2, paddingBottom: 6, fontSize: 10, color: "var(--ci-deleted-text)" }}>
                     {node.error}
                   </div>
                 )}
@@ -304,16 +350,31 @@ export function ExplorerPane({
                 openFile(session.id, node.path, true);
               }}
               onDoubleClick={() => openFile(session.id, node.path, false)}
-              style={{ width: "100%", display: "flex", alignItems: "center", gap: 6, padding: "4px 8px", paddingLeft: 24 + node.depth * 14, borderRadius: 8, border: isSelected ? `1px solid ${accentColor}55` : "1px solid transparent", background: isSelected ? (isGlass ? "var(--ci-toolbar-bg)" : `${accentColor}12`) : "none", color: isSelected ? "var(--ci-text)" : "var(--ci-text-muted)", cursor: "pointer", textAlign: "left" }}
+              style={{
+                ...rowBaseStyle,
+                padding: "0 10px",
+                paddingLeft: 24 + node.depth * 14,
+                background: isSelected ? rowActiveBackground : "transparent",
+                color: isSelected ? "var(--ci-text)" : "var(--ci-text-muted)",
+                cursor: "pointer",
+                borderLeft: isSelected ? "1px solid var(--ci-accent)" : "1px solid transparent",
+              }}
               title={node.path}
             >
               <FileStatusGlyph kind={kind} />
+              <span style={{ width: 12, display: "flex", alignItems: "center", justifyContent: "center", color: isSelected ? "var(--ci-text)" : "var(--ci-text-dim)", flexShrink: 0 }}>
+                <FileCode2 size={11} strokeWidth={1.8} />
+              </span>
               <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 11 }}>{node.name}</span>
-              {buffer?.dirty && <span style={{ color: accentColor, fontSize: 12, marginLeft: "auto" }}>●</span>}
+              {buffer?.dirty && <span style={{ color: "var(--ci-accent)", fontSize: 10, marginLeft: "auto" }}>●</span>}
             </button>
           );
         })}
       </div>
     </div>
   );
+}
+
+function ChevronLeftGlyph() {
+  return <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 12, height: 12, fontSize: 12 }}>←</span>;
 }

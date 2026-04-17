@@ -1,3 +1,4 @@
+import { GitCommitHorizontal } from "lucide-react";
 import { DiffViewer } from "../DiffViewer";
 import { applyScmHunk } from "../../services/scmCommands";
 import { type DiffFile } from "../../store/sessionStore";
@@ -24,17 +25,7 @@ export function DiffEditorSurface({
 
   if (!file) {
     return (
-      <div style={{
-        width: "100%",
-        height: "100%",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 24,
-        color: "var(--ci-text-dim)",
-        fontSize: 12,
-        lineHeight: 1.7,
-      }}>
+      <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, color: "var(--ci-text-dim)", fontSize: 12, lineHeight: 1.7 }}>
         {selectedEntry?.group === "untracked"
           ? `未跟踪文件：${selectedEntry.path}`
           : selectedEntry?.group === "conflicts"
@@ -57,8 +48,13 @@ export function DiffEditorSurface({
           background: "var(--ci-toolbar-bg)",
           fontSize: 11,
           color: "var(--ci-text-dim)",
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
         }}>
+          <GitCommitHorizontal size={12} strokeWidth={1.8} />
           SCM · {GROUP_LABELS[selectedEntry.group]}
+          <span style={{ marginLeft: 8, color: "var(--ci-text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{file.path}</span>
         </div>
       )}
       <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
