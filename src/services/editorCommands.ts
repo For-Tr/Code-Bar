@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useEditorBufferStore } from "../store/editorBufferStore";
 import { useEditorStore } from "../store/editorStore";
-import { useExplorerStore } from "../store/explorerStore";
+import { type ExplorerEntry, useExplorerStore } from "../store/explorerStore";
 import { useWorkbenchStore } from "../store/workbenchStore";
 
 interface SessionFileReadResult {
@@ -13,6 +13,11 @@ interface SessionFileReadResult {
 
 interface SessionFileWriteResult {
   versionToken: string | null;
+}
+
+interface SessionDirectoryListResult {
+  path: string;
+  entries: ExplorerEntry[];
 }
 
 function collectAncestorDirs(path: string) {
@@ -96,6 +101,22 @@ export async function saveTab(tabId: string) {
       saving: false,
       error: error instanceof Error ? error.message : String(error),
     });
+  }
+}
+
+export async function loadDirectory(sessionId: string, dir = "") {
+  const store = useExplorerStore.getState();
+  store.setDirectoryLoading(sessionId, dir, true);
+  try {
+    const payload = await invoke<SessionDirectoryListResult>("list_session_directory", {
+      sessionId,
+      relativePath: dir,
+    });
+    store.setDirectoryEntries(sessionId, dir, payload.entries);
+    return payload.entries;
+  } catch (error) {
+    store.setDirectoryError(sessionId, dir, error instanceof Error ? error.message : String(error));
+    return [];
   }
 }
 

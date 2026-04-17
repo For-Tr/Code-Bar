@@ -295,40 +295,42 @@ function SessionCard({
         </button>
       )}
 
-      <button
-        onClick={(e) => { e.stopPropagation(); onOpenExplore(); }}
-        onMouseDown={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-        }}
-        title="打开文件树"
-        style={{
-          background: "var(--ci-btn-ghost-bg)",
-          border: "1px solid transparent",
-          color: "var(--ci-text-dim)",
-          cursor: "pointer",
-          padding: "4px 6px",
-          borderRadius: 6,
-          flexShrink: 0,
-          display: "flex",
-          alignItems: "center",
-          transition: isGlass ? "color 0.12s" : "color 0.12s, background 0.12s, border-color 0.12s",
-        }}
-        onMouseEnter={e => {
-          e.currentTarget.style.color = accentColor;
-          e.currentTarget.style.background = isGlass ? "var(--ci-btn-ghost-bg)" : `${accentColor}15`;
-          e.currentTarget.style.borderColor = isGlass ? "transparent" : `${accentColor}30`;
-        }}
-        onMouseLeave={e => {
-          e.currentTarget.style.color = "var(--ci-text-dim)";
-          e.currentTarget.style.background = "var(--ci-btn-ghost-bg)";
-          e.currentTarget.style.borderColor = "transparent";
-        }}
-      >
-        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" style={{ display: "block" }}>
-          <path d="M1.75 3.75A1.25 1.25 0 0 1 3 2.5h3.1c.32 0 .63.13.85.35l.8.8c.23.22.53.35.85.35H13a1.25 1.25 0 0 1 1.25 1.25v6.5A1.25 1.25 0 0 1 13 13H3a1.25 1.25 0 0 1-1.25-1.25v-8Z" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round"/>
-        </svg>
-      </button>
+      {isSelected && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onOpenExplore(); }}
+          onMouseDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+          title="打开文件树"
+          style={{
+            background: "var(--ci-btn-ghost-bg)",
+            border: "1px solid transparent",
+            color: "var(--ci-text-dim)",
+            cursor: "pointer",
+            padding: "4px 6px",
+            borderRadius: 6,
+            flexShrink: 0,
+            display: "flex",
+            alignItems: "center",
+            transition: isGlass ? "color 0.12s" : "color 0.12s, background 0.12s, border-color 0.12s",
+          }}
+          onMouseEnter={e => {
+            e.currentTarget.style.color = accentColor;
+            e.currentTarget.style.background = isGlass ? "var(--ci-btn-ghost-bg)" : `${accentColor}15`;
+            e.currentTarget.style.borderColor = isGlass ? "transparent" : `${accentColor}30`;
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.color = "var(--ci-text-dim)";
+            e.currentTarget.style.background = "var(--ci-btn-ghost-bg)";
+            e.currentTarget.style.borderColor = "transparent";
+          }}
+        >
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" style={{ display: "block" }}>
+            <path d="M1.75 3.75A1.25 1.25 0 0 1 3 2.5h3.1c.32 0 .63.13.85.35l.8.8c.23.22.53.35.85.35H13a1.25 1.25 0 0 1 1.25 1.25v6.5A1.25 1.25 0 0 1 13 13H3a1.25 1.25 0 0 1-1.25-1.25v-8Z" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round"/>
+          </svg>
+        </button>
+      )}
 
       {showExpandButton && (
         <button

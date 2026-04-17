@@ -1,6 +1,7 @@
 import { DiffViewer } from "../DiffViewer";
+import { applyScmHunk } from "../../services/scmCommands";
 import { type DiffFile } from "../../store/sessionStore";
-import { type ScmSelectedEntry } from "../../store/scmStore";
+import { type ScmSelectedEntry, useScmStore } from "../../store/scmStore";
 
 const GROUP_LABELS: Record<NonNullable<ScmSelectedEntry>["group"], string> = {
   committed: "Committed in Session",
@@ -10,7 +11,17 @@ const GROUP_LABELS: Record<NonNullable<ScmSelectedEntry>["group"], string> = {
   untracked: "Untracked",
 };
 
-export function DiffEditorSurface({ file, selectedEntry }: { file: DiffFile | null; selectedEntry: ScmSelectedEntry | null }) {
+export function DiffEditorSurface({
+  sessionId,
+  file,
+  selectedEntry,
+}: {
+  sessionId: string;
+  file: DiffFile | null;
+  selectedEntry: ScmSelectedEntry | null;
+}) {
+  const busy = useScmStore((s) => s.actionPendingBySessionId[sessionId] ?? false);
+
   if (!file) {
     return (
       <div style={{
@@ -25,13 +36,17 @@ export function DiffEditorSurface({ file, selectedEntry }: { file: DiffFile | nu
         lineHeight: 1.7,
       }}>
         {selectedEntry?.group === "untracked"
-          ? `未跟踪文件：${selectedEntry.path}（后续补 file content 视图）`
+          ? `未跟踪文件：${selectedEntry.path}`
           : selectedEntry?.group === "conflicts"
-          ? `冲突文件：${selectedEntry.path}（后续补 conflict 视图）`
+          ? `冲突文件：${selectedEntry.path}`
           : "当前文件暂无 diff。"}
       </div>
     );
   }
+
+  const fileMode = selectedEntry?.group === "staged" || selectedEntry?.group === "unstaged"
+    ? selectedEntry.group
+    : null;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
@@ -47,7 +62,14 @@ export function DiffEditorSurface({ file, selectedEntry }: { file: DiffFile | nu
         </div>
       )}
       <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
-        <DiffViewer files={[file]} />
+        <DiffViewer
+          files={[file]}
+          fileMode={fileMode}
+          busy={busy}
+          onStageHunk={fileMode === "unstaged" ? (path, hunkIndex) => void applyScmHunk(sessionId, path, "unstaged", hunkIndex, "stage") : undefined}
+          onDiscardHunk={fileMode === "unstaged" ? (path, hunkIndex) => void applyScmHunk(sessionId, path, "unstaged", hunkIndex, "discard") : undefined}
+          onUnstageHunk={fileMode === "staged" ? (path, hunkIndex) => void applyScmHunk(sessionId, path, "staged", hunkIndex, "unstage") : undefined}
+        />
       </div>
     </div>
   );

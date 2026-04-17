@@ -115,7 +115,7 @@ export function EditorHost({
     if (selectedScmEntry?.group === "conflicts") {
       return <ConflictDetailSurface sessionId={session.id} path={activeTab.path} />;
     }
-    return <DiffEditorSurface file={activeFile} selectedEntry={selectedScmEntry} />;
+    return <DiffEditorSurface sessionId={session.id} file={activeFile} selectedEntry={selectedScmEntry} />;
   }
 
   if (activeFile?.type === "deleted") {

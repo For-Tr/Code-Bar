@@ -1,13 +1,6 @@
-import { invoke } from "@tauri-apps/api/core";
-import { useEffect, useState } from "react";
+import { resolveConflict } from "../../services/scmCommands";
+import { useScmStore } from "../../store/scmStore";
 import { CodeEditorSurface } from "./CodeEditorSurface";
-
-interface SessionFileReadResult {
-  content: string;
-  versionToken: string | null;
-  isBinary: boolean;
-  missing: boolean;
-}
 
 export function ConflictDetailSurface({
   sessionId,
@@ -16,32 +9,17 @@ export function ConflictDetailSurface({
   sessionId: string;
   path: string;
 }) {
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [content, setContent] = useState("");
-  const [isBinary, setIsBinary] = useState(false);
+  const payload = useScmStore((s) => s.conflictBySessionId[sessionId] ?? null);
+  const busy = useScmStore((s) => s.actionPendingBySessionId[sessionId] ?? false);
+  const actionError = useScmStore((s) => s.actionErrorBySessionId[sessionId] ?? null);
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    void invoke<SessionFileReadResult>("read_session_file", {
-      sessionId,
-      relativePath: path,
-    }).then((payload) => {
-      if (cancelled) return;
-      setContent(payload.content);
-      setIsBinary(payload.isBinary);
-      setLoading(false);
-    }).catch((err) => {
-      if (cancelled) return;
-      setError(err instanceof Error ? err.message : String(err));
-      setLoading(false);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [path, sessionId]);
+  if (!payload || payload.path !== path) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", flex: 1, color: "var(--ci-text-dim)", fontSize: 12 }}>
+        载入冲突详情中…
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
@@ -52,30 +30,65 @@ export function ConflictDetailSurface({
       }}>
         <div style={{ fontSize: 11, color: "var(--ci-text-dim)", marginBottom: 4 }}>SCM · Conflict</div>
         <div style={{ fontSize: 12, color: "var(--ci-text)", fontWeight: 600 }}>{path}</div>
-        <div style={{ marginTop: 6, fontSize: 11, color: "var(--ci-deleted-text)", lineHeight: 1.6 }}>
-          该文件当前存在冲突。第一阶段先提供只读预览，后续再补完整的冲突解决视图（ours / theirs / base）。
+        <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
+          <button
+            onClick={() => void resolveConflict(sessionId, path, "ours")}
+            disabled={busy}
+            style={{
+              background: busy ? "var(--ci-btn-ghost-bg)" : "var(--ci-accent-bg)",
+              border: `1px solid ${busy ? "var(--ci-toolbar-border)" : "var(--ci-accent-bdr)"}`,
+              color: busy ? "var(--ci-text-dim)" : "var(--ci-accent)",
+              borderRadius: 8,
+              padding: "6px 10px",
+              fontSize: 11,
+              cursor: busy ? "default" : "pointer",
+            }}
+          >
+            Accept Ours
+          </button>
+          <button
+            onClick={() => void resolveConflict(sessionId, path, "theirs")}
+            disabled={busy}
+            style={{
+              background: busy ? "var(--ci-btn-ghost-bg)" : "var(--ci-surface)",
+              border: "1px solid var(--ci-toolbar-border)",
+              color: busy ? "var(--ci-text-dim)" : "var(--ci-text-muted)",
+              borderRadius: 8,
+              padding: "6px 10px",
+              fontSize: 11,
+              cursor: busy ? "default" : "pointer",
+            }}
+          >
+            Accept Theirs
+          </button>
         </div>
+        {actionError && (
+          <div style={{ marginTop: 8, fontSize: 11, color: "var(--ci-deleted-text)", lineHeight: 1.6 }}>
+            {actionError}
+          </div>
+        )}
       </div>
-      {loading ? (
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", flex: 1, color: "var(--ci-text-dim)", fontSize: 12 }}>
-          载入冲突文件中…
-        </div>
-      ) : error ? (
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", flex: 1, padding: 24, color: "var(--ci-deleted-text)", fontSize: 12, lineHeight: 1.7 }}>
-          {error}
-        </div>
-      ) : isBinary ? (
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", flex: 1, padding: 24, color: "var(--ci-text-dim)", fontSize: 12, lineHeight: 1.7 }}>
-          冲突文件是二进制内容，当前暂不支持预览。
-        </div>
-      ) : (
-        <CodeEditorSurface
-          path={path}
-          value={content}
-          onChange={() => {}}
-          readOnly
-        />
-      )}
+
+      <div style={{ flex: 1, minHeight: 0, overflow: "auto", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0 }}>
+        {payload.versions.map((version) => (
+          <div key={version.label} style={{ minHeight: 0, display: "flex", flexDirection: "column", borderRight: version.label === "ours" || version.label === "working" ? "none" : "1px solid var(--ci-toolbar-border)" }}>
+            <div style={{ padding: "8px 10px", borderBottom: "1px solid var(--ci-toolbar-border)", background: "var(--ci-toolbar-bg)", fontSize: 11, color: "var(--ci-text-dim)", textTransform: "uppercase" }}>
+              {version.label}
+            </div>
+            {version.missing ? (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", flex: 1, padding: 24, color: "var(--ci-text-dim)", fontSize: 12 }}>
+                当前版本不存在。
+              </div>
+            ) : version.isBinary ? (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", flex: 1, padding: 24, color: "var(--ci-text-dim)", fontSize: 12 }}>
+                二进制内容暂不支持预览。
+              </div>
+            ) : (
+              <CodeEditorSurface path={`${path}:${version.label}`} value={version.content} onChange={() => {}} readOnly />
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

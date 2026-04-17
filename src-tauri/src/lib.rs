@@ -7,8 +7,8 @@ mod keystore;
 mod notification;
 mod provider_sessions;
 mod pty;
-mod runtime_scope;
 mod runner;
+mod runtime_scope;
 mod session_files;
 mod session_lifecycle;
 mod state;
@@ -217,11 +217,21 @@ pub fn run() {
             git::diff::get_git_diff_session_worktree,
             git::status::get_git_status,
             git::content::get_git_diff_side,
+            git::actions::git_stage_file,
+            git::actions::git_unstage_file,
+            git::actions::git_discard_file,
+            git::actions::git_commit_staged,
+            git::actions::git_stage_hunk,
+            git::actions::git_unstage_hunk,
+            git::actions::git_discard_hunk,
+            git::conflict::git_read_conflict_file,
+            git::conflict::git_resolve_conflict,
             // Session files
             session_files::remember_session_workdir,
             session_files::remove_session_workdir,
             session_files::read_session_file,
             session_files::write_session_file,
+            session_files::list_session_directory,
             // Git 分支管理
             git::branch::git_current_branch,
             git::branch::git_branch_create,

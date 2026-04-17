@@ -2,11 +2,10 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { DiffFile, DiffLine } from "../store/sessionStore";
 import { useSettingsStore, isGlassTheme } from "../store/settingsStore";
+import { type ScmActionMode } from "../store/scmStore";
 
-// 保留静态颜色（文件类型图标颜色保持固定，diff 行颜色改用 CSS 变量）
 const MONO = "'JetBrains Mono', 'Fira Code', 'SF Mono', monospace";
 
-// 每种 diff 行类型的样式（通过 CSS 变量驱动深/浅色）
 type LineStyle = { bg: string; text: string; gutter: string; prefix: string };
 const LINE_STYLES: Record<DiffLine["type"], LineStyle> = {
   added:   {
@@ -72,7 +71,6 @@ function DiffLineRow({ line, isGlass }: { line: DiffLine; isGlass: boolean }) {
       lineHeight: isGlass ? "19px" : "18px",
       background: c.bg,
     }}>
-      {/* 旧行号 */}
       <span style={{
         width: 32, textAlign: "right", padding: "0 6px",
         color: "var(--ci-text-dim)", flexShrink: 0,
@@ -81,7 +79,6 @@ function DiffLineRow({ line, isGlass }: { line: DiffLine; isGlass: boolean }) {
       }}>
         {line.oldLineNo ?? ""}
       </span>
-      {/* 新行号 */}
       <span style={{
         width: 32, textAlign: "right", padding: "0 6px",
         color: "var(--ci-text-dim)", flexShrink: 0,
@@ -90,7 +87,6 @@ function DiffLineRow({ line, isGlass }: { line: DiffLine; isGlass: boolean }) {
       }}>
         {line.newLineNo ?? ""}
       </span>
-      {/* 前缀符号 */}
       <span style={{
         width: 18, textAlign: "center",
         color: line.type === "context" ? "transparent" : c.prefix,
@@ -99,7 +95,6 @@ function DiffLineRow({ line, isGlass }: { line: DiffLine; isGlass: boolean }) {
       }}>
         {prefix}
       </span>
-      {/* 代码内容 */}
       <span style={{
         flex: 1, padding: "0 10px", color: c.text,
         whiteSpace: "pre",
@@ -110,7 +105,6 @@ function DiffLineRow({ line, isGlass }: { line: DiffLine; isGlass: boolean }) {
   );
 }
 
-// 文件类型图标（颜色固定，语义化）
 const FILE_ICON_MAP: Record<DiffFile["type"], { icon: string; color: string }> = {
   added:    { icon: "✦", color: "#34C759" },
   modified: { icon: "◆", color: "#FF9F0A" },
@@ -146,8 +140,42 @@ function FileStat({ additions, deletions }: { additions: number; deletions: numb
   );
 }
 
-function DiffFileRow({ file }: { file: DiffFile }) {
-  const [isOpen, setIsOpen] = useState(false);
+function HunkActionButton({ label, onClick, disabled }: { label: string; onClick: () => void; disabled?: boolean }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        background: disabled ? "var(--ci-btn-ghost-bg)" : "var(--ci-surface)",
+        border: "1px solid var(--ci-toolbar-border)",
+        color: disabled ? "var(--ci-text-dim)" : "var(--ci-text-muted)",
+        borderRadius: 6,
+        padding: "1px 6px",
+        fontSize: 10,
+        cursor: disabled ? "default" : "pointer",
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+function DiffFileRow({
+  file,
+  fileMode,
+  onStageHunk,
+  onUnstageHunk,
+  onDiscardHunk,
+  busy,
+}: {
+  file: DiffFile;
+  fileMode?: ScmActionMode | null;
+  onStageHunk?: (path: string, hunkIndex: number) => void;
+  onUnstageHunk?: (path: string, hunkIndex: number) => void;
+  onDiscardHunk?: (path: string, hunkIndex: number) => void;
+  busy?: boolean;
+}) {
+  const [isOpen, setIsOpen] = useState(true);
   const isBinary = !!file.binary;
   const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
 
@@ -156,7 +184,6 @@ function DiffFileRow({ file }: { file: DiffFile }) {
       borderBottom: "1px solid var(--ci-toolbar-border)",
       background: "transparent",
     }}>
-      {/* 文件头 */}
       <button
         onClick={() => setIsOpen((v) => !v)}
         style={{
@@ -198,7 +225,6 @@ function DiffFileRow({ file }: { file: DiffFile }) {
         )}
       </button>
 
-      {/* 展开的 diff 内容 */}
       <AnimatePresence initial={false}>
         {isOpen && (
           <motion.div
@@ -212,7 +238,7 @@ function DiffFileRow({ file }: { file: DiffFile }) {
             <div style={{
               background: isGlass ? "rgba(248,249,252,0.88)" : "var(--ci-code-bg)",
               borderTop: "1px solid var(--ci-toolbar-border)",
-              maxHeight: 320,
+              maxHeight: 420,
               overflowY: "auto",
               overflowX: "auto",
               scrollbarWidth: isGlass ? "thin" : "none",
@@ -246,7 +272,6 @@ function DiffFileRow({ file }: { file: DiffFile }) {
               ) : (
                 file.hunks.map((hunk, hi) => (
                   <div key={hi}>
-                    {/* hunk header */}
                     <div style={{
                       padding: "2px 8px 2px 82px",
                       background: isGlass ? "rgba(45,140,255,0.14)" : "var(--ci-accent-bg)",
@@ -254,8 +279,16 @@ function DiffFileRow({ file }: { file: DiffFile }) {
                       fontSize: 10, fontFamily: MONO,
                       borderTop: "1px solid var(--ci-accent-bdr)",
                       borderBottom: "1px solid var(--ci-accent-bdr)",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
                     }}>
-                      {hunk.header}
+                      <span>{hunk.header}</span>
+                      <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+                        {fileMode === "unstaged" && onStageHunk && <HunkActionButton label="Stage Hunk" onClick={() => onStageHunk(file.path, hi)} disabled={busy} />}
+                        {fileMode === "unstaged" && onDiscardHunk && <HunkActionButton label="Discard Hunk" onClick={() => onDiscardHunk(file.path, hi)} disabled={busy} />}
+                        {fileMode === "staged" && onUnstageHunk && <HunkActionButton label="Unstage Hunk" onClick={() => onUnstageHunk(file.path, hi)} disabled={busy} />}
+                      </div>
                     </div>
                     {hunk.lines.map((line, li) => (
                       <DiffLineRow key={li} line={line} isGlass={isGlass} />
@@ -271,7 +304,21 @@ function DiffFileRow({ file }: { file: DiffFile }) {
   );
 }
 
-export function DiffViewer({ files }: { files: DiffFile[] }) {
+export function DiffViewer({
+  files,
+  fileMode,
+  onStageHunk,
+  onUnstageHunk,
+  onDiscardHunk,
+  busy = false,
+}: {
+  files: DiffFile[];
+  fileMode?: ScmActionMode | null;
+  onStageHunk?: (path: string, hunkIndex: number) => void;
+  onUnstageHunk?: (path: string, hunkIndex: number) => void;
+  onDiscardHunk?: (path: string, hunkIndex: number) => void;
+  busy?: boolean;
+}) {
   const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
 
   if (files.length === 0) {
@@ -292,7 +339,6 @@ export function DiffViewer({ files }: { files: DiffFile[] }) {
 
   return (
     <div style={{ background: "transparent" }}>
-      {/* 汇总统计 */}
       <div style={{
         display: "flex", alignItems: "center", justifyContent: "space-between",
         padding: "7px 12px",
@@ -321,9 +367,16 @@ export function DiffViewer({ files }: { files: DiffFile[] }) {
           }}>−{totalDeletions}</span>
         </span>
       </div>
-      {/* 文件列表 */}
       {files.map((f) => (
-        <DiffFileRow key={f.path} file={f} />
+        <DiffFileRow
+          key={f.path}
+          file={f}
+          fileMode={fileMode}
+          onStageHunk={onStageHunk}
+          onUnstageHunk={onUnstageHunk}
+          onDiscardHunk={onDiscardHunk}
+          busy={busy}
+        />
       ))}
     </div>
   );

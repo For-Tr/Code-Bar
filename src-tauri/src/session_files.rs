@@ -27,6 +27,21 @@ pub struct SessionFileWriteResult {
     version_token: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionDirectoryEntry {
+    name: String,
+    path: String,
+    kind: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionDirectoryListResult {
+    path: String,
+    entries: Vec<SessionDirectoryEntry>,
+}
+
 fn session_root(app: &tauri::AppHandle, session_id: &str) -> Result<PathBuf, String> {
     let sanitized = session_id.trim();
     if sanitized.is_empty() {
@@ -51,23 +66,35 @@ fn session_root(app: &tauri::AppHandle, session_id: &str) -> Result<PathBuf, Str
 fn validate_relative_path(relative_path: &str) -> Result<PathBuf, String> {
     let trimmed = relative_path.trim();
     if trimmed.is_empty() {
-        return Err("缺少相对路径".into());
+        return Ok(PathBuf::new());
     }
     let path = PathBuf::from(trimmed);
     if path.is_absolute() {
         return Err("只允许相对路径".into());
     }
-    if path.components().any(|component| matches!(component, Component::ParentDir | Component::RootDir | Component::Prefix(_))) {
+    if path.components().any(|component| {
+        matches!(
+            component,
+            Component::ParentDir | Component::RootDir | Component::Prefix(_)
+        )
+    }) {
         return Err("路径不能跳出 session 根目录".into());
     }
     Ok(path)
 }
 
-fn resolve_session_file(app: &tauri::AppHandle, session_id: &str, relative_path: &str) -> Result<PathBuf, String> {
+fn resolve_session_file(
+    app: &tauri::AppHandle,
+    session_id: &str,
+    relative_path: &str,
+) -> Result<PathBuf, String> {
     let root = session_root(app, session_id)?;
     let relative = validate_relative_path(relative_path)?;
-    let joined = root.join(relative);
+    if relative.as_os_str().is_empty() {
+        return Ok(root);
+    }
 
+    let joined = root.join(relative);
     let canonical_parent = joined
         .parent()
         .unwrap_or(root.as_path())
@@ -211,5 +238,57 @@ pub fn write_session_file(
     Ok(SessionFileWriteResult {
         path: relative_path,
         version_token: file_version_token(&full_path)?,
+    })
+}
+
+#[tauri::command]
+pub fn list_session_directory(
+    app: tauri::AppHandle,
+    session_id: String,
+    relative_path: String,
+) -> Result<SessionDirectoryListResult, String> {
+    let full_path = resolve_session_file(&app, &session_id, &relative_path)?;
+    let metadata = fs::metadata(&full_path)
+        .map_err(|e| format!("读取目录失败 {}: {e}", full_path.display()))?;
+    if !metadata.is_dir() {
+        return Err(format!("不是目录: {}", full_path.display()));
+    }
+
+    let mut entries = fs::read_dir(&full_path)
+        .map_err(|e| format!("读取目录失败 {}: {e}", full_path.display()))?
+        .filter_map(|entry| entry.ok())
+        .filter_map(|entry| {
+            let file_name = entry.file_name();
+            let name = file_name.to_string_lossy().to_string();
+            if name == ".git" {
+                return None;
+            }
+            let file_type = entry.file_type().ok()?;
+            let child_path = if relative_path.trim().is_empty() {
+                name.clone()
+            } else {
+                format!("{}/{}", relative_path.trim_matches('/'), name)
+            };
+            Some(SessionDirectoryEntry {
+                name,
+                path: child_path,
+                kind: if file_type.is_dir() {
+                    "dir".into()
+                } else {
+                    "file".into()
+                },
+            })
+        })
+        .collect::<Vec<_>>();
+
+    entries.sort_by(|a, b| match (a.kind.as_str(), b.kind.as_str()) {
+        ("dir", "file") => std::cmp::Ordering::Less,
+        ("file", "dir") => std::cmp::Ordering::Greater,
+        _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+    });
+
+    Ok(SessionDirectoryListResult {
+        path: relative_path,
+        entries,
     })
 }
