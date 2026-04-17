@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight, GitBranch, Plus, Minus, ArrowUp, ArrowDown, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Plus, Minus, ArrowUp, ArrowDown, Trash2 } from "lucide-react";
 import { type DiffFile, type ClaudeSession } from "../../store/sessionStore";
 import {
   commitScm,
@@ -231,20 +231,11 @@ export function ScmSidebar({ session }: { session: ClaudeSession | null }) {
       <div style={{
         display: "flex",
         alignItems: "center",
-        justifyContent: "space-between",
+        justifyContent: "flex-end",
         gap: 8,
-        padding: "8px 10px",
+        padding: "6px 10px",
         borderBottom: "1px solid var(--ci-toolbar-border)",
       }}>
-        <div>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "var(--ci-text-dim)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
-            Source Control
-          </div>
-          <div style={{ marginTop: 4, display: "flex", alignItems: "center", gap: 6, color: "var(--ci-text)", fontSize: 11, fontWeight: 600 }}>
-            <GitBranch size={11} strokeWidth={1.8} />
-            {session.name}
-          </div>
-        </div>
         <button
           onClick={resetWorkbenchMode}
           style={{

@@ -4,7 +4,6 @@ import {
   ChevronRight,
   FileCode2,
   Folder,
-  GitBranch,
   RefreshCw,
 } from "lucide-react";
 import { openFile, loadDirectory } from "../../services/editorCommands";
@@ -200,27 +199,11 @@ export function ExplorerPane({
       <div style={{
         display: "flex",
         alignItems: "center",
-        justifyContent: "space-between",
-        gap: 8,
-        padding: "8px 10px",
+        justifyContent: "flex-end",
+        gap: 6,
+        padding: "6px 10px",
         borderBottom: "1px solid var(--ci-toolbar-border)",
       }}>
-        <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "var(--ci-text-dim)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
-            Explorer
-          </div>
-          <div style={{ marginTop: 4, display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-            <span style={{ color: "var(--ci-text)", fontSize: 11, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {session.name}
-            </span>
-            {session.branchName && (
-              <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: "var(--ci-text-dim)" }}>
-                <GitBranch size={11} strokeWidth={1.8} />
-                <span style={{ fontFamily: "monospace" }}>{session.branchName.replace("ci/", "")}</span>
-              </span>
-            )}
-          </div>
-        </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
           <WorkbenchTooltip label="刷新变更">
             <button
