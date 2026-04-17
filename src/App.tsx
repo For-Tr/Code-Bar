@@ -39,6 +39,8 @@ export default function App() {
     setExpandedSession,
   } = useSessionStore();
   const setScmSnapshot = useScmStore((s) => s.setSnapshot);
+  const setScmStatus = useScmStore((s) => s.setStatus);
+  const setScmDiffOverride = useScmStore((s) => s.setDiffOverride);
 
   const { settings, patchSettings } = useSettingsStore();
   const settingsOpen = useSettingsStore((s) => s.settingsOpen);
@@ -367,6 +369,11 @@ export default function App() {
     const session = useSessionStore.getState().sessions.find((s) => s.id === targetId);
     if (!session) return;
 
+    invoke("get_git_status", {
+      sessionId: session.id,
+      workdir: session.workdir,
+    }).catch(() => {});
+
     // 工作台主变更视图：
     // 如果有 base branch，则看 merge-base(base, HEAD) 到当前 worktree 的总变化，
     // 这样 session 中已 commit + 未 commit 的修改都能显示出来。
@@ -597,6 +604,22 @@ export default function App() {
       }
     );
 
+    const u5b = listen<{ session_id: string; groups: import("./store/scmStore").ScmStatusGroups }>(
+      "scm-status-update",
+      ({ payload }) => {
+        setScmStatus(payload.session_id, payload.groups);
+      }
+    );
+
+    const u5c = listen<{ session_id: string; mode: string; file: DiffFile }>(
+      "scm-diff-side-update",
+      ({ payload }) => {
+        if (payload.mode === "staged" || payload.mode === "unstaged") {
+          setScmDiffOverride(payload.session_id, payload.file);
+        }
+      }
+    );
+
     // PTY 退出：将 running/waiting/suspended 状态的 session 标记为 done
     // SessionPanel 关闭后不再常驻，此处补全全局兜底监听
     const u6 = listen<{ session_id: string }>(
@@ -640,9 +663,9 @@ export default function App() {
     );
 
     return () => {
-      [u1, u2, u3, u4, u5, u6, u7].forEach((p) => p.then((f) => f()));
+      [u1, u2, u3, u4, u5, u5b, u5c, u6, u7].forEach((p) => p.then((f) => f()));
     };
-  }, [appendOutput, updateSession, setDiffFiles, setScmSnapshot, refreshSessionDiff]);
+  }, [appendOutput, updateSession, setDiffFiles, setScmSnapshot, setScmStatus, setScmDiffOverride, refreshSessionDiff]);
 
   // ── 会话切换时主动拉一次 Diff（覆盖非 running / 外部改动场景）──
   useEffect(() => {

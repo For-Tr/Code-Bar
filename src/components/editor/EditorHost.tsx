@@ -6,6 +6,7 @@ import { useExplorerStore } from "../../store/explorerStore";
 import { useScmStore } from "../../store/scmStore";
 import { type ClaudeSession } from "../../store/sessionStore";
 import { CodeEditorSurface } from "./CodeEditorSurface";
+import { ConflictDetailSurface } from "./ConflictDetailSurface";
 import { DiffEditorSurface } from "./DiffEditorSurface";
 
 function EmptyEditorState({ message }: { message: string }) {
@@ -67,7 +68,11 @@ export function EditorHost({
   const activeTab = resolvedActiveTabId ? tabsById[resolvedActiveTabId] ?? null : null;
   const activeBuffer: EditorBufferState | null = resolvedActiveTabId ? (buffersByTabId[resolvedActiveTabId] ?? null) : null;
   const scmFiles = useScmStore((s) => session ? (s.snapshotBySessionId[session.id]?.files ?? session.diffFiles) : []);
-  const activeFile = scmFiles.find((file) => file.path === activeTab?.path) ?? null;
+  const selectedScmEntry = useScmStore((s) => session ? (s.selectedEntryBySessionId[session.id] ?? null) : null);
+  const diffOverride = useScmStore((s) => session ? (s.diffOverrideBySessionId[session.id] ?? null) : null);
+  const activeFile = diffOverride?.path === activeTab?.path
+    ? diffOverride
+    : scmFiles.find((file) => file.path === activeTab?.path) ?? null;
 
   useEffect(() => {
     if (resolvedActiveTabId && resolvedActiveTabId !== activeTabId) {
@@ -107,7 +112,10 @@ export function EditorHost({
   }
 
   if (activeTab.viewMode === "diff") {
-    return <DiffEditorSurface file={activeFile} />;
+    if (selectedScmEntry?.group === "conflicts") {
+      return <ConflictDetailSurface sessionId={session.id} path={activeTab.path} />;
+    }
+    return <DiffEditorSurface file={activeFile} selectedEntry={selectedScmEntry} />;
   }
 
   if (activeFile?.type === "deleted") {

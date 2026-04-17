@@ -51,18 +51,21 @@ export function CodeEditorSurface({
   path,
   value,
   onChange,
+  readOnly = false,
 }: {
   path: string;
   value: string;
   onChange: (value: string) => void;
+  readOnly?: boolean;
 }) {
   const themeMode = useSettingsStore((s) => s.settings.theme);
   const extensions = useMemo(() => {
     const language = languageExtension(path);
+    const base = [EditorView.lineWrapping, EditorView.editable.of(!readOnly)];
     return Array.isArray(language)
-      ? [EditorView.lineWrapping, ...language]
-      : [EditorView.lineWrapping, language];
-  }, [path]);
+      ? [...base, ...language]
+      : [...base, language];
+  }, [path, readOnly]);
   const cmTheme = useMemo(() => {
     if (themeMode === "dark") return oneDark;
     return LIGHT_THEME;
@@ -77,6 +80,7 @@ export function CodeEditorSurface({
         extensions={extensions}
         basicSetup={BASIC_SETUP}
         onChange={onChange}
+        editable={!readOnly}
         style={{ height: "100%", fontSize: 12 }}
       />
     </div>
