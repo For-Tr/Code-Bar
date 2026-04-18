@@ -9,7 +9,7 @@ import { useWorkspaceStore, getWorkspaceColor } from "../store/workspaceStore";
 import { useSettingsStore, RUNNER_LABELS, sanitizeRunnerConfig, isGlassTheme } from "../store/settingsStore";
 import { useWorkbenchStore } from "../store/workbenchStore";
 import { useScmStore } from "../store/scmStore";
-import { showExplorer, showSessionSurface } from "../services/workbenchCommands";
+import { resetWorkbenchMode, showExplorer, showScm, showSessionSurface } from "../services/workbenchCommands";
 
 // ── 状态配置（使用 CSS 变量）────────────────────────────────
 const STATUS_CONFIG: Record<SessionStatus, {
@@ -184,22 +184,8 @@ function SessionCard({
           )}
         </div>
 
-        {/* waiting：操作提示 */}
-        {isWaiting && (
-          <p
-            style={{
-              margin: "2px 0 0", fontSize: 11,
-              color: "var(--ci-text-dim)",
-              display: "flex", alignItems: "center", gap: 4,
-            }}
-          >
-            <span style={{ fontSize: 10 }}>⚡</span>
-            {showExpandButton ? "点击展开终端查看并输入" : "点击卡片聚焦会话"}
-          </p>
-        )}
-
-        {/* 运行中：当前任务 */}
-        {!isWaiting && session.currentTask && (
+        {/* 当前任务 */}
+        {session.currentTask && (
           <p style={{
             margin: "2px 0 0", fontSize: 11,
             color: isError
@@ -261,118 +247,149 @@ function SessionCard({
         )}
       </div>
 
-      {(isWaiting || isSuspended) && (
-        <button
-          onClick={(e) => { e.stopPropagation(); onRotateSuspend(); }}
-          onMouseDown={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-          }}
-          title={isWaiting ? "挂起" : "恢复为需要操作"}
-          style={{
-            background: isWaiting ? "var(--ci-btn-ghost-bg)" : "rgba(107,114,128,0.14)",
-            border: isWaiting ? "1px solid var(--ci-border)" : "1px solid rgba(107,114,128,0.36)",
-            color: isWaiting ? "var(--ci-text-dim)" : "#6B7280",
-            cursor: "pointer",
-            padding: "4px 8px",
-            borderRadius: 6,
-            flexShrink: 0,
-            fontSize: 11,
-            transition: "all 0.12s",
-          }}
-          onMouseEnter={e => {
-            e.currentTarget.style.background = isWaiting ? "rgba(107,114,128,0.14)" : "rgba(107,114,128,0.2)";
-            e.currentTarget.style.borderColor = "rgba(107,114,128,0.44)";
-            e.currentTarget.style.color = "#4B5563";
-          }}
-          onMouseLeave={e => {
-            e.currentTarget.style.background = isWaiting ? "var(--ci-btn-ghost-bg)" : "rgba(107,114,128,0.14)";
-            e.currentTarget.style.borderColor = isWaiting ? "var(--ci-border)" : "rgba(107,114,128,0.36)";
-            e.currentTarget.style.color = isWaiting ? "var(--ci-text-dim)" : "#6B7280";
-          }}
-        >
-          {isWaiting ? "挂起" : "恢复"}
-        </button>
-      )}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, position: "relative", zIndex: 1 }}>
+        {(isWaiting || isSuspended) && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onRotateSuspend(); }}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+            title={isWaiting ? "挂起" : "恢复为需要操作"}
+            style={{
+              background: isWaiting ? "var(--ci-btn-ghost-bg)" : "rgba(107,114,128,0.14)",
+              border: isWaiting ? "1px solid var(--ci-border)" : "1px solid rgba(107,114,128,0.36)",
+              color: isWaiting ? "var(--ci-text-dim)" : "#6B7280",
+              cursor: "pointer",
+              padding: "4px 8px",
+              borderRadius: 6,
+              flexShrink: 0,
+              fontSize: 11,
+              transition: "all 0.12s",
+              opacity: isDeleteConfirming ? 0.18 : 1,
+              pointerEvents: isDeleteConfirming ? "none" : "auto",
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.background = isWaiting ? "rgba(107,114,128,0.14)" : "rgba(107,114,128,0.2)";
+              e.currentTarget.style.borderColor = "rgba(107,114,128,0.44)";
+              e.currentTarget.style.color = "#4B5563";
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.background = isWaiting ? "var(--ci-btn-ghost-bg)" : "rgba(107,114,128,0.14)";
+              e.currentTarget.style.borderColor = isWaiting ? "var(--ci-border)" : "rgba(107,114,128,0.36)";
+              e.currentTarget.style.color = isWaiting ? "var(--ci-text-dim)" : "#6B7280";
+            }}
+          >
+            {isWaiting ? "挂起" : "恢复"}
+          </button>
+        )}
 
-      {isSelected && (
+        {isSelected && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onOpenExplore(); }}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+            title="打开文件树"
+            style={{
+              background: "var(--ci-btn-ghost-bg)",
+              border: "1px solid transparent",
+              color: "var(--ci-text-dim)",
+              cursor: "pointer",
+              padding: "4px 6px",
+              borderRadius: 6,
+              flexShrink: 0,
+              display: "flex",
+              alignItems: "center",
+              transition: isGlass ? "color 0.12s" : "color 0.12s, background 0.12s, border-color 0.12s",
+              opacity: isDeleteConfirming ? 0.18 : 1,
+              pointerEvents: isDeleteConfirming ? "none" : "auto",
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.color = accentColor;
+              e.currentTarget.style.background = isGlass ? "var(--ci-btn-ghost-bg)" : `${accentColor}15`;
+              e.currentTarget.style.borderColor = isGlass ? "transparent" : `${accentColor}30`;
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.color = "var(--ci-text-dim)";
+              e.currentTarget.style.background = "var(--ci-btn-ghost-bg)";
+              e.currentTarget.style.borderColor = "transparent";
+            }}
+          >
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" style={{ display: "block" }}>
+              <path d="M1.75 3.75A1.25 1.25 0 0 1 3 2.5h3.1c.32 0 .63.13.85.35l.8.8c.23.22.53.35.85.35H13a1.25 1.25 0 0 1 1.25 1.25v6.5A1.25 1.25 0 0 1 13 13H3a1.25 1.25 0 0 1-1.25-1.25v-8Z" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round"/>
+            </svg>
+          </button>
+        )}
+
+        {showExpandButton && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onExpand(); }}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+            title="展开终端"
+            style={{
+              background: isWaiting ? "var(--ci-yellow-bg)" : "var(--ci-btn-ghost-bg)",
+              border: isWaiting ? "1px solid var(--ci-yellow-bdr)" : "1px solid transparent",
+              color: isWaiting ? "var(--ci-yellow-dark)" : "var(--ci-text-dim)",
+              cursor: "pointer", padding: "4px 6px", borderRadius: 6,
+              flexShrink: 0, display: "flex", alignItems: "center",
+              transition: isGlass ? "color 0.12s" : "color 0.12s, background 0.12s, border-color 0.12s",
+              opacity: isDeleteConfirming ? 0.18 : 1,
+              pointerEvents: isDeleteConfirming ? "none" : "auto",
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.color = isWaiting ? "var(--ci-yellow)" : accentColor;
+              e.currentTarget.style.background = isGlass
+                ? (isWaiting ? "var(--ci-yellow-bg)" : "var(--ci-btn-ghost-bg)")
+                : isWaiting
+                ? "rgba(255,159,10,0.18)"
+                : `${accentColor}15`;
+              e.currentTarget.style.borderColor = isGlass
+                ? (isWaiting ? "var(--ci-yellow-bdr)" : "transparent")
+                : isWaiting
+                ? "rgba(255,159,10,0.4)"
+                : `${accentColor}30`;
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.color = isWaiting ? "var(--ci-yellow-dark)" : "var(--ci-text-dim)";
+              e.currentTarget.style.background = isWaiting ? "var(--ci-yellow-bg)" : "var(--ci-btn-ghost-bg)";
+              e.currentTarget.style.borderColor = isWaiting ? "var(--ci-yellow-bdr)" : "transparent";
+            }}
+          >
+            <ExpandIcon />
+          </button>
+        )}
+
         <button
-          onClick={(e) => { e.stopPropagation(); onOpenExplore(); }}
+          onClick={(e) => { e.stopPropagation(); onRemove(); }}
           onMouseDown={(e) => {
             e.preventDefault();
             e.stopPropagation();
           }}
-          title="打开文件树"
           style={{
-            background: "var(--ci-btn-ghost-bg)",
-            border: "1px solid transparent",
-            color: "var(--ci-text-dim)",
-            cursor: "pointer",
-            padding: "4px 6px",
-            borderRadius: 6,
-            flexShrink: 0,
-            display: "flex",
-            alignItems: "center",
-            transition: isGlass ? "color 0.12s" : "color 0.12s, background 0.12s, border-color 0.12s",
+            background: "none", border: "none",
+            color: "var(--ci-text-dim)", fontSize: 11,
+            cursor: "pointer", padding: "2px 4px", borderRadius: 4,
+            flexShrink: 0, transition: "color 0.12s, background 0.12s, opacity 0.12s",
+            opacity: isDeleteConfirming ? 0 : 1,
+            pointerEvents: isDeleteConfirming ? "none" : "auto",
           }}
           onMouseEnter={e => {
-            e.currentTarget.style.color = accentColor;
-            e.currentTarget.style.background = isGlass ? "var(--ci-btn-ghost-bg)" : `${accentColor}15`;
-            e.currentTarget.style.borderColor = isGlass ? "transparent" : `${accentColor}30`;
+            e.currentTarget.style.color = "var(--ci-red)";
+            e.currentTarget.style.background = isGlass ? "none" : "var(--ci-deleted-bg)";
           }}
           onMouseLeave={e => {
             e.currentTarget.style.color = "var(--ci-text-dim)";
-            e.currentTarget.style.background = "var(--ci-btn-ghost-bg)";
-            e.currentTarget.style.borderColor = "transparent";
+            e.currentTarget.style.background = "none";
           }}
-        >
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" style={{ display: "block" }}>
-            <path d="M1.75 3.75A1.25 1.25 0 0 1 3 2.5h3.1c.32 0 .63.13.85.35l.8.8c.23.22.53.35.85.35H13a1.25 1.25 0 0 1 1.25 1.25v6.5A1.25 1.25 0 0 1 13 13H3a1.25 1.25 0 0 1-1.25-1.25v-8Z" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round"/>
-          </svg>
-        </button>
-      )}
+        >✕</button>
+      </div>
 
-      {showExpandButton && (
-        <button
-          onClick={(e) => { e.stopPropagation(); onExpand(); }}
-          onMouseDown={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-          }}
-          title="展开终端"
-          style={{
-            background: isWaiting ? "var(--ci-yellow-bg)" : "var(--ci-btn-ghost-bg)",
-            border: isWaiting ? "1px solid var(--ci-yellow-bdr)" : "1px solid transparent",
-            color: isWaiting ? "var(--ci-yellow-dark)" : "var(--ci-text-dim)",
-            cursor: "pointer", padding: "4px 6px", borderRadius: 6,
-            flexShrink: 0, display: "flex", alignItems: "center",
-            transition: isGlass ? "color 0.12s" : "color 0.12s, background 0.12s, border-color 0.12s",
-          }}
-          onMouseEnter={e => {
-            e.currentTarget.style.color = isWaiting ? "var(--ci-yellow)" : accentColor;
-            e.currentTarget.style.background = isGlass
-              ? (isWaiting ? "var(--ci-yellow-bg)" : "var(--ci-btn-ghost-bg)")
-              : isWaiting
-              ? "rgba(255,159,10,0.18)"
-              : `${accentColor}15`;
-            e.currentTarget.style.borderColor = isGlass
-              ? (isWaiting ? "var(--ci-yellow-bdr)" : "transparent")
-              : isWaiting
-              ? "rgba(255,159,10,0.4)"
-              : `${accentColor}30`;
-          }}
-          onMouseLeave={e => {
-            e.currentTarget.style.color = isWaiting ? "var(--ci-yellow-dark)" : "var(--ci-text-dim)";
-            e.currentTarget.style.background = isWaiting ? "var(--ci-yellow-bg)" : "var(--ci-btn-ghost-bg)";
-            e.currentTarget.style.borderColor = isWaiting ? "var(--ci-yellow-bdr)" : "transparent";
-          }}
-        >
-          <ExpandIcon />
-        </button>
-      )}
-
-      {/* 删除 */}
-      {isDeleteConfirming ? (
+      {isDeleteConfirming && (
         <div
           onClick={(e) => e.stopPropagation()}
           onMouseDown={(e) => {
@@ -380,10 +397,19 @@ function SessionCard({
             e.stopPropagation();
           }}
           style={{
+            position: "absolute",
+            right: 10,
+            top: "50%",
+            transform: "translateY(-50%)",
             display: "flex",
             alignItems: "center",
             gap: 6,
-            flexShrink: 0,
+            padding: 4,
+            borderRadius: 10,
+            border: "1px solid rgba(255,59,48,0.18)",
+            background: isGlass ? "rgba(255,255,255,0.08)" : "var(--ci-surface-hi)",
+            boxShadow: "0 8px 18px rgba(0,0,0,0.12)",
+            zIndex: 3,
           }}
         >
           <button
@@ -418,28 +444,6 @@ function SessionCard({
             取消
           </button>
         </div>
-      ) : (
-        <button
-          onClick={(e) => { e.stopPropagation(); onRemove(); }}
-          onMouseDown={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-          }}
-          style={{
-            background: "none", border: "none",
-            color: "var(--ci-text-dim)", fontSize: 11,
-            cursor: "pointer", padding: "2px 4px", borderRadius: 4,
-            flexShrink: 0, transition: "color 0.12s, background 0.12s",
-          }}
-          onMouseEnter={e => {
-            e.currentTarget.style.color = "var(--ci-red)";
-            e.currentTarget.style.background = isGlass ? "none" : "var(--ci-deleted-bg)";
-          }}
-          onMouseLeave={e => {
-            e.currentTarget.style.color = "var(--ci-text-dim)";
-            e.currentTarget.style.background = "none";
-          }}
-        >✕</button>
       )}
     </motion.div>
   );
@@ -478,6 +482,8 @@ export function SessionList() {
   } = useSessionStore();
   const { activeWorkspaceId } = useWorkspaceStore();
   const focusSession = useWorkbenchStore((s) => s.focusSession);
+  const sidebarSection = useWorkbenchStore((s) => s.sidebarSection);
+  const focusedSessionId = useWorkbenchStore((s) => s.focusedSessionId);
   const workspaces = useWorkspaceStore((s) => s.workspaces);
   const activeWorkspace = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === activeWorkspaceId)
@@ -594,6 +600,12 @@ export function SessionList() {
   const handleRemoveSession = async (session: ClaudeSession) => {
     setPendingDeleteSessionId(null);
 
+    const nextSessions = wsSessions.filter((item) => item.id !== session.id);
+    const fallbackSessionId = nextSessions[0]?.id ?? null;
+    const removingActive = activeSessionId === session.id;
+    const removingFocused = focusedSessionId === session.id;
+    const removingExpanded = expandedSessionId === session.id;
+
     if ("__TAURI_INTERNALS__" in window) {
       await invoke("mark_deleted_items", {
         sessionIds: [session.id],
@@ -611,6 +623,33 @@ export function SessionList() {
     }
 
     removeSession(session.id);
+
+    if (fallbackSessionId) {
+      if (isSplitLayout && removingFocused) {
+        if (sidebarSection === "explorer") {
+          showExplorer(fallbackSessionId);
+        } else if (sidebarSection === "scm") {
+          showScm(fallbackSessionId);
+        } else {
+          showSessionSurface(fallbackSessionId);
+        }
+      } else {
+        if (removingActive) {
+          setActiveSession(fallbackSessionId);
+        }
+        if (removingFocused) {
+          focusSession(fallbackSessionId);
+        }
+        if (removingExpanded) {
+          setExpandedSession(fallbackSessionId);
+        }
+      }
+    } else {
+      resetWorkbenchMode();
+      focusSession(null);
+      setExpandedSession(null);
+      setActiveSession(null);
+    }
 
     const workspacePath = activeWorkspace?.path;
     if (!("__TAURI_INTERNALS__" in window) || !workspacePath || !session.worktreePath || !session.branchName) {
