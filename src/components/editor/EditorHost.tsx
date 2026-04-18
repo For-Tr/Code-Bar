@@ -4,10 +4,12 @@ import { useEditorBufferStore, type EditorBufferState } from "../../store/editor
 import { useEditorStore } from "../../store/editorStore";
 import { useExplorerStore } from "../../store/explorerStore";
 import { useScmStore } from "../../store/scmStore";
-import { type ClaudeSession } from "../../store/sessionStore";
+import { type ClaudeSession, type DiffFile } from "../../store/sessionStore";
 import { CodeEditorSurface } from "./CodeEditorSurface";
 import { ConflictDetailSurface } from "./ConflictDetailSurface";
 import { DiffEditorSurface } from "./DiffEditorSurface";
+
+const EMPTY_DIFF_FILES: DiffFile[] = [];
 
 function EmptyEditorState({ message }: { message: string }) {
   return (
@@ -67,7 +69,7 @@ export function EditorHost({
     : (sessionTabIds[sessionTabIds.length - 1] ?? null);
   const activeTab = resolvedActiveTabId ? tabsById[resolvedActiveTabId] ?? null : null;
   const activeBuffer: EditorBufferState | null = resolvedActiveTabId ? (buffersByTabId[resolvedActiveTabId] ?? null) : null;
-  const scmFiles = useScmStore((s) => session ? (s.snapshotBySessionId[session.id]?.files ?? session.diffFiles) : []);
+  const scmFiles = useScmStore((s) => session ? (s.snapshotBySessionId[session.id]?.files ?? session.diffFiles) : EMPTY_DIFF_FILES);
   const selectedScmEntry = useScmStore((s) => session ? (s.selectedEntryBySessionId[session.id] ?? null) : null);
   const diffOverride = useScmStore((s) => session ? (s.diffOverrideBySessionId[session.id] ?? null) : null);
   const activeFile = diffOverride?.path === activeTab?.path
