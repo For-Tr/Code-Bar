@@ -69,7 +69,6 @@ export function EditorGroupPane({
                 borderRight: "1px dashed var(--ci-toolbar-border)",
                 background: leftDrop.isOver ? "var(--ci-accent-bg)" : "transparent",
                 boxShadow: leftDrop.isOver ? "inset 0 0 0 1px var(--ci-accent-bdr)" : "none",
-                pointerEvents: "none",
               }}
             />
             <div
@@ -81,7 +80,6 @@ export function EditorGroupPane({
                 width: "50%",
                 background: rightDrop.isOver ? "var(--ci-accent-bg)" : "transparent",
                 boxShadow: rightDrop.isOver ? "inset 0 0 0 1px var(--ci-accent-bdr)" : "none",
-                pointerEvents: "none",
               }}
             />
           </>

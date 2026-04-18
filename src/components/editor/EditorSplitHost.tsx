@@ -4,6 +4,7 @@ import {
   DragOverlay,
   PointerSensor,
   closestCenter,
+  pointerWithin,
   useSensor,
   useSensors,
   type DragEndEvent,
@@ -103,9 +104,18 @@ export function EditorSplitHost({
   };
 
   const activeGroupId = session ? activeGroupIdBySessionId[session.id] ?? groupIds[0] ?? null : null;
+  const collisionDetection = (args: Parameters<typeof pointerWithin>[0]) => {
+    const pointerCollisions = pointerWithin(args);
+    const splitCollision = pointerCollisions.find((collision) => collision.data?.droppableContainer.data.current?.type === "editor-split");
+    if (splitCollision) return [splitCollision];
+    const tabCollision = pointerCollisions.find((collision) => collision.data?.droppableContainer.data.current?.type === "editor-tab");
+    if (tabCollision) return [tabCollision];
+    if (pointerCollisions.length > 0) return pointerCollisions;
+    return closestCenter(args);
+  };
 
   return (
-    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragCancel={() => setActiveDrag(null)}>
+    <DndContext sensors={sensors} collisionDetection={collisionDetection} onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragCancel={() => setActiveDrag(null)}>
       <div style={{ width: "100%", height: "100%", minHeight: 0, display: "flex", background: "var(--ci-surface)" }}>
         {groupIds.map((groupId, index) => (
           <div key={groupId} style={{ flex: 1, minWidth: 0, minHeight: 0, borderRight: index < groupIds.length - 1 ? "1px solid var(--ci-toolbar-border)" : "none", boxShadow: activeGroupId === groupId && groupIds.length > 1 ? "inset 0 0 0 1px var(--ci-accent-bdr)" : "none" }}>

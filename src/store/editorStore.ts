@@ -97,11 +97,14 @@ function pickFallbackTabId(tabIds: string[], removedIndex: number) {
   return tabIds[Math.max(0, removedIndex - 1)] ?? tabIds[removedIndex] ?? tabIds[tabIds.length - 1] ?? null;
 }
 
-function moveIdBefore(ids: string[], activeId: string, overId: string) {
-  const nextIds = ids.filter((id) => id !== activeId);
-  const overIndex = nextIds.indexOf(overId);
-  if (overIndex === -1) return ids;
-  nextIds.splice(overIndex, 0, activeId);
+function moveIdToIndex(ids: string[], activeId: string, overId: string) {
+  const activeIndex = ids.indexOf(activeId);
+  const overIndex = ids.indexOf(overId);
+  if (activeIndex === -1 || overIndex === -1 || activeIndex === overIndex) return ids;
+  const nextIds = [...ids];
+  const [movedId] = nextIds.splice(activeIndex, 1);
+  if (!movedId) return ids;
+  nextIds.splice(overIndex, 0, movedId);
   return nextIds;
 }
 
@@ -353,7 +356,7 @@ export const useEditorStore = create<EditorStore>()((set, get) => ({
     if (activeTabId === overTabId) return {};
     const group = state.groupsById[groupId];
     if (!group || !group.tabIds.includes(activeTabId) || !group.tabIds.includes(overTabId)) return {};
-    const nextTabIds = moveIdBefore(group.tabIds, activeTabId, overTabId);
+    const nextTabIds = moveIdToIndex(group.tabIds, activeTabId, overTabId);
     if (nextTabIds === group.tabIds) return {};
     return {
       groupsById: {
