@@ -232,6 +232,54 @@ pub fn get_git_diff_between(
     }))
 }
 
+pub fn get_git_diff_from_base_worktree(
+    workdir: &str,
+    base: &str,
+) -> Result<Vec<serde_json::Value>, String> {
+    let merge_base = background_command("git")
+        .current_dir(workdir)
+        .args(["merge-base", "HEAD", base])
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    if !merge_base.status.success() {
+        return Err(String::from_utf8_lossy(&merge_base.stderr).trim().to_string());
+    }
+
+    let merge_base_sha = String::from_utf8_lossy(&merge_base.stdout).trim().to_string();
+    if merge_base_sha.is_empty() {
+        return Err("无法解析 merge-base".to_string());
+    }
+
+    let numstat = background_command("git")
+        .current_dir(workdir)
+        .args(["diff", "--numstat", &merge_base_sha])
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    if !numstat.status.success() {
+        return Err(String::from_utf8_lossy(&numstat.stderr).trim().to_string());
+    }
+
+    let stdout = String::from_utf8_lossy(&numstat.stdout);
+    let base_clone = merge_base_sha.clone();
+    Ok(parse_numstat(&stdout, workdir, move |path| {
+        let output = background_command("git")
+            .current_dir(workdir)
+            .args(["diff", &base_clone, "--", path])
+            .output();
+        let Ok(out) = output else {
+            return (vec![], None);
+        };
+        let diff_text = String::from_utf8_lossy(&out.stdout);
+        let hunks = parse_diff_hunks(&diff_text);
+        if !hunks.is_empty() {
+            return (hunks, None);
+        }
+        (vec![], parse_diff_note(&diff_text))
+    }))
+}
+
 // ── Tauri Commands ────────────────────────────────────────────────
 
 #[tauri::command]
@@ -259,6 +307,22 @@ pub async fn get_git_diff_branch(
 ) -> Result<(), String> {
     let expanded = expand_path(&workdir);
     let files = get_git_diff_between(&expanded, &base_branch, &session_branch)?;
+    let _ = app.emit(
+        "diff-update",
+        serde_json::json!({"session_id": session_id, "files": files}),
+    );
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_git_diff_session_worktree(
+    app: tauri::AppHandle,
+    session_id: String,
+    workdir: String,
+    base_branch: String,
+) -> Result<(), String> {
+    let expanded = expand_path(&workdir);
+    let files = get_git_diff_from_base_worktree(&expanded, &base_branch)?;
     let _ = app.emit(
         "diff-update",
         serde_json::json!({"session_id": session_id, "files": files}),

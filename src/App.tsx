@@ -5,13 +5,15 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { setLiquidGlassEffect, GlassMaterialVariant } from "tauri-plugin-liquid-glass-api";
 import { motion, AnimatePresence } from "framer-motion";
 import { TitleBar } from "./components/TitleBar";
+import { StatusBar } from "./components/StatusBar";
 import { WorkspaceStack } from "./components/WorkspaceStack";
 import { SessionList } from "./components/SessionList";
 import { DiffViewer } from "./components/DiffViewer";
-import { StatusBar } from "./components/StatusBar";
 import { SessionDetail } from "./components/SessionDetail";
 import { SplitWidgetPanel } from "./components/SplitWidgetPanel";
-import { SplitDetailHost, SplitSwapProvider } from "./components/SplitSwapLayout";
+import { SplitSwapProvider } from "./components/SplitSwapLayout";
+import { WorkbenchSidebar } from "./workbench/WorkbenchSidebar";
+import { WorkbenchCenter } from "./workbench/WorkbenchCenter";
 import Settings from "./components/Settings";
 import { useSessionStore, DiffFile, type ClaudeSession } from "./store/sessionStore";
 import {
@@ -20,6 +22,8 @@ import {
   type ThemeMode,
 } from "./store/settingsStore";
 import { useWorkspaceStore } from "./store/workspaceStore";
+import { useWorkbenchStore } from "./store/workbenchStore";
+import { useScmStore } from "./store/scmStore";
 
 const spring = { type: "spring" as const, stiffness: 320, damping: 28, mass: 1 };
 
@@ -34,11 +38,17 @@ export default function App() {
     setActiveSession,
     setExpandedSession,
   } = useSessionStore();
+  const setScmSnapshot = useScmStore((s) => s.setSnapshot);
+  const setScmStatus = useScmStore((s) => s.setStatus);
+  const setScmDiffOverride = useScmStore((s) => s.setDiffOverride);
 
   const { settings, patchSettings } = useSettingsStore();
   const settingsOpen = useSettingsStore((s) => s.settingsOpen);
   const closeSettings = useSettingsStore((s) => s.closeSettings);
   const { activeWorkspaceId } = useWorkspaceStore();
+  const sidebarSection = useWorkbenchStore((s) => s.sidebarSection);
+  const focusSession = useWorkbenchStore((s) => s.focusSession);
+  const focusedSessionId = useWorkbenchStore((s) => s.focusedSessionId);
   const isGlass = isGlassTheme(settings.theme);
   const isOriginalLayout = settings.layoutMode === "original";
   const overlaySessionOpen = isOriginalLayout && expandedSessionId !== null;
@@ -330,7 +340,9 @@ export default function App() {
       const wsSessions = useSessionStore.getState().sessions.filter(
         (s) => s.workspaceId === activeWorkspaceId
       );
-      setActiveSession(wsSessions[0]?.id ?? null);
+      const fallbackId = wsSessions[0]?.id ?? null;
+      setActiveSession(fallbackId);
+      focusSession(fallbackId);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeWorkspaceId]);
@@ -339,10 +351,14 @@ export default function App() {
   const activeSession = sessions.find(
     (s) => s.id === activeSessionId && s.workspaceId === activeWorkspaceId
   );
+  const activeScmFiles = useScmStore((s) => activeSession ? (s.snapshotBySessionId[activeSession.id]?.files ?? activeSession.diffFiles) : []);
   const expandedSession = sessions.find((s) => s.id === expandedSessionId) ?? null;
   const visibleSplitSessionId = expandedSession?.workspaceId === activeWorkspaceId
     ? expandedSession.id
     : null;
+  const workbenchSession = sessions.find(
+    (s) => s.id === focusedSessionId && s.workspaceId === activeWorkspaceId
+  ) ?? activeSession ?? null;
 
   const refreshSessionDiff = useCallback((sessionId?: string | null) => {
     if (!("__TAURI_INTERNALS__" in window)) return;
@@ -353,21 +369,27 @@ export default function App() {
     const session = useSessionStore.getState().sessions.find((s) => s.id === targetId);
     if (!session) return;
 
-    if (session.branchName && session.baseBranch) {
-      // 有 session 分支：对比 base...session 分支的变更（天然准确）
-      invoke("get_git_diff_branch", {
+    invoke("get_git_status", {
+      sessionId: session.id,
+      workdir: session.workdir,
+    }).catch(() => {});
+
+    // 工作台主变更视图：
+    // 如果有 base branch，则看 merge-base(base, HEAD) 到当前 worktree 的总变化，
+    // 这样 session 中已 commit + 未 commit 的修改都能显示出来。
+    if (session.baseBranch) {
+      invoke("get_git_diff_session_worktree", {
         sessionId: session.id,
         workdir: session.workdir,
         baseBranch: session.baseBranch,
-        sessionBranch: session.branchName,
       }).catch(() => {});
-    } else {
-      // 无分支（非 git 目录或 git 操作失败）：降级为对比 HEAD
-      invoke("get_git_diff", {
-        sessionId: session.id,
-        workdir: session.workdir,
-      }).catch(() => {});
+      return;
     }
+
+    invoke("get_git_diff", {
+      sessionId: session.id,
+      workdir: session.workdir,
+    }).catch(() => {});
   }, []);
 
 
@@ -379,12 +401,16 @@ export default function App() {
         closeSettings();
         return;
       }
+      if (!isOriginalLayout && sidebarSection !== "sessions") {
+        useWorkbenchStore.getState().resetWorkbenchMode();
+        return;
+      }
       if (isOriginalLayout && expandedSessionId !== null) return;
       invoke("close_popup").catch(() => {});
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [settingsOpen, closeSettings, isOriginalLayout, expandedSessionId]);
+  }, [settingsOpen, closeSettings, isOriginalLayout, expandedSessionId, sidebarSection]);
 
   // ── 浮窗位置 / 大小记忆：用户拖动/调整后防抖 500ms 写盘 ──
   // 注意：只在基础状态（非展开）下保存，展开状态是临时的，不应覆盖记忆。
@@ -462,7 +488,9 @@ export default function App() {
           : (aid ?? ss[ss.length - 1]?.id ?? null);
       if (target) {
         requestAnimationFrame(() => {
+          setActiveSession(target);
           setExpandedSession(target);
+          focusSession(target);
           refreshSessionDiff(target);
         });
       }
@@ -570,7 +598,26 @@ export default function App() {
     // git diff 更新
     const u5 = listen<{ session_id: string; files: DiffFile[] }>(
       "diff-update",
-      ({ payload }) => setDiffFiles(payload.session_id, payload.files)
+      ({ payload }) => {
+        setDiffFiles(payload.session_id, payload.files);
+        setScmSnapshot(payload.session_id, payload.files);
+      }
+    );
+
+    const u5b = listen<{ session_id: string; groups: import("./store/scmStore").ScmStatusGroups }>(
+      "scm-status-update",
+      ({ payload }) => {
+        setScmStatus(payload.session_id, payload.groups);
+      }
+    );
+
+    const u5c = listen<{ session_id: string; mode: string; file: DiffFile }>(
+      "scm-diff-side-update",
+      ({ payload }) => {
+        if (payload.mode === "staged" || payload.mode === "unstaged") {
+          setScmDiffOverride(payload.session_id, payload.file);
+        }
+      }
     );
 
     // PTY 退出：将 running/waiting/suspended 状态的 session 标记为 done
@@ -616,9 +663,9 @@ export default function App() {
     );
 
     return () => {
-      [u1, u2, u3, u4, u5, u6, u7].forEach((p) => p.then((f) => f()));
+      [u1, u2, u3, u4, u5, u5b, u5c, u6, u7].forEach((p) => p.then((f) => f()));
     };
-  }, [appendOutput, updateSession, setDiffFiles, refreshSessionDiff]);
+  }, [appendOutput, updateSession, setDiffFiles, setScmSnapshot, setScmStatus, setScmDiffOverride, refreshSessionDiff]);
 
   // ── 会话切换时主动拉一次 Diff（覆盖非 running / 外部改动场景）──
   useEffect(() => {
@@ -626,7 +673,13 @@ export default function App() {
     refreshSessionDiff(activeSession.id);
   }, [activeSession?.id, refreshSessionDiff]);
 
-  const hasDiff = (activeSession?.diffFiles.length ?? 0) > 0;
+  useEffect(() => {
+    if (sidebarSection === "sessions") return;
+    if (workbenchSession) return;
+    useWorkbenchStore.getState().resetWorkbenchMode();
+  }, [sidebarSection, workbenchSession]);
+
+  const hasDiff = activeScmFiles.length > 0;
   const splitSidebarWidth = settings.splitPaneSidebarWidth;
   const splitWidgetPanelWidth = settings.splitWidgetPanelWidth;
   const splitWidgetPanelCollapsed = settings.splitWidgetPanelCollapsed;
@@ -677,96 +730,91 @@ export default function App() {
   }, [patchSettings, splitWidgetPanelWidth]);
 
   const menuContent = (
-    <>
-      <TitleBar />
-      <div style={{
-        flex: 1,
-        overflowY: "auto",
-        overflowX: "hidden",
-        position: "relative",
-        scrollbarWidth: "none",
-        zIndex: 1,
-      }}>
-        <div style={{ padding: "6px 18px 0" }}>
-          <WorkspaceStack />
-        </div>
-
-        <div style={{ padding: "0 18px 12px" }}>
-          <SessionList />
-        </div>
-
-        <AnimatePresence>
-          {hasDiff && (
-            <motion.div
-              key="diff"
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
-              exit={{ opacity: 0, height: 0 }}
-              transition={{ duration: 0.2 }}
-              style={{
-                margin: "0 18px 16px",
-                overflow: "hidden",
-                background: "transparent",
-              }}
-            >
-              <div style={{
-                display: "flex", alignItems: "center", gap: 8,
-                padding: "8px 0 6px",
-                borderTop: "1px solid var(--ci-toolbar-border)",
-              }}>
-                <span style={{
-                  fontSize: 10, fontWeight: 600,
-                  letterSpacing: "0.07em", textTransform: "uppercase",
-                  color: "var(--ci-text-dim)",
-                }}>
-                  变更
-                </span>
-                <span style={{
-                  fontSize: 9.5, padding: "1px 6px", borderRadius: 999,
-                  background: "var(--ci-green-bg)",
-                  border: "1px solid var(--ci-green-bdr)",
-                  color: "var(--ci-green-dark)",
-                  fontWeight: 600,
-                }}>
-                  +{activeSession!.diffFiles.reduce((s, f) => s + f.additions, 0)}
-                </span>
-                <span style={{
-                  fontSize: 9.5, padding: "1px 6px", borderRadius: 999,
-                  background: "var(--ci-deleted-bg)",
-                  border: "1px solid var(--ci-border-med)",
-                  color: "var(--ci-deleted-text)",
-                  fontWeight: 600,
-                }}>
-                  −{activeSession!.diffFiles.reduce((s, f) => s + f.deletions, 0)}
-                </span>
-                <div style={{ flex: 1, height: 1, background: "var(--ci-border)" }} />
-              </div>
-              <div style={{
-                border: "1px solid var(--ci-toolbar-border)",
-                borderRadius: 14,
-                overflow: "hidden",
-                background: "var(--ci-surface)",
-              }}>
-                <DiffViewer files={activeSession!.diffFiles} />
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        <div style={{
-          position: "sticky",
-          bottom: 0,
-          left: 0,
-          right: 0,
-          height: 28,
-          background: "linear-gradient(to bottom, transparent, var(--ci-bg-grad))",
-          pointerEvents: "none",
-          flexShrink: 0,
-        }} />
+    <div style={{
+      flex: 1,
+      overflowY: "auto",
+      overflowX: "hidden",
+      position: "relative",
+      scrollbarWidth: "none",
+      zIndex: 1,
+    }}>
+      <div style={{ padding: "6px 18px 0" }}>
+        <WorkspaceStack />
       </div>
 
-      <StatusBar session={activeSession} />
-    </>
+      <div style={{ padding: "0 18px 12px" }}>
+        <SessionList />
+      </div>
+
+      <AnimatePresence>
+        {hasDiff && (
+          <motion.div
+            key="diff"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.2 }}
+            style={{
+              margin: "0 18px 16px",
+              overflow: "hidden",
+              background: "transparent",
+            }}
+          >
+            <div style={{
+              display: "flex", alignItems: "center", gap: 8,
+              padding: "8px 0 6px",
+              borderTop: "1px solid var(--ci-toolbar-border)",
+            }}>
+              <span style={{
+                fontSize: 10, fontWeight: 600,
+                letterSpacing: "0.07em", textTransform: "uppercase",
+                color: "var(--ci-text-dim)",
+              }}>
+                变更
+              </span>
+              <span style={{
+                fontSize: 9.5, padding: "1px 6px", borderRadius: 999,
+                background: "var(--ci-green-bg)",
+                border: "1px solid var(--ci-green-bdr)",
+                color: "var(--ci-green-dark)",
+                fontWeight: 600,
+              }}>
+                +{activeScmFiles.reduce((s, f) => s + f.additions, 0)}
+              </span>
+              <span style={{
+                fontSize: 9.5, padding: "1px 6px", borderRadius: 999,
+                background: "var(--ci-deleted-bg)",
+                border: "1px solid var(--ci-border-med)",
+                color: "var(--ci-deleted-text)",
+                fontWeight: 600,
+              }}>
+                −{activeScmFiles.reduce((s, f) => s + f.deletions, 0)}
+              </span>
+              <div style={{ flex: 1, height: 1, background: "var(--ci-border)" }} />
+            </div>
+            <div style={{
+              border: "1px solid var(--ci-toolbar-border)",
+              borderRadius: 14,
+              overflow: "hidden",
+              background: "var(--ci-surface)",
+            }}>
+              <DiffViewer files={activeScmFiles} />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div style={{
+        position: "sticky",
+        bottom: 0,
+        left: 0,
+        right: 0,
+        height: 28,
+        background: "linear-gradient(to bottom, transparent, var(--ci-bg-grad))",
+        pointerEvents: "none",
+        flexShrink: 0,
+      }} />
+    </div>
   );
 
   return (
@@ -806,7 +854,13 @@ export default function App() {
             <Settings />
 
             {isOriginalLayout ? (
-              !isSubPageOpen && menuContent
+              !isSubPageOpen && (
+                <>
+                  <TitleBar />
+                  {menuContent}
+                  <StatusBar session={activeSession} />
+                </>
+              )
             ) : (
               <SplitSwapProvider
                 sessionDetailEmptyState={
@@ -844,7 +898,11 @@ export default function App() {
                     minHeight: 0,
                     background: isGlass ? "var(--ci-toolbar-bg)" : "transparent",
                   }}>
-                    {menuContent}
+                    <WorkbenchSidebar
+                      session={workbenchSession}
+                      menuContent={menuContent}
+                      onRefreshDiff={refreshSessionDiff}
+                    />
                   </div>
 
                   <div
@@ -872,7 +930,9 @@ export default function App() {
                   </div>
 
                   <div style={{ flex: 1, minWidth: 0, minHeight: 0, position: "relative", display: "flex", borderLeft: "1px solid var(--ci-toolbar-border)" }}>
-                    <SplitDetailHost />
+                    <div style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
+                      <WorkbenchCenter session={workbenchSession} onRefreshDiff={refreshSessionDiff} />
+                    </div>
                   </div>
 
                   {!splitWidgetPanelCollapsed && (

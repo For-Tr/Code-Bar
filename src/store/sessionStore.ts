@@ -544,7 +544,7 @@ export const useSessionStore = create<SessionStore>()(
         );
         state.worktreeReadyIds = readyIds;
 
-        // 修复每个 workspace 的 session 顺序：补齐遗漏、去掉无效项
+        // 修复每个 workspace 的 session顺序：补齐遗漏、去掉无效项
         const byWorkspace = state.sessions.reduce<Record<string, string[]>>((acc, s) => {
           acc[s.workspaceId] = [...(acc[s.workspaceId] ?? []), s.id];
           return acc;
