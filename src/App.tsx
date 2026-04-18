@@ -732,6 +732,7 @@ export default function App() {
   const menuContent = (
     <div style={{
       flex: 1,
+      minHeight: 0,
       overflowY: "auto",
       overflowX: "hidden",
       position: "relative",
