@@ -53,10 +53,10 @@ export function EditorGroupPane({
           setActiveGroup(session.id, groupId);
         }
       }}
-      style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column", position: "relative" }}
+      style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column", position: "relative", overflow: "hidden" }}
     >
       <EditorTabs session={session} groupId={groupId} />
-      <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
+      <div style={{ flex: 1, minHeight: 0, position: "relative", display: "flex", overflow: "hidden" }}>
         <EditorHost session={session} groupId={groupId} onRefreshDiff={onRefreshDiff} />
         {showSplitTargets && (
           <>

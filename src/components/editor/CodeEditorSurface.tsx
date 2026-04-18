@@ -72,7 +72,7 @@ export function CodeEditorSurface({
   }, [themeMode]);
 
   return (
-    <div style={{ flex: 1, minHeight: 0, background: "var(--ci-code-bg)" }}>
+    <div style={{ flex: 1, minHeight: 0, background: "var(--ci-code-bg)", overflow: "hidden" }}>
       <CodeMirror
         value={value}
         height="100%"

@@ -147,7 +147,7 @@ export function EditorHost({
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0, overflow: "hidden" }}>
       <div style={{
         display: "flex",
         alignItems: "center",

@@ -62,6 +62,7 @@ export function DiffEditorSurface({
           files={[file]}
           fileMode={fileMode}
           busy={busy}
+          contentMaxHeight="none"
           onStageHunk={fileMode === "unstaged" ? (path, hunkIndex) => void applyScmHunk(sessionId, path, "unstaged", hunkIndex, "stage") : undefined}
           onDiscardHunk={fileMode === "unstaged" ? (path, hunkIndex) => void applyScmHunk(sessionId, path, "unstaged", hunkIndex, "discard") : undefined}
           onUnstageHunk={fileMode === "staged" ? (path, hunkIndex) => void applyScmHunk(sessionId, path, "staged", hunkIndex, "unstage") : undefined}
