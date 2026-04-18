@@ -17,6 +17,7 @@ const CARD_H = 38;
 const CARD_PEEK = 5;
 const CARD_OFFSET_X = 3;
 const FADE = { duration: 0.12 };
+const EMPTY_SESSIONS: ClaudeSession[] = [];
 
 // ── 新建 Workspace 内联表单 ───────────────────────────────────
 function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
@@ -222,7 +223,7 @@ function WorkspaceCardExpanded({
   const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
   const textShadow = isGlass ? "var(--ci-glass-text-shadow)" : "none";
   const color = getWorkspaceColor(ws.color);
-  const sessions = useSessionStore((s) => (Array.isArray(s.sessions) ? s.sessions : []));
+  const sessions = useSessionStore((s) => (Array.isArray(s.sessions) ? s.sessions : EMPTY_SESSIONS));
   const { sessionCount, waitingCount, runningCount } = useMemo(() => {
     return sessions.reduce(
       (counts, sess) => {

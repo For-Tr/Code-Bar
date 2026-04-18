@@ -26,6 +26,7 @@ import { useWorkbenchStore } from "./store/workbenchStore";
 import { useScmStore } from "./store/scmStore";
 
 const spring = { type: "spring" as const, stiffness: 320, damping: 28, mass: 1 };
+const EMPTY_DIFF_FILES: DiffFile[] = [];
 
 export default function App() {
   const {
@@ -351,7 +352,7 @@ export default function App() {
   const activeSession = sessions.find(
     (s) => s.id === activeSessionId && s.workspaceId === activeWorkspaceId
   );
-  const activeScmFiles = useScmStore((s) => activeSession ? (s.snapshotBySessionId[activeSession.id]?.files ?? activeSession.diffFiles) : []);
+  const activeScmFiles = useScmStore((s) => activeSession ? (s.snapshotBySessionId[activeSession.id]?.files ?? activeSession.diffFiles) : EMPTY_DIFF_FILES);
   const expandedSession = sessions.find((s) => s.id === expandedSessionId) ?? null;
   const visibleSplitSessionId = expandedSession?.workspaceId === activeWorkspaceId
     ? expandedSession.id
@@ -732,6 +733,7 @@ export default function App() {
   const menuContent = (
     <div style={{
       flex: 1,
+      minHeight: 0,
       overflowY: "auto",
       overflowX: "hidden",
       position: "relative",

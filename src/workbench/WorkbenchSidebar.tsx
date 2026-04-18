@@ -94,7 +94,7 @@ export function WorkbenchSidebar({
               </div>
             </div>
           )}
-          <div style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
+          <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
             {sidebarSection === "explorer"
               ? <ExploreSidebar session={session} onRefreshDiff={onRefreshDiff} />
               : sidebarSection === "scm"
