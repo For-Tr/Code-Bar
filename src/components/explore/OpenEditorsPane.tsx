@@ -1,19 +1,24 @@
 import { FileCode2, GitCommitHorizontal, X } from "lucide-react";
 import { closeTab } from "../../services/editorCommands";
 import { useEditorBufferStore } from "../../store/editorBufferStore";
-import { useEditorStore } from "../../store/editorStore";
+import { findEditorGroupIdByTabId, getSessionEditorTabIds, useEditorStore } from "../../store/editorStore";
 import { type ClaudeSession } from "../../store/sessionStore";
 import { WorkbenchTooltip } from "../ui/WorkbenchTooltip";
 
 export function OpenEditorsPane({ session }: { session: ClaudeSession }) {
-  const activeTabId = useEditorStore((s) => s.activeTabId);
   const tabsById = useEditorStore((s) => s.tabsById);
-  const tabOrder = useEditorStore((s) => s.tabOrder);
+  const groupsById = useEditorStore((s) => s.groupsById);
+  const groupOrderBySessionId = useEditorStore((s) => s.groupOrderBySessionId);
+  const activeGroupIdBySessionId = useEditorStore((s) => s.activeGroupIdBySessionId);
   const setActiveTab = useEditorStore((s) => s.setActiveTab);
+  const setActiveGroup = useEditorStore((s) => s.setActiveGroup);
   const buffersByTabId = useEditorBufferStore((s) => s.buffersByTabId);
 
-  const tabIds = tabOrder.filter((tabId) => tabsById[tabId]?.sessionId === session.id);
+  const tabIds = getSessionEditorTabIds(groupsById, groupOrderBySessionId, session.id).filter((tabId) => tabsById[tabId]);
   if (tabIds.length === 0) return null;
+
+  const activeGroupId = activeGroupIdBySessionId[session.id] ?? null;
+  const activeTabId = activeGroupId ? groupsById[activeGroupId]?.activeTabId ?? null : null;
 
   return (
     <div style={{ padding: "6px 0 8px", borderBottom: "1px solid var(--ci-toolbar-border)" }}>
@@ -25,6 +30,7 @@ export function OpenEditorsPane({ session }: { session: ClaudeSession }) {
         if (!tab) return null;
         const isActive = activeTabId === tabId;
         const dirty = buffersByTabId[tabId]?.dirty === true;
+        const groupId = findEditorGroupIdByTabId(groupsById, tabId);
         return (
           <div
             key={tabId}
@@ -40,7 +46,12 @@ export function OpenEditorsPane({ session }: { session: ClaudeSession }) {
             }}
           >
             <button
-              onClick={() => setActiveTab(tabId)}
+              onClick={() => {
+                if (groupId) {
+                  setActiveGroup(session.id, groupId);
+                  setActiveTab(groupId, tabId);
+                }
+              }}
               style={{
                 flex: 1,
                 minWidth: 0,
