@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect } from "react";
 import { loadFile, saveTab } from "../../services/editorCommands";
 import { useEditorBufferStore, type EditorBufferState } from "../../store/editorBufferStore";
 import { useEditorStore } from "../../store/editorStore";
@@ -45,26 +45,25 @@ function DeletedEditorState({ path }: { path: string }) {
 
 export function EditorHost({
   session,
+  groupId,
   onRefreshDiff,
 }: {
   session: ClaudeSession | null;
+  groupId: string;
   onRefreshDiff: (sessionId?: string | null) => void;
 }) {
-  const activeTabId = useEditorStore((s) => s.activeTabId);
+  const group = useEditorStore((s) => s.groupsById[groupId]);
   const tabsById = useEditorStore((s) => s.tabsById);
-  const tabOrder = useEditorStore((s) => s.tabOrder);
   const setActiveTab = useEditorStore((s) => s.setActiveTab);
+  const activeGroupIdBySessionId = useEditorStore((s) => s.activeGroupIdBySessionId);
   const buffersByTabId = useEditorBufferStore((s) => s.buffersByTabId);
   const updateDraft = useEditorBufferStore((s) => s.updateDraft);
   const setSelectedPath = useExplorerStore((s) => s.setSelectedPath);
 
-  const sessionTabIds = useMemo(() => {
-    if (!session) return [] as string[];
-    return tabOrder.filter((tabId) => tabsById[tabId]?.sessionId === session.id);
-  }, [session, tabOrder, tabsById]);
-  const resolvedActiveTabId = sessionTabIds.includes(activeTabId ?? "")
-    ? activeTabId
-    : (sessionTabIds[sessionTabIds.length - 1] ?? null);
+  const tabIds = group?.tabIds ?? [];
+  const resolvedActiveTabId = group?.activeTabId && tabIds.includes(group.activeTabId)
+    ? group.activeTabId
+    : (tabIds[tabIds.length - 1] ?? null);
   const activeTab = resolvedActiveTabId ? tabsById[resolvedActiveTabId] ?? null : null;
   const activeBuffer: EditorBufferState | null = resolvedActiveTabId ? (buffersByTabId[resolvedActiveTabId] ?? null) : null;
   const scmFiles = useScmStore((s) => session ? (s.snapshotBySessionId[session.id]?.files ?? session.diffFiles) : []);
@@ -73,29 +72,32 @@ export function EditorHost({
   const activeFile = diffOverride?.path === activeTab?.path
     ? diffOverride
     : scmFiles.find((file) => file.path === activeTab?.path) ?? null;
+  const isFocusedGroup = session ? activeGroupIdBySessionId[session.id] === groupId : false;
 
   useEffect(() => {
-    if (resolvedActiveTabId && resolvedActiveTabId !== activeTabId) {
-      setActiveTab(resolvedActiveTabId);
+    if (resolvedActiveTabId && group && resolvedActiveTabId !== group.activeTabId) {
+      setActiveTab(group.id, resolvedActiveTabId);
     }
-  }, [activeTabId, resolvedActiveTabId, setActiveTab]);
+  }, [group, resolvedActiveTabId, setActiveTab]);
 
   useEffect(() => {
-    if (!activeTab || !session) return;
+    if (!activeTab || !session || !group) return;
     if (activeTab.sessionId !== session.id) return;
-    setSelectedPath(session.id, activeTab.path);
+    if (isFocusedGroup) {
+      setSelectedPath(session.id, activeTab.path);
+    }
     if (activeTab.viewMode !== "code") return;
     const fileMeta = scmFiles.find((file) => file.path === activeTab.path) ?? null;
     if (fileMeta?.type === "deleted") return;
     if (activeBuffer?.loaded || activeBuffer?.loading || activeBuffer?.error) return;
     void loadFile(activeTab.id);
-  }, [activeBuffer?.error, activeBuffer?.loaded, activeBuffer?.loading, activeTab, scmFiles, session, setSelectedPath]);
+  }, [activeBuffer?.error, activeBuffer?.loaded, activeBuffer?.loading, activeTab, group, scmFiles, session, setSelectedPath]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "s") return;
-      if (!activeTab || activeTab.viewMode !== "code") return;
-      if (!session || activeTab.sessionId !== session.id) return;
+      if (!isFocusedGroup || !activeTab || activeTab.viewMode !== "code") return;
+      if (!session || !group || activeTab.sessionId !== session.id) return;
       event.preventDefault();
       if (activeBuffer?.dirty !== true || activeBuffer.saving || activeBuffer.isBinary || activeFile?.type === "deleted") return;
       void saveTab(activeTab.id).then(() => {
@@ -105,9 +107,9 @@ export function EditorHost({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activeBuffer, activeFile?.type, activeTab, onRefreshDiff, session]);
+  }, [activeBuffer, activeFile?.type, activeTab, group, isFocusedGroup, onRefreshDiff, session]);
 
-  if (!session || !activeTab || activeTab.sessionId !== session.id) {
+  if (!session || !group || !activeTab || activeTab.sessionId !== session.id) {
     return <EmptyEditorState message={session ? "从左侧选择一个文件开始查看或编辑。" : "选择一个会话进入工作台。"} />;
   }
 
