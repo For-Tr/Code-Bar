@@ -20,7 +20,7 @@ interface SessionDirectoryListResult {
   entries: ExplorerEntry[];
 }
 
-function collectAncestorDirs(path: string) {
+export function collectAncestorDirs(path: string) {
   const parts = path.split("/").filter(Boolean);
   const dirs: string[] = [];
   for (let index = 0; index < parts.length - 1; index += 1) {
@@ -29,23 +29,32 @@ function collectAncestorDirs(path: string) {
   return dirs;
 }
 
-export function openFile(sessionId: string, path: string, preview = true) {
-  const tabId = useEditorStore.getState().openFile(sessionId, path, preview);
+export type ExplorerSelectMode = false | true | "force" | "focusNoScroll";
+
+export function selectExplorerPath(sessionId: string, path: string, reveal: ExplorerSelectMode = true) {
   const explorerStore = useExplorerStore.getState();
   const currentExpanded = explorerStore.expandedDirsBySession[sessionId] ?? [];
   const ancestors = collectAncestorDirs(path);
-  const missing = ancestors.filter((dir) => !currentExpanded.includes(dir));
-  if (missing.length > 0) {
-    explorerStore.setExpandedDirs(sessionId, [...currentExpanded, ...missing]);
+  const shouldExpandAncestors = reveal === true || reveal === "force" || reveal === "focusNoScroll";
+  if (shouldExpandAncestors) {
+    const missing = ancestors.filter((dir) => !currentExpanded.includes(dir));
+    if (missing.length > 0) {
+      explorerStore.setExpandedDirs(sessionId, [...currentExpanded, ...missing]);
+    }
   }
-  explorerStore.setSelectedPath(sessionId, path);
+  explorerStore.setSelectedPath(sessionId, path, reveal);
+}
+
+export function openFile(sessionId: string, path: string, preview = true, reveal: ExplorerSelectMode = true) {
+  const tabId = useEditorStore.getState().openFile(sessionId, path, preview);
+  selectExplorerPath(sessionId, path, reveal);
   useWorkbenchStore.getState().showExplorer(sessionId);
   return tabId;
 }
 
-export function openDiff(sessionId: string, path: string) {
+export function openDiff(sessionId: string, path: string, reveal: ExplorerSelectMode = true) {
   const tabId = useEditorStore.getState().openDiff(sessionId, path);
-  useExplorerStore.getState().setSelectedPath(sessionId, path);
+  selectExplorerPath(sessionId, path, reveal);
   useWorkbenchStore.getState().showScm(sessionId);
   return tabId;
 }

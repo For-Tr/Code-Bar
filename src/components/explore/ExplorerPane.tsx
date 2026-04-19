@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -13,16 +13,6 @@ import { getExplorerDirectoryError, getExplorerDirectoryLoading, hasExplorerDire
 import { EMPTY_SCM_GROUPS, useScmStore } from "../../store/scmStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { type ClaudeSession } from "../../store/sessionStore";
-import { OpenEditorsPane } from "./OpenEditorsPane";
-
-function collectAncestorDirs(path: string) {
-  const parts = path.split("/").filter(Boolean);
-  const dirs: string[] = [];
-  for (let index = 0; index < parts.length - 1; index += 1) {
-    dirs.push(parts.slice(0, index + 1).join("/"));
-  }
-  return dirs;
-}
 
 function FileStatusGlyph({ kind }: { kind: "added" | "modified" | "deleted" | "renamed" | "untracked" | "conflicted" | null }) {
   const color = kind === "conflicted"
@@ -76,11 +66,15 @@ export function ExplorerPane({
   const scmGroups = useScmStore((s) => s.statusBySessionId[session.id] ?? EMPTY_SCM_GROUPS);
   const explorerStore = useExplorerStore();
   const explorerView = useMemo(() => selectExplorerViewModel(explorerStore, session.id), [explorerStore, session.id]);
-  const { toggleDir, setExpandedDirs, setSelectedPath } = explorerStore;
-  const { expandedDirs, selectedPath, rootLoading, rootError, hasRootSnapshot, visibleRows } = explorerView;
+  const { toggleDir } = explorerStore;
+  const { expandedDirs, selectedPath, selectedRevealMode, rootLoading, rootError, hasRootSnapshot, rowCount, rowIndexByPath, pathByRowIndex, visiblePathSet, visibleRows } = explorerView;
   const touchedPaths = explorerStore.touchedPathsBySession[session.id] ?? [];
   const touchedPathSet = useMemo(() => new Set(touchedPaths), [touchedPaths]);
+  const treeScrollRef = useRef<HTMLDivElement | null>(null);
   const rowActiveBackground = theme === "dark" ? "rgba(255,255,255,0.05)" : "rgba(0,122,255,0.10)";
+  void rowIndexByPath;
+  void pathByRowIndex;
+  void visiblePathSet;
 
   useEffect(() => {
     const explorerState = useExplorerStore.getState();
@@ -112,6 +106,28 @@ export function ExplorerPane({
 
   const workingTreeCount = scmGroups.conflicts.length + scmGroups.staged.length + scmGroups.unstaged.length + scmGroups.untracked.length;
 
+  useEffect(() => {
+    if (!selectedPath) return;
+    if (selectedRevealMode === false || selectedRevealMode === "focusNoScroll") return;
+    if (!visiblePathSet.has(selectedPath)) return;
+    const container = treeScrollRef.current;
+    if (!container) return;
+    const selectedIndex = rowIndexByPath[selectedPath];
+    if (selectedIndex == null) return;
+    const rowElement = container.querySelector<HTMLElement>(`[data-row-index="${selectedIndex}"]`);
+    if (!rowElement) return;
+
+    const rowTop = rowElement.offsetTop;
+    const rowBottom = rowTop + rowElement.offsetHeight;
+    const viewportTop = container.scrollTop;
+    const viewportBottom = viewportTop + container.clientHeight;
+    const fullyVisible = rowTop >= viewportTop && rowBottom <= viewportBottom;
+    if (fullyVisible && selectedRevealMode !== "force") return;
+
+    const nextScrollTop = Math.max(0, rowTop - Math.max(0, container.clientHeight * 0.5 - rowElement.offsetHeight * 0.5));
+    container.scrollTo({ top: nextScrollTop, behavior: "smooth" });
+  }, [selectedPath, selectedRevealMode, rowIndexByPath, visiblePathSet]);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0, background: "var(--ci-toolbar-bg)" }}>
       <div style={{
@@ -139,8 +155,6 @@ export function ExplorerPane({
           </button>
         </div>
       </div>
-
-      <OpenEditorsPane session={session} />
 
       <div style={{ padding: "8px 0 10px", borderBottom: "1px solid var(--ci-toolbar-border)" }}>
         <div style={{ padding: "0 12px 6px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
@@ -176,7 +190,7 @@ export function ExplorerPane({
         Files
       </div>
 
-      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0 0 10px" }}>
+      <div ref={treeScrollRef} style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0 0 10px" }}>
         {rootLoading && !hasRootSnapshot ? (
           <div style={{ padding: "18px 12px", fontSize: 12, color: "var(--ci-text-dim)", lineHeight: 1.7 }}>
             正在载入项目文件…
@@ -185,7 +199,7 @@ export function ExplorerPane({
           <div style={{ padding: "18px 12px", fontSize: 12, color: "var(--ci-deleted-text)", lineHeight: 1.7 }}>
             {rootError}
           </div>
-        ) : visibleRows.length === 0 ? (
+        ) : rowCount === 0 ? (
           <div style={{ padding: "18px 12px", fontSize: 12, color: "var(--ci-text-dim)", lineHeight: 1.7 }}>
             当前目录没有可显示文件。
           </div>
@@ -218,7 +232,7 @@ export function ExplorerPane({
                   <span style={{ width: 12, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--ci-text-dim)", flexShrink: 0 }}>
                     <Folder size={12} strokeWidth={1.8} />
                   </span>
-                  <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 11 }}>{node.name}</span>
+                  <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 11 }} data-row-index={node.index}>{node.name}</span>
                   {node.loading && <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--ci-text-dim)" }}>…</span>}
                 </button>
                 {node.error && (
@@ -238,19 +252,9 @@ export function ExplorerPane({
             <button
               key={node.key}
               onClick={() => {
-                const ancestors = collectAncestorDirs(node.path);
-                if (ancestors.length > 0) {
-                  setExpandedDirs(session.id, [...new Set([...expandedDirs, ...ancestors])]);
-                  ancestors.forEach((dir) => {
-                    if (!useExplorerStore.getState().childrenBySessionPath[`${session.id}:${dir}`]) {
-                      void loadDirectory(session.id, dir);
-                    }
-                  });
-                }
-                setSelectedPath(session.id, node.path);
-                openFile(session.id, node.path, true);
+                openFile(session.id, node.path, true, true);
               }}
-              onDoubleClick={() => openFile(session.id, node.path, false)}
+              onDoubleClick={() => openFile(session.id, node.path, false, true)}
               style={{
                 ...rowBaseStyle,
                 padding: "0 10px",
@@ -268,7 +272,7 @@ export function ExplorerPane({
               <span style={{ width: 12, display: "flex", alignItems: "center", justifyContent: "center", color: isSelected ? "var(--ci-text)" : "var(--ci-text-dim)", flexShrink: 0 }}>
                 <FileCode2 size={11} strokeWidth={1.8} />
               </span>
-              <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 11 }}>{node.name}</span>
+              <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 11 }} data-row-index={node.index}>{node.name}</span>
               {buffer?.dirty && <span style={{ color: "var(--ci-accent)", fontSize: 10, marginLeft: "auto" }}>●</span>}
             </button>
           );

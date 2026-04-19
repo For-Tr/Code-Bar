@@ -1,5 +1,5 @@
-import { useEffect, useMemo } from "react";
-import { loadFile, saveTab } from "../../services/editorCommands";
+import { useEffect, useMemo, useRef } from "react";
+import { loadFile, saveTab, selectExplorerPath } from "../../services/editorCommands";
 import { useEditorBufferStore, type EditorBufferState } from "../../store/editorBufferStore";
 import { useEditorStore } from "../../store/editorStore";
 import { useExplorerStore } from "../../store/explorerStore";
@@ -58,7 +58,7 @@ export function EditorHost({
   const setActiveTab = useEditorStore((s) => s.setActiveTab);
   const buffersByTabId = useEditorBufferStore((s) => s.buffersByTabId);
   const updateDraft = useEditorBufferStore((s) => s.updateDraft);
-  const setSelectedPath = useExplorerStore((s) => s.setSelectedPath);
+  const lastExplorerSelectionKeyRef = useRef<string | null>(null);
 
   const sessionTabIds = useMemo(() => {
     if (!session) return [] as string[];
@@ -85,13 +85,21 @@ export function EditorHost({
   useEffect(() => {
     if (!activeTab || !session) return;
     if (activeTab.sessionId !== session.id) return;
-    setSelectedPath(session.id, activeTab.path);
+    const selectionKey = `${activeTab.sessionId}:${activeTab.viewMode}:${activeTab.path}`;
+    if (lastExplorerSelectionKeyRef.current === selectionKey) return;
+    lastExplorerSelectionKeyRef.current = selectionKey;
+    selectExplorerPath(session.id, activeTab.path, "focusNoScroll");
+  }, [activeTab?.path, activeTab?.sessionId, activeTab?.viewMode, session?.id]);
+
+  useEffect(() => {
+    if (!activeTab || !session) return;
+    if (activeTab.sessionId !== session.id) return;
     if (activeTab.viewMode !== "code") return;
     const fileMeta = scmFiles.find((file) => file.path === activeTab.path) ?? null;
     if (fileMeta?.type === "deleted") return;
     if (activeBuffer?.loaded || activeBuffer?.loading || activeBuffer?.error) return;
     void loadFile(activeTab.id);
-  }, [activeBuffer?.error, activeBuffer?.loaded, activeBuffer?.loading, activeTab, scmFiles, session, setSelectedPath]);
+  }, [activeBuffer?.error, activeBuffer?.loaded, activeBuffer?.loading, activeTab, scmFiles, session]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {

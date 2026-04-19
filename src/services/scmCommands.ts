@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { openDiff } from "./editorCommands";
+import { openDiff, selectExplorerPath } from "./editorCommands";
 import { useEditorStore } from "../store/editorStore";
 import { useExplorerStore } from "../store/explorerStore";
 import { type ScmActionMode, type ScmEntryGroup, useScmStore } from "../store/scmStore";
@@ -24,7 +24,7 @@ function getSession(sessionId: string) {
 
 function openScmFileInEditor(sessionId: string, path: string, preview = true) {
   useEditorStore.getState().openFile(sessionId, path, preview);
-  useExplorerStore.getState().setSelectedPath(sessionId, path);
+  selectExplorerPath(sessionId, path, "focusNoScroll");
   const workbench = useWorkbenchStore.getState();
   workbench.showScm(sessionId);
   workbench.setCenterSurface("editor");
@@ -84,7 +84,7 @@ export function selectScmFile(sessionId: string, group: ScmEntryGroup, path: str
     }).catch(() => {});
   }
 
-  openDiff(sessionId, path);
+  openDiff(sessionId, path, "focusNoScroll");
 }
 
 export async function stageScmFile(sessionId: string, path: string) {

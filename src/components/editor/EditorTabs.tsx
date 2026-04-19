@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from "react";
 import { FileCode2, GitCommitHorizontal, X } from "lucide-react";
-import { closeTab } from "../../services/editorCommands";
+import { closeTab, selectExplorerPath } from "../../services/editorCommands";
 import { useEditorBufferStore } from "../../store/editorBufferStore";
 import { useEditorStore } from "../../store/editorStore";
 import { type ClaudeSession } from "../../store/sessionStore";
@@ -65,7 +65,12 @@ export function EditorTabs({ session }: { session: ClaudeSession | null }) {
             }}
           >
             <button
-              onClick={() => setActiveTab(tabId)}
+              onClick={() => {
+                setActiveTab(tabId);
+                if (session && tab.viewMode === "code") {
+                  selectExplorerPath(session.id, tab.path, "focusNoScroll");
+                }
+              }}
               onDoubleClick={() => pinTab(tabId)}
               style={{
                 flex: 1,

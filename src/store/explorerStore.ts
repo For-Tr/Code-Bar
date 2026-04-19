@@ -30,6 +30,7 @@ export type ExplorerVisibleRow = {
   type: "file";
   id: string;
   key: string;
+  index: number;
   name: string;
   path: string;
   parentPath: string | null;
@@ -39,6 +40,7 @@ export type ExplorerVisibleRow = {
   type: "dir";
   id: string;
   key: string;
+  index: number;
   name: string;
   path: string;
   parentPath: string | null;
@@ -50,15 +52,21 @@ export type ExplorerVisibleRow = {
 export interface ExplorerViewModel {
   expandedDirs: string[];
   selectedPath: string | null;
+  selectedRevealMode: false | true | "force" | "focusNoScroll";
   rootLoading: boolean;
   rootError: string | null;
   hasRootSnapshot: boolean;
+  rowCount: number;
+  rowIndexByPath: Record<string, number>;
+  pathByRowIndex: string[];
+  visiblePathSet: Set<string>;
   visibleRows: ExplorerVisibleRow[];
 }
 
 export interface ExplorerNodeState {
   expandedDirsBySession: Record<string, string[]>;
   selectedPathBySession: Record<string, string | null>;
+  selectModeBySession: Record<string, ExplorerWatcherEvent["eventType"] | false | true | "force" | "focusNoScroll">;
 }
 
 export interface ExplorerDirectoryCache {
@@ -77,7 +85,7 @@ interface ExplorerStore extends ExplorerNodeState, ExplorerDirectoryCache, Explo
 
   setExpandedDirs: (sessionId: string, dirs: string[]) => void;
   toggleDir: (sessionId: string, dir: string) => void;
-  setSelectedPath: (sessionId: string, path: string | null) => void;
+  setSelectedPath: (sessionId: string, path: string | null, reveal?: false | true | "force" | "focusNoScroll") => void;
   setDirectoryLoading: (sessionId: string, dir: string, loading: boolean) => void;
   setDirectoryEntries: (sessionId: string, dir: string, entries: ExplorerEntry[]) => void;
   setDirectoryError: (sessionId: string, dir: string, error: string | null) => void;
@@ -331,6 +339,7 @@ function patchSessionGraphRename(
 
 function buildVisibleRows(state: ExplorerStore, sessionId: string, expandedDirSet: Set<string>): ExplorerVisibleRow[] {
   const rows: ExplorerVisibleRow[] = [];
+  let rowIndex = 0;
   const getLoading = (dir: string) => state.loadingBySessionPath[dirKey(sessionId, dir)] ?? false;
   const getError = (dir: string) => state.errorBySessionPath[dirKey(sessionId, dir)] ?? null;
   const getEntries = (dir: string) => state.childrenBySessionPath[dirKey(sessionId, dir)] ?? EMPTY_ENTRIES;
@@ -348,6 +357,7 @@ function buildVisibleRows(state: ExplorerStore, sessionId: string, expandedDirSe
           type: "dir",
           id: node.id,
           key: `dir:${node.id}`,
+          index: rowIndex++,
           name: node.name,
           path: node.path,
           parentPath: node.parentPath,
@@ -365,6 +375,7 @@ function buildVisibleRows(state: ExplorerStore, sessionId: string, expandedDirSe
         type: "file",
         id: node.id,
         key: `file:${node.id}`,
+        index: rowIndex++,
         name: node.name,
         path: node.path,
         parentPath: node.parentPath,
@@ -394,6 +405,7 @@ export function selectExplorerNodeState(state: ExplorerNodeState, sessionId: str
   return {
     expandedDirs: state.expandedDirsBySession[sessionId] ?? EMPTY_DIRS,
     selectedPath: state.selectedPathBySession[sessionId] ?? null,
+    selectedRevealMode: state.selectModeBySession[sessionId] ?? true,
   };
 }
 
@@ -408,10 +420,18 @@ export function selectExplorerDirectoryCache(state: ExplorerDirectoryCache, sess
 export function selectExplorerViewModel(state: ExplorerStore, sessionId: string): ExplorerViewModel {
   const nodeState = selectExplorerNodeState(state, sessionId);
   const cacheState = selectExplorerDirectoryCache(state, sessionId);
+  const visibleRows = buildVisibleRows(state, sessionId, new Set(nodeState.expandedDirs));
+  const rowIndexByPath = Object.fromEntries(visibleRows.map((row) => [row.path, row.index]));
+  const pathByRowIndex = visibleRows.map((row) => row.path);
+  const visiblePathSet = new Set(pathByRowIndex);
   return {
     ...nodeState,
     ...cacheState,
-    visibleRows: buildVisibleRows(state, sessionId, new Set(nodeState.expandedDirs)),
+    rowCount: visibleRows.length,
+    rowIndexByPath,
+    pathByRowIndex,
+    visiblePathSet,
+    visibleRows,
   };
 }
 
@@ -568,6 +588,7 @@ function patchRename(
 export const useExplorerStore = create<ExplorerStore>()((set, get) => ({
   expandedDirsBySession: {},
   selectedPathBySession: {},
+  selectModeBySession: {},
   childrenBySessionPath: {},
   loadingBySessionPath: {},
   errorBySessionPath: {},
@@ -611,15 +632,19 @@ export const useExplorerStore = create<ExplorerStore>()((set, get) => ({
       };
     }),
 
-  setSelectedPath: (sessionId, path) =>
+  setSelectedPath: (sessionId, path, reveal = true) =>
     set((state) => {
-      if ((state.selectedPathBySession[sessionId] ?? null) === path) {
+      if ((state.selectedPathBySession[sessionId] ?? null) === path && (state.selectModeBySession[sessionId] ?? true) === reveal) {
         return {};
       }
       return {
         selectedPathBySession: {
           ...state.selectedPathBySession,
           [sessionId]: path,
+        },
+        selectModeBySession: {
+          ...state.selectModeBySession,
+          [sessionId]: reveal,
         },
       };
     }),
