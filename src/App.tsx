@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { filterVisibleExplorerDirectories, reloadExplorerDirectories, reloadVisibleDirectories } from "./services/editorCommands";
 import { setLiquidGlassEffect, GlassMaterialVariant } from "tauri-plugin-liquid-glass-api";
 import { motion, AnimatePresence } from "framer-motion";
 import { TitleBar } from "./components/TitleBar";
@@ -24,9 +25,19 @@ import {
 import { useWorkspaceStore } from "./store/workspaceStore";
 import { useWorkbenchStore } from "./store/workbenchStore";
 import { useScmStore } from "./store/scmStore";
+import { useExplorerStore, type ExplorerEntry } from "./store/explorerStore";
 
 const spring = { type: "spring" as const, stiffness: 320, damping: 28, mass: 1 };
 const EMPTY_DIFF_FILES: DiffFile[] = [];
+const MAX_FRONTEND_ERROR_LOGS = 50;
+
+interface FrontendErrorLog {
+  id: number;
+  source: "window.error" | "unhandledrejection" | "console.error" | "explore-boundary";
+  message: string;
+  stack?: string | null;
+  detail?: string | null;
+}
 
 export default function App() {
   const {
@@ -54,6 +65,76 @@ export default function App() {
   const isOriginalLayout = settings.layoutMode === "original";
   const overlaySessionOpen = isOriginalLayout && expandedSessionId !== null;
   const isSubPageOpen = settingsOpen || overlaySessionOpen;
+  const refreshInFlightRef = useRef<Record<string, Promise<void> | null>>({});
+  const refreshQueuedRef = useRef<Record<string, boolean>>({});
+  const refreshQueuedOptionsRef = useRef<Record<string, { reloadExplorer?: boolean; reloadDirs?: string[] } | undefined>>({});
+  const startedWatcherSessionsRef = useRef<Set<string>>(new Set());
+  const watchedWorkdirBySessionRef = useRef<Record<string, string>>({});
+  const [frontendErrorLogs, setFrontendErrorLogs] = useState<FrontendErrorLog[]>([]);
+  const frontendErrorIdRef = useRef(1);
+
+  const pushFrontendErrorLog = useCallback((log: Omit<FrontendErrorLog, "id">) => {
+    setFrontendErrorLogs((current) => {
+      const next = [{ id: frontendErrorIdRef.current++, ...log }, ...current];
+      return next.slice(0, MAX_FRONTEND_ERROR_LOGS);
+    });
+  }, []);
+
+  useEffect(() => {
+    const originalConsoleError = console.error;
+    console.error = (...args: unknown[]) => {
+      pushFrontendErrorLog({
+        source: "console.error",
+        message: args.map((value) => {
+          if (value instanceof Error) return value.message;
+          return typeof value === "string" ? value : JSON.stringify(value, null, 2);
+        }).join(" "),
+        stack: args.find((value) => value instanceof Error) instanceof Error ? (args.find((value) => value instanceof Error) as Error).stack ?? null : null,
+        detail: null,
+      });
+      originalConsoleError(...args);
+    };
+
+    const handleWindowError = (event: ErrorEvent) => {
+      pushFrontendErrorLog({
+        source: "window.error",
+        message: event.message,
+        stack: event.error instanceof Error ? event.error.stack ?? null : null,
+        detail: `${event.filename}:${event.lineno}:${event.colno}`,
+      });
+    };
+
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      const reason = event.reason;
+      pushFrontendErrorLog({
+        source: "unhandledrejection",
+        message: reason instanceof Error ? reason.message : String(reason),
+        stack: reason instanceof Error ? reason.stack ?? null : null,
+        detail: null,
+      });
+    };
+
+    const handleExploreBoundary = (nativeEvent: Event) => {
+      const customEvent = nativeEvent as CustomEvent<{ message: string; stack?: string | null }>;
+      pushFrontendErrorLog({
+        source: "explore-boundary",
+        message: customEvent.detail?.message ?? "Unknown explore error",
+        stack: customEvent.detail?.stack ?? null,
+        detail: null,
+      });
+    };
+
+    window.addEventListener("error", handleWindowError);
+    window.addEventListener("unhandledrejection", handleUnhandledRejection);
+    window.addEventListener("explore-boundary-error", handleExploreBoundary as EventListener);
+
+    return () => {
+      console.error = originalConsoleError;
+      window.removeEventListener("error", handleWindowError);
+      window.removeEventListener("unhandledrejection", handleUnhandledRejection);
+      window.removeEventListener("explore-boundary-error", handleExploreBoundary as EventListener);
+    };
+  }, [pushFrontendErrorLog]);
 
   // ── 主题注入：根据 settings.theme 向 :root 写入 CSS 变量 ──────
   useEffect(() => {
@@ -361,38 +442,100 @@ export default function App() {
     (s) => s.id === focusedSessionId && s.workspaceId === activeWorkspaceId
   ) ?? activeSession ?? null;
 
-  const refreshSessionDiff = useCallback((sessionId?: string | null) => {
+  const refreshSessionDiff = useCallback((sessionId?: string | null, options?: { reloadExplorer?: boolean; reloadDirs?: string[] }) => {
     if (!("__TAURI_INTERNALS__" in window)) return;
 
     const targetId = sessionId ?? useSessionStore.getState().activeSessionId;
     if (!targetId) return;
 
-    const session = useSessionStore.getState().sessions.find((s) => s.id === targetId);
-    if (!session) return;
-
-    invoke("get_git_status", {
-      sessionId: session.id,
-      workdir: session.workdir,
-    }).catch(() => {});
-
-    // 工作台主变更视图：
-    // 如果有 base branch，则看 merge-base(base, HEAD) 到当前 worktree 的总变化，
-    // 这样 session 中已 commit + 未 commit 的修改都能显示出来。
-    if (session.baseBranch) {
-      invoke("get_git_diff_session_worktree", {
-        sessionId: session.id,
-        workdir: session.workdir,
-        baseBranch: session.baseBranch,
-      }).catch(() => {});
+    if (refreshInFlightRef.current[targetId]) {
+      refreshQueuedRef.current[targetId] = true;
+      const previousOptions = refreshQueuedOptionsRef.current[targetId];
+      refreshQueuedOptionsRef.current[targetId] = {
+        reloadExplorer: previousOptions?.reloadExplorer || options?.reloadExplorer,
+        reloadDirs: [...new Set([...(previousOptions?.reloadDirs ?? []), ...(options?.reloadDirs ?? [])])],
+      };
       return;
     }
 
-    invoke("get_git_diff", {
-      sessionId: session.id,
-      workdir: session.workdir,
-    }).catch(() => {});
+    const runRefresh = async () => {
+      const session = useSessionStore.getState().sessions.find((s) => s.id === targetId);
+      if (!session) return;
+
+      await Promise.all([
+        invoke("get_git_status", {
+          sessionId: session.id,
+          workdir: session.workdir,
+        }),
+        session.baseBranch
+          ? invoke("get_git_diff_session_worktree", {
+              sessionId: session.id,
+              workdir: session.workdir,
+              baseBranch: session.baseBranch,
+            })
+          : invoke("get_git_diff", {
+              sessionId: session.id,
+              workdir: session.workdir,
+            }),
+      ]).catch(() => {});
+
+      if (options?.reloadDirs && options.reloadDirs.length > 0) {
+        await reloadExplorerDirectories(session.id, options.reloadDirs).catch(() => {});
+      } else if (options?.reloadExplorer) {
+        await reloadVisibleDirectories(session.id).catch(() => {});
+      }
+    };
+
+    const task = runRefresh().finally(() => {
+      refreshInFlightRef.current[targetId] = null;
+      if (refreshQueuedRef.current[targetId]) {
+        refreshQueuedRef.current[targetId] = false;
+        const queuedOptions = refreshQueuedOptionsRef.current[targetId];
+        delete refreshQueuedOptionsRef.current[targetId];
+        refreshSessionDiff(targetId, queuedOptions ?? options);
+      }
+    });
+
+    refreshInFlightRef.current[targetId] = task;
   }, []);
 
+
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+
+    const visibleSessions = [activeSession, workbenchSession].filter((session): session is ClaudeSession => !!session);
+    const nextWatchMap = new Map(visibleSessions.map((session) => [session.id, session.workdir]));
+
+    nextWatchMap.forEach((workdir, sessionId) => {
+      const knownWorkdir = watchedWorkdirBySessionRef.current[sessionId];
+      if (knownWorkdir === workdir && startedWatcherSessionsRef.current.has(sessionId)) {
+        return;
+      }
+      if (startedWatcherSessionsRef.current.has(sessionId) && knownWorkdir && knownWorkdir !== workdir) {
+        void invoke("stop_git_watch", { sessionId }).catch(() => {});
+        startedWatcherSessionsRef.current.delete(sessionId);
+      }
+      watchedWorkdirBySessionRef.current[sessionId] = workdir;
+      startedWatcherSessionsRef.current.add(sessionId);
+      void invoke("start_git_watch", { sessionId, workdir }).catch(() => {});
+    });
+
+    [...startedWatcherSessionsRef.current].forEach((sessionId) => {
+      if (nextWatchMap.has(sessionId)) return;
+      startedWatcherSessionsRef.current.delete(sessionId);
+      delete watchedWorkdirBySessionRef.current[sessionId];
+      void invoke("stop_git_watch", { sessionId }).catch(() => {});
+    });
+  }, [activeSession, workbenchSession]);
+
+  useEffect(() => () => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+    [...startedWatcherSessionsRef.current].forEach((sessionId) => {
+      void invoke("stop_git_watch", { sessionId }).catch(() => {});
+    });
+    startedWatcherSessionsRef.current.clear();
+    watchedWorkdirBySessionRef.current = {};
+  }, []);
 
   // ── Esc 关闭 ──────────────────────────────────────────────
   useEffect(() => {
@@ -621,6 +764,30 @@ export default function App() {
       }
     );
 
+    const u5d = listen<{ session_id: string; reason?: string; event_type?: "create" | "delete" | "rename" | "change" | "git" | "batch"; paths?: string[]; reload_dirs?: string[]; path_kinds?: Record<string, ExplorerEntry["kind"]>; rename_pairs?: Array<{ oldPath: string; newPath: string }> }>(
+      "scm-refresh-requested",
+      ({ payload }) => {
+        const eventType = payload.event_type ?? "batch";
+        const graphPatched = useExplorerStore.getState().applyWatcherEvent(payload.session_id, {
+          eventType,
+          paths: payload.paths ?? [],
+          pathKinds: payload.path_kinds,
+          renamePairs: payload.rename_pairs,
+        });
+
+        const reloadDirs = filterVisibleExplorerDirectories(payload.session_id, payload.reload_dirs ?? []);
+        const shouldRefreshScmOnly = eventType === "git" || eventType === "batch" || (payload.paths?.length ?? 0) === 0;
+        if (reloadDirs.length > 0) {
+          refreshSessionDiff(payload.session_id, { reloadDirs });
+          return;
+        }
+
+        if (!graphPatched && shouldRefreshScmOnly) {
+          refreshSessionDiff(payload.session_id);
+        }
+      }
+    );
+
     // PTY 退出：将 running/waiting/suspended 状态的 session 标记为 done
     // SessionPanel 关闭后不再常驻，此处补全全局兜底监听
     const u6 = listen<{ session_id: string }>(
@@ -664,7 +831,7 @@ export default function App() {
     );
 
     return () => {
-      [u1, u2, u3, u4, u5, u5b, u5c, u6, u7].forEach((p) => p.then((f) => f()));
+      [u1, u2, u3, u4, u5, u5b, u5c, u5d, u6, u7].forEach((p) => p.then((f) => f()));
     };
   }, [appendOutput, updateSession, setDiffFiles, setScmSnapshot, setScmStatus, setScmDiffOverride, refreshSessionDiff]);
 
@@ -830,6 +997,73 @@ export default function App() {
         boxSizing: "border-box",
         background: "transparent",
       }}>
+        {frontendErrorLogs.length > 0 && (
+          <div style={{
+            position: "fixed",
+            right: 12,
+            bottom: 36,
+            width: 420,
+            maxHeight: 260,
+            overflow: "auto",
+            zIndex: 9999,
+            border: "1px solid var(--ci-toolbar-border)",
+            background: "rgba(20,20,24,0.96)",
+            color: "var(--ci-text)",
+            fontSize: 11,
+            lineHeight: 1.5,
+            boxShadow: "0 12px 30px rgba(0,0,0,0.28)",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px", borderBottom: "1px solid var(--ci-toolbar-border)", position: "sticky", top: 0, background: "rgba(20,20,24,0.98)" }}>
+              <span style={{ fontWeight: 700, color: "var(--ci-deleted-text)" }}>Frontend errors</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <button
+                  onClick={() => {
+                    const content = frontendErrorLogs.map((log) => [
+                      `[${log.source}] ${log.message}`,
+                      log.detail ?? "",
+                      log.stack ?? "",
+                    ].filter(Boolean).join("\n")).join("\n\n---\n\n");
+                    void navigator.clipboard.writeText(content).catch(() => {});
+                  }}
+                  style={{ background: "none", border: "none", color: "var(--ci-text-dim)", cursor: "pointer", fontSize: 11 }}
+                >
+                  Copy all
+                </button>
+                <button
+                  onClick={() => setFrontendErrorLogs([])}
+                  style={{ background: "none", border: "none", color: "var(--ci-text-dim)", cursor: "pointer", fontSize: 11 }}
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+            <div style={{ padding: 10, display: "flex", flexDirection: "column", gap: 10 }}>
+              {frontendErrorLogs.map((log) => (
+                <div key={log.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", paddingBottom: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                    <div style={{ color: "var(--ci-yellow)", fontWeight: 600 }}>{log.source}</div>
+                    <button
+                      onClick={() => {
+                        const content = [
+                          `[${log.source}] ${log.message}`,
+                          log.detail ?? "",
+                          log.stack ?? "",
+                        ].filter(Boolean).join("\n");
+                        void navigator.clipboard.writeText(content).catch(() => {});
+                      }}
+                      style={{ background: "none", border: "none", color: "var(--ci-text-dim)", cursor: "pointer", fontSize: 10, padding: 0 }}
+                    >
+                      Copy
+                    </button>
+                  </div>
+                  <div style={{ marginTop: 4, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{log.message}</div>
+                  {log.detail && <div style={{ marginTop: 4, color: "var(--ci-text-dim)", whiteSpace: "pre-wrap" }}>{log.detail}</div>}
+                  {log.stack && <pre style={{ marginTop: 6, whiteSpace: "pre-wrap", color: "var(--ci-text-dim)", fontSize: 10 }}>{log.stack}</pre>}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         <motion.div
           transition={spring}
           style={{
