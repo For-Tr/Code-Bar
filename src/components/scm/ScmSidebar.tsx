@@ -1,11 +1,13 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight, Plus, Minus, ArrowUp, ArrowDown, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Plus, Minus, Trash2 } from "lucide-react";
 import { type DiffFile, type ClaudeSession } from "../../store/sessionStore";
 import {
   commitScm,
   discardScmFile,
   selectScmFile,
+  stageAllScm,
   stageScmFile,
+  unstageAllScm,
   unstageScmFile,
 } from "../../services/scmCommands";
 import { resetWorkbenchMode } from "../../services/workbenchCommands";
@@ -72,11 +74,13 @@ function Section({
   title,
   count,
   defaultExpanded = true,
+  actions,
   children,
 }: {
   title: string;
   count?: number;
   defaultExpanded?: boolean;
+  actions?: React.ReactNode;
   children: React.ReactNode;
 }) {
   if (count === 0) return null;
@@ -85,27 +89,40 @@ function Section({
 
   return (
     <div style={{ marginBottom: 6 }}>
-      <button
-        onClick={() => setExpanded((value) => !value)}
+      <div
         style={{
           width: "100%",
           display: "flex",
           alignItems: "center",
           gap: 6,
           padding: "2px 12px 6px",
-          background: "none",
-          border: "none",
           color: "var(--ci-text-dim)",
-          cursor: "pointer",
-          textAlign: "left",
         }}
       >
-        <span style={{ width: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          {expanded ? <ChevronDown size={12} strokeWidth={1.8} /> : <ChevronRight size={12} strokeWidth={1.8} />}
-        </span>
-        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>{title}</span>
-        {typeof count === "number" && <span style={{ fontSize: 10, marginLeft: "auto" }}>{count}</span>}
-      </button>
+        <button
+          onClick={() => setExpanded((value) => !value)}
+          style={{
+            minWidth: 0,
+            flex: 1,
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            background: "none",
+            border: "none",
+            color: "inherit",
+            cursor: "pointer",
+            textAlign: "left",
+            padding: 0,
+          }}
+        >
+          <span style={{ width: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            {expanded ? <ChevronDown size={12} strokeWidth={1.8} /> : <ChevronRight size={12} strokeWidth={1.8} />}
+          </span>
+          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>{title}</span>
+          {typeof count === "number" && <span style={{ fontSize: 10, marginLeft: "auto" }}>{count}</span>}
+        </button>
+        {actions && <div style={{ display: "flex", alignItems: "center", gap: 2, marginLeft: 8 }}>{actions}</div>}
+      </div>
       {expanded && children}
     </div>
   );
@@ -124,13 +141,18 @@ function GroupSection({
   selectedPath: string | null;
   busy: boolean;
 }) {
+  const [hoveredPath, setHoveredPath] = useState<string | null>(null);
+
   return (
     <>
       {files.map((file) => {
         const isSelected = selectedPath === file.path;
+        const showActions = isSelected || hoveredPath === file.path;
         return (
           <div
             key={`${group}:${file.path}`}
+            onMouseEnter={() => setHoveredPath(file.path)}
+            onMouseLeave={() => setHoveredPath((current) => current === file.path ? null : current)}
             style={{
               width: "100%",
               display: "flex",
@@ -167,12 +189,12 @@ function GroupSection({
                 {file.path}
               </span>
             </button>
-            <div style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0, opacity: showActions ? 1 : 0 }}>
               {(group === "unstaged" || group === "untracked") && (
-                <ActionButton label="Stage" icon={<ArrowUp size={12} strokeWidth={1.8} />} onClick={() => stageScmFile(sessionId, file.path)} disabled={busy} />
+                <ActionButton label="Stage" icon={<Plus size={12} strokeWidth={1.8} />} onClick={() => stageScmFile(sessionId, file.path)} disabled={busy} />
               )}
               {group === "staged" && (
-                <ActionButton label="Unstage" icon={<ArrowDown size={12} strokeWidth={1.8} />} onClick={() => unstageScmFile(sessionId, file.path)} disabled={busy} />
+                <ActionButton label="Unstage" icon={<Minus size={12} strokeWidth={1.8} />} onClick={() => unstageScmFile(sessionId, file.path)} disabled={busy} />
               )}
               {group === "unstaged" && (
                 <ActionButton label="Discard" icon={<Minus size={12} strokeWidth={1.8} />} onClick={() => discardScmFile(sessionId, file.path, "unstaged")} disabled={busy} />
@@ -331,13 +353,31 @@ export function ScmSidebar({ session }: { session: ClaudeSession | null }) {
                 <Section title="Conflicts" count={groups.conflicts.length} defaultExpanded={groups.conflicts.length > 0}>
                   <GroupSection group="conflicts" files={groups.conflicts} sessionId={session.id} selectedPath={selectedEntry?.group === "conflicts" ? selectedEntry.path : null} busy={busy} />
                 </Section>
-                <Section title="Staged" count={groups.staged.length} defaultExpanded={groups.staged.length > 0}>
+                <Section
+                  title="Staged Changes"
+                  count={groups.staged.length}
+                  defaultExpanded={groups.staged.length > 0}
+                  actions={groups.staged.length > 0 ? (
+                    <ActionButton label="Unstage All" icon={<Minus size={12} strokeWidth={1.8} />} onClick={() => unstageAllScm(session.id)} disabled={busy} />
+                  ) : undefined}
+                >
                   <GroupSection group="staged" files={groups.staged} sessionId={session.id} selectedPath={selectedEntry?.group === "staged" ? selectedEntry.path : null} busy={busy} />
                 </Section>
-                <Section title="Changes" count={groups.unstaged.length} defaultExpanded={groups.unstaged.length > 0}>
+                <Section
+                  title="Changes"
+                  count={groups.unstaged.length}
+                  defaultExpanded={groups.unstaged.length > 0}
+                  actions={groups.unstaged.length > 0 ? (
+                    <ActionButton label="Stage All Changes" icon={<Plus size={12} strokeWidth={1.8} />} onClick={() => stageAllScm(session.id, groups.unstaged.map((file) => file.path))} disabled={busy} />
+                  ) : undefined}
+                >
                   <GroupSection group="unstaged" files={groups.unstaged} sessionId={session.id} selectedPath={selectedEntry?.group === "unstaged" ? selectedEntry.path : null} busy={busy} />
                 </Section>
-                <Section title="Untracked" count={groups.untracked.length} defaultExpanded={groups.untracked.length > 0}>
+                <Section
+                  title="Untracked"
+                  count={groups.untracked.length}
+                  defaultExpanded={groups.untracked.length > 0}
+                >
                   <GroupSection group="untracked" files={groups.untracked} sessionId={session.id} selectedPath={selectedEntry?.group === "untracked" ? selectedEntry.path : null} busy={busy} />
                 </Section>
               </Section>

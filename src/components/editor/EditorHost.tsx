@@ -50,7 +50,7 @@ export function EditorHost({
   onRefreshDiff,
 }: {
   session: ClaudeSession | null;
-  onRefreshDiff: (sessionId?: string | null) => void;
+  onRefreshDiff: (sessionId?: string | null, options?: { reloadExplorer?: boolean }) => void;
 }) {
   const activeTabId = useEditorStore((s) => s.activeTabId);
   const tabsById = useEditorStore((s) => s.tabsById);
@@ -101,7 +101,7 @@ export function EditorHost({
       event.preventDefault();
       if (activeBuffer?.dirty !== true || activeBuffer.saving || activeBuffer.isBinary || activeFile?.type === "deleted") return;
       void saveTab(activeTab.id).then(() => {
-        onRefreshDiff(activeTab.sessionId);
+        onRefreshDiff(activeTab.sessionId, { reloadExplorer: true });
       });
     };
 
@@ -167,7 +167,7 @@ export function EditorHost({
         <button
           onClick={() => {
             void saveTab(activeTab.id).then(() => {
-              onRefreshDiff(activeTab.sessionId);
+              onRefreshDiff(activeTab.sessionId, { reloadExplorer: true });
             });
           }}
           disabled={!activeBuffer.dirty || activeBuffer.saving}

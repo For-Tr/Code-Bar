@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight, FileCode2, FilePlus2, FileX2, Minus, ArrowUp, ArrowDown } from "lucide-react";
+import { ChevronDown, ChevronRight, FileCode2, FilePlus2, FileX2, Minus, Plus } from "lucide-react";
 import { DiffFile, DiffLine } from "../store/sessionStore";
 import { type ScmActionMode } from "../store/scmStore";
 import { WorkbenchTooltip } from "./ui/WorkbenchTooltip";
@@ -202,9 +202,9 @@ function DiffFileRow({
                 }}>
                   <span>{hunk.header}</span>
                   <div style={{ marginLeft: "auto", display: "flex", gap: 2 }}>
-                    {fileMode === "unstaged" && onStageHunk && <HunkActionButton label="Stage hunk" icon={<ArrowUp size={12} strokeWidth={1.8} />} onClick={() => onStageHunk(file.path, hi)} disabled={busy} />}
+                    {fileMode === "unstaged" && onStageHunk && <HunkActionButton label="Stage hunk" icon={<Plus size={12} strokeWidth={1.8} />} onClick={() => onStageHunk(file.path, hi)} disabled={busy} />}
                     {fileMode === "unstaged" && onDiscardHunk && <HunkActionButton label="Discard hunk" icon={<Minus size={12} strokeWidth={1.8} />} onClick={() => onDiscardHunk(file.path, hi)} disabled={busy} />}
-                    {fileMode === "staged" && onUnstageHunk && <HunkActionButton label="Unstage hunk" icon={<ArrowDown size={12} strokeWidth={1.8} />} onClick={() => onUnstageHunk(file.path, hi)} disabled={busy} />}
+                    {fileMode === "staged" && onUnstageHunk && <HunkActionButton label="Unstage hunk" icon={<Minus size={12} strokeWidth={1.8} />} onClick={() => onUnstageHunk(file.path, hi)} disabled={busy} />}
                   </div>
                 </div>
                 {hunk.lines.map((line, li) => (

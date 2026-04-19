@@ -8,7 +8,7 @@ export function WorkbenchCenter({
   onRefreshDiff,
 }: {
   session: ClaudeSession | null;
-  onRefreshDiff: (sessionId?: string | null) => void;
+  onRefreshDiff: (sessionId?: string | null, options?: { reloadExplorer?: boolean }) => void;
 }) {
   const centerSurface = useWorkbenchStore((s) => s.centerSurface);
 

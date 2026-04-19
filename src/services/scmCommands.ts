@@ -121,6 +121,26 @@ export async function commitScm(sessionId: string) {
   useScmStore.getState().setCommitMessage(sessionId, "");
 }
 
+export async function stageAllScm(sessionId: string, paths?: string[]) {
+  const session = getSession(sessionId);
+  if (!session) return;
+  await withRefresh(sessionId, async () => {
+    if (paths && paths.length > 0) {
+      await invoke("git_stage_paths", { workdir: session.workdir, paths });
+      return;
+    }
+    await invoke("git_stage_all", { workdir: session.workdir });
+  });
+}
+
+export async function unstageAllScm(sessionId: string) {
+  const session = getSession(sessionId);
+  if (!session) return;
+  await withRefresh(sessionId, async () => {
+    await invoke("git_unstage_all", { workdir: session.workdir });
+  });
+}
+
 export async function applyScmHunk(sessionId: string, path: string, mode: ScmActionMode, hunkIndex: number, action: "stage" | "unstage" | "discard") {
   const session = getSession(sessionId);
   if (!session) return;

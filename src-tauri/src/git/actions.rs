@@ -193,6 +193,42 @@ pub async fn git_commit_staged(workdir: String, message: String) -> Result<(), S
 }
 
 #[tauri::command]
+pub async fn git_stage_all(workdir: String) -> Result<(), String> {
+    let expanded = expand_path(&workdir);
+    tokio::task::spawn_blocking(move || git_success(&expanded, &["add", "-A"]))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_stage_paths(workdir: String, paths: Vec<String>) -> Result<(), String> {
+    let expanded = expand_path(&workdir);
+    tokio::task::spawn_blocking(move || {
+        if paths.is_empty() {
+            return Ok(());
+        }
+        let validated = paths
+            .iter()
+            .map(|path| validate_relative_git_path(path))
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut args = vec!["add", "--"];
+        let refs = validated.iter().map(String::as_str).collect::<Vec<_>>();
+        args.extend(refs);
+        git_success(&expanded, &args)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_unstage_all(workdir: String) -> Result<(), String> {
+    let expanded = expand_path(&workdir);
+    tokio::task::spawn_blocking(move || git_success(&expanded, &["restore", "--staged", "."]))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 pub async fn git_stage_hunk(
     workdir: String,
     path: String,

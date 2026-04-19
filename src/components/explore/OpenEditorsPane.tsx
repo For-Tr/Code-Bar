@@ -3,7 +3,6 @@ import { closeTab } from "../../services/editorCommands";
 import { useEditorBufferStore } from "../../store/editorBufferStore";
 import { useEditorStore } from "../../store/editorStore";
 import { type ClaudeSession } from "../../store/sessionStore";
-import { WorkbenchTooltip } from "../ui/WorkbenchTooltip";
 
 export function OpenEditorsPane({ session }: { session: ClaudeSession }) {
   const activeTabId = useEditorStore((s) => s.activeTabId);
@@ -65,27 +64,25 @@ export function OpenEditorsPane({ session }: { session: ClaudeSession }) {
               </span>
               {dirty && <span style={{ color: "var(--ci-accent)", fontSize: 10 }}>●</span>}
             </button>
-            <WorkbenchTooltip label={`关闭 ${tab.title}`}>
-              <button
-                onClick={() => closeTab(tabId)}
-                style={{
-                  background: "none",
-                  border: "none",
-                  color: "var(--ci-text-dim)",
-                  cursor: "pointer",
-                  padding: 0,
-                  width: 16,
-                  height: 16,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  opacity: isActive ? 0.9 : 0.5,
-                }}
-                title={`关闭 ${tab.title}`}
-              >
-                <X size={12} strokeWidth={1.8} />
-              </button>
-            </WorkbenchTooltip>
+            <button
+              onClick={() => closeTab(tabId)}
+              style={{
+                background: "none",
+                border: "none",
+                color: "var(--ci-text-dim)",
+                cursor: "pointer",
+                padding: 0,
+                width: 16,
+                height: 16,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: isActive ? 0.9 : 0.5,
+              }}
+              title={`关闭 ${tab.title}`}
+            >
+              <X size={12} strokeWidth={1.8} />
+            </button>
           </div>
         );
       })}

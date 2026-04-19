@@ -51,7 +51,7 @@ export function WorkbenchSidebar({
 }: {
   session: ClaudeSession | null;
   menuContent: ReactNode;
-  onRefreshDiff: (sessionId?: string | null) => void;
+  onRefreshDiff: (sessionId?: string | null, options?: { reloadExplorer?: boolean }) => void;
 }) {
   const sidebarSection = useWorkbenchStore((s) => s.sidebarSection);
 

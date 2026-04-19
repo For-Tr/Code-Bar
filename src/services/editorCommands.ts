@@ -120,6 +120,32 @@ export async function loadDirectory(sessionId: string, dir = "") {
   }
 }
 
+export async function reloadVisibleDirectories(sessionId: string) {
+  const explorer = useExplorerStore.getState();
+  const expandedDirs = explorer.expandedDirsBySession[sessionId] ?? [];
+  const dirs = [...new Set(["", ...expandedDirs])];
+  await Promise.all(dirs.map((dir) => loadDirectory(sessionId, dir)));
+}
+
+export function getVisibleExplorerDirectories(sessionId: string) {
+  const explorer = useExplorerStore.getState();
+  const expandedDirs = explorer.expandedDirsBySession[sessionId] ?? [];
+  return new Set(["", ...expandedDirs]);
+}
+
+export function filterVisibleExplorerDirectories(sessionId: string, dirs: string[]) {
+  const visibleDirs = getVisibleExplorerDirectories(sessionId);
+  return [...new Set(dirs.map((dir) => dir.trim().replace(/^\/+|\/+$/g, "")))].filter((dir) => visibleDirs.has(dir));
+}
+
+export async function reloadExplorerDirectories(sessionId: string, dirs: string[]) {
+  const visibleDirs = getVisibleExplorerDirectories(sessionId);
+  const normalizedDirs = [...new Set(dirs.map((dir) => dir.trim().replace(/^\/+|\/+$/g, "")))];
+  const targets = normalizedDirs.filter((dir) => visibleDirs.has(dir));
+  const visibleTargets = targets.length > 0 ? targets : [""];
+  await Promise.all(visibleTargets.map((dir) => loadDirectory(sessionId, dir)));
+}
+
 export function closeTab(tabId: string) {
   useEditorStore.getState().closeTab(tabId);
   useEditorBufferStore.getState().removeBuffer(tabId);
