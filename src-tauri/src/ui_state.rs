@@ -746,6 +746,35 @@ fn resolve_recovery_hint(
     latest_claude_hint(session_id)
 }
 
+fn resolve_existing_session_binding(
+    session: &BackfillSessionBindingInput,
+    codex_history: &HashMap<String, RecoveryHint>,
+) -> Option<BackfilledSessionBinding> {
+    if session
+        .provider_session_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_some()
+    {
+        return None;
+    }
+
+    let hint = match session.runner_type.trim() {
+        "claude-code" => latest_claude_hint(&session.session_id)?,
+        "codex" => {
+            let worktree_path = normalize_path(session.worktree_path.clone())?;
+            codex_history.get(&worktree_path).cloned()?
+        }
+        _ => return None,
+    };
+
+    Some(BackfilledSessionBinding {
+        session_id: session.session_id.clone(),
+        provider_session_id: hint.provider_session_id,
+    })
+}
+
 fn numeric_session_id(name: &str) -> Option<String> {
     let trimmed = name.strip_prefix("session-")?;
     if trimmed.chars().all(|ch| ch.is_ascii_digit()) {
@@ -887,6 +916,24 @@ pub struct SaveRecoveryBindingInput {
     worktree_path: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackfillSessionBindingInput {
+    session_id: String,
+    runner_type: String,
+    #[serde(default)]
+    worktree_path: Option<String>,
+    #[serde(default)]
+    provider_session_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackfilledSessionBinding {
+    session_id: String,
+    provider_session_id: String,
+}
+
 #[tauri::command]
 pub fn load_deleted_ui_state(app: tauri::AppHandle) -> Result<DeletedUiState, String> {
     read_deleted_ui_state(&app)
@@ -907,6 +954,39 @@ pub fn save_recovery_binding(
             updated_at_ms: 0,
         },
     )
+}
+
+#[tauri::command]
+pub fn backfill_workspace_session_bindings(
+    app: tauri::AppHandle,
+    sessions: Vec<BackfillSessionBindingInput>,
+) -> Result<Vec<BackfilledSessionBinding>, String> {
+    if sessions.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let codex_history = load_codex_history_index();
+    let mut backfilled = Vec::new();
+
+    for session in sessions {
+        let Some(binding) = resolve_existing_session_binding(&session, &codex_history) else {
+            continue;
+        };
+
+        upsert_recovery_binding(
+            &app,
+            RecoveryBinding {
+                session_id: binding.session_id.clone(),
+                runner_type: session.runner_type.trim().to_string(),
+                provider_session_id: binding.provider_session_id.clone(),
+                worktree_path: normalize_path(session.worktree_path.clone()),
+                updated_at_ms: 0,
+            },
+        )?;
+        backfilled.push(binding);
+    }
+
+    Ok(backfilled)
 }
 
 #[tauri::command]

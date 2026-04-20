@@ -53,6 +53,11 @@ interface FrontendErrorLog {
   detail?: string | null;
 }
 
+interface BackfilledSessionBinding {
+  sessionId: string;
+  providerSessionId: string;
+}
+
 export default function App() {
   const {
     sessions,
@@ -705,7 +710,7 @@ export default function App() {
     });
   }, []);
 
-  // ── 启动时补回仍在磁盘上的丢失 session（以 worktree/provider 历史为准）──
+  // ── 启动时恢复缺失 session，并为已有旧 session 回填 provider resume 绑定 ──
   useEffect(() => {
     if (!("__TAURI_INTERNALS__" in window)) return;
 
@@ -713,24 +718,55 @@ export default function App() {
 
     (async () => {
       const workspaces = useWorkspaceStore.getState().workspaces;
+      const workspaceInputs = workspaces.map((workspace) => ({
+        workspaceId: workspace.id,
+        workspacePath: workspace.path,
+      }));
       const knownIds = new Set(useSessionStore.getState().sessions.map((s) => s.id));
       const recovered = await invoke<ClaudeSession[]>("recover_workspace_sessions", {
-        workspaces: workspaces.map((workspace) => ({
-          workspaceId: workspace.id,
-          workspacePath: workspace.path,
-        })),
+        workspaces: workspaceInputs,
         existingSessionIds: [...knownIds],
       }).catch(() => []);
 
-      if (!cancelled && recovered.length > 0) {
+      if (cancelled) return;
+      if (recovered.length > 0) {
         useSessionStore.getState().mergeRecoveredSessions(recovered);
       }
+
+      const backfillCandidates = useSessionStore
+        .getState()
+        .sessions
+        .filter((session) => {
+          if (!session.worktreePath?.trim()) return false;
+          if (session.providerSessionId?.trim()) return false;
+          return session.runner.type === "claude-code" || session.runner.type === "codex";
+        })
+        .map((session) => ({
+          sessionId: session.id,
+          runnerType: session.runner.type,
+          worktreePath: session.worktreePath ?? null,
+          providerSessionId: session.providerSessionId ?? null,
+        }));
+
+      if (backfillCandidates.length === 0) return;
+
+      const backfilled = await invoke<BackfilledSessionBinding[]>("backfill_workspace_session_bindings", {
+        sessions: backfillCandidates,
+      }).catch(() => []);
+
+      if (cancelled || backfilled.length === 0) return;
+
+      backfilled.forEach(({ sessionId, providerSessionId }) => {
+        const current = useSessionStore.getState().sessions.find((session) => session.id === sessionId);
+        if (!current || current.providerSessionId?.trim()) return;
+        updateSession(sessionId, { providerSessionId });
+      });
     })();
 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [updateSession]);
 
   // ── 监听 Rust 侧事件 ──────────────────────────────────────
   useEffect(() => {

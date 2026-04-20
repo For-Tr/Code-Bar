@@ -278,6 +278,7 @@ pub fn run() {
             ui_state::reserve_session_id,
             ui_state::recover_workspace_sessions,
             ui_state::save_recovery_binding,
+            ui_state::backfill_workspace_session_bindings,
             usage::refresh_runner_usage,
         ])
         .run(tauri::generate_context!())
