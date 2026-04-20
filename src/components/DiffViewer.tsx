@@ -131,6 +131,7 @@ function DiffFileRow({
   onUnstageHunk,
   onDiscardHunk,
   busy,
+  contentMaxHeight,
 }: {
   file: DiffFile;
   fileMode?: ScmActionMode | null;
@@ -138,9 +139,11 @@ function DiffFileRow({
   onUnstageHunk?: (path: string, hunkIndex: number) => void;
   onDiscardHunk?: (path: string, hunkIndex: number) => void;
   busy?: boolean;
+  contentMaxHeight?: number | string;
 }) {
   const [isOpen, setIsOpen] = useState(true);
   const isBinary = !!file.binary;
+  const useInnerScroll = contentMaxHeight !== "none";
 
   return (
     <div style={{ borderBottom: "1px solid var(--ci-toolbar-border)", background: "transparent" }}>
@@ -176,7 +179,7 @@ function DiffFileRow({
       </button>
 
       {isOpen && (
-        <div style={{ background: "var(--ci-code-bg)", borderTop: "1px solid var(--ci-toolbar-border)", maxHeight: 420, overflowY: "auto", overflowX: "auto" }}>
+        <div style={{ background: "var(--ci-code-bg)", borderTop: "1px solid var(--ci-toolbar-border)", maxHeight: contentMaxHeight, overflow: useInnerScroll ? "auto" : "visible" }}>
           {isBinary ? (
             <div style={{ padding: "14px 16px", fontSize: 11, color: "var(--ci-text-dim)" }}>
               二进制文件暂不支持预览
@@ -226,6 +229,7 @@ export function DiffViewer({
   onUnstageHunk,
   onDiscardHunk,
   busy = false,
+  contentMaxHeight = 420,
 }: {
   files: DiffFile[];
   fileMode?: ScmActionMode | null;
@@ -233,6 +237,7 @@ export function DiffViewer({
   onUnstageHunk?: (path: string, hunkIndex: number) => void;
   onDiscardHunk?: (path: string, hunkIndex: number) => void;
   busy?: boolean;
+  contentMaxHeight?: number | string;
 }) {
   if (files.length === 0) {
     return (
@@ -272,6 +277,7 @@ export function DiffViewer({
           onUnstageHunk={onUnstageHunk}
           onDiscardHunk={onDiscardHunk}
           busy={busy}
+          contentMaxHeight={contentMaxHeight}
         />
       ))}
     </div>

@@ -1,8 +1,7 @@
 import { Component, type ReactNode } from "react";
 import { type ClaudeSession } from "../store/sessionStore";
 import { ExplorerPane } from "./explore/ExplorerPane";
-import { EditorTabs } from "./editor/EditorTabs";
-import { EditorHost } from "./editor/EditorHost";
+import { EditorSplitHost } from "./editor/EditorSplitHost";
 
 class ExploreErrorBoundary extends Component<{ children: ReactNode }, { error: string | null }> {
   state = { error: null };
@@ -114,10 +113,7 @@ export function ExploreEditor({
         flexDirection: "column",
         background: "var(--ci-surface)",
       }}>
-        <EditorTabs session={session} />
-        <div style={{ flex: 1, minHeight: 0 }}>
-          <EditorHost session={session} onRefreshDiff={onRefreshDiff} />
-        </div>
+        <EditorSplitHost session={session} onRefreshDiff={onRefreshDiff} />
       </div>
     </ExploreErrorBoundary>
   );
