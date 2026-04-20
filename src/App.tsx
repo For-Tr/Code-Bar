@@ -742,7 +742,7 @@ export default function App() {
       scrollbarWidth: "none",
       zIndex: 1,
     }}>
-      <div style={{ padding: "6px 18px 0" }}>
+      <div style={{ padding: "6px 18px 4px" }}>
         <WorkspaceStack />
       </div>
 

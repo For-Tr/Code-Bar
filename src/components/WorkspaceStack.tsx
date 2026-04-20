@@ -13,10 +13,7 @@ import { useSessionStore, type ClaudeSession } from "../store/sessionStore";
 import { useSettingsStore, isGlassTheme } from "../store/settingsStore";
 
 // ── 常量 ─────────────────────────────────────────────────────
-const CARD_H = 38;
-const CARD_PEEK = 5;
-const CARD_OFFSET_X = 3;
-const FADE = { duration: 0.12 };
+const SUMMARY_ROW_H = 34;
 const EMPTY_SESSIONS: ClaudeSession[] = [];
 
 // ── 新建 Workspace 内联表单 ───────────────────────────────────
@@ -65,8 +62,8 @@ function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
     width: "100%", boxSizing: "border-box",
     background: "transparent",
     border: "1px solid var(--ci-border)",
-    borderRadius: 8, padding: "7px 10px",
-    color: "var(--ci-text)", fontSize: 12, outline: "none",
+    borderRadius: 7, padding: "6px 9px",
+    color: "var(--ci-text)", fontSize: 11.5, outline: "none",
     fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif",
     transition: "border-color 0.15s, box-shadow 0.15s, background 0.15s",
   };
@@ -82,15 +79,15 @@ function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
       <div style={{
         background: "var(--ci-surface)",
         border: "1px solid var(--ci-toolbar-border)",
-        borderRadius: 14, padding: 14,
-        display: "flex", flexDirection: "column", gap: 10,
+        borderRadius: 10, padding: 10,
+        display: "flex", flexDirection: "column", gap: 8,
         marginBottom: 4,
         boxShadow: "none",
         textShadow,
       }}>
         <div style={{
-          fontSize: 12, fontWeight: 600,
-          color: "var(--ci-text)", letterSpacing: -0.2,
+          fontSize: 11.5, fontWeight: 600,
+          color: "var(--ci-text)", letterSpacing: -0.1,
         }}>
           添加 Workspace
         </div>
@@ -164,13 +161,13 @@ function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
         </div>
 
         {/* 操作 */}
-        <div style={{ display: "flex", gap: 7, justifyContent: "flex-end", marginTop: 2 }}>
+        <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", marginTop: 2 }}>
           <button onClick={onDone}
             style={{
               background: "transparent",
               border: "1px solid var(--ci-border)",
-              borderRadius: 8, padding: "6px 14px",
-              color: "var(--ci-text-muted)", fontSize: 12, cursor: "pointer",
+              borderRadius: 7, padding: "5px 12px",
+              color: "var(--ci-text-muted)", fontSize: 11.5, cursor: "pointer",
               fontWeight: 500,
               transition: "background 0.12s, border-color 0.12s, color 0.12s",
             }}
@@ -189,8 +186,8 @@ function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
             style={{
               background: "var(--ci-accent-bg)",
               border: "1px solid var(--ci-accent-bdr)",
-              borderRadius: 8, padding: "6px 16px",
-              color: "var(--ci-accent)", fontSize: 12, fontWeight: 600, cursor: "pointer",
+              borderRadius: 7, padding: "5px 14px",
+              color: "var(--ci-accent)", fontSize: 11.5, fontWeight: 600, cursor: "pointer",
               transition: "background 0.12s, border-color 0.12s, color 0.12s",
             }}
             onMouseEnter={e => {
@@ -211,17 +208,14 @@ function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
 
 // ── 单张 Workspace 卡片（展开状态） ──────────────────────────
 function WorkspaceCardExpanded({
-  ws, isActive, index, total, onClick, onRemove,
+  ws, isActive, onClick, onRemove,
 }: {
   ws: Workspace;
   isActive: boolean;
-  index: number;
-  total: number;
   onClick: () => void;
   onRemove: () => void;
 }) {
-  const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
-  const textShadow = isGlass ? "var(--ci-glass-text-shadow)" : "none";
+  const [hovered, setHovered] = useState(false);
   const color = getWorkspaceColor(ws.color);
   const sessions = useSessionStore((s) => (Array.isArray(s.sessions) ? s.sessions : EMPTY_SESSIONS));
   const { sessionCount, waitingCount, runningCount } = useMemo(() => {
@@ -237,107 +231,130 @@ function WorkspaceCardExpanded({
       { sessionCount: 0, waitingCount: 0, runningCount: 0 }
     );
   }, [sessions, ws.id]);
+  const showActions = hovered || isActive;
+  const summaryParts = [
+    waitingCount > 0 ? `${waitingCount} 待操作` : null,
+    runningCount > 0 ? `${runningCount} 运行` : null,
+    sessionCount > 0 ? `${sessionCount} 会话` : null,
+  ].filter(Boolean);
 
   return (
     <div
       onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       style={{
         position: "relative",
-        display: "flex", alignItems: "center", gap: 10,
-        padding: "10px 12px",
-        borderRadius: 12,
-        background: isActive ? "var(--ci-accent-bg)" : "transparent",
-        border: isActive
-          ? `1px solid ${color}45`
-          : "1px solid var(--ci-toolbar-border)",
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        minHeight: 32,
+        padding: "6px 8px 6px 10px",
+        borderRadius: 7,
+        background: isActive ? "var(--ci-list-active-bg)" : hovered ? "var(--ci-list-hover-bg)" : "transparent",
+        border: "1px solid transparent",
         cursor: "pointer",
-        zIndex: total - index,
-        transition: isGlass ? "border-color 0.15s, color 0.15s" : "background 0.15s, border-color 0.15s",
-        boxShadow: "none",
-        textShadow,
+        transition: "background 0.12s, border-color 0.12s",
       }}
     >
-      {/* 颜色圆点 */}
+      {isActive && (
+        <div style={{
+          position: "absolute",
+          left: 0,
+          top: 4,
+          bottom: 4,
+          width: 2,
+          borderRadius: 99,
+          background: color,
+        }} />
+      )}
+
       <div style={{
-        width: 11, height: 11, borderRadius: "50%",
-        background: color, flexShrink: 0,
-        boxShadow: `0 1px 4px ${color}60`,
+        width: 8,
+        height: 8,
+        borderRadius: "50%",
+        background: color,
+        flexShrink: 0,
       }} />
 
-      {/* 信息 */}
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{
-          fontSize: 12, fontWeight: 600,
-          color: isActive ? "var(--ci-text)" : "var(--ci-text-muted)",
-          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-        }}>
-          {ws.name}
+        <div style={{ display: "flex", alignItems: "center", gap: 5, minWidth: 0 }}>
+          <span style={{
+            color: isActive || hovered ? "var(--ci-text)" : "var(--ci-text-muted)",
+            fontSize: 11.5,
+            fontWeight: isActive ? 700 : 600,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            minWidth: 0,
+          }}>
+            {ws.name}
+          </span>
+          {waitingCount > 0 && (
+            <span style={{
+              fontSize: 8.5,
+              padding: "1px 5px",
+              borderRadius: 99,
+              background: "var(--ci-yellow-bg)",
+              border: "1px solid var(--ci-yellow-bdr)",
+              color: "var(--ci-yellow-dark)",
+              flexShrink: 0,
+              fontWeight: 600,
+            }}>
+              {waitingCount}
+            </span>
+          )}
+          {runningCount > 0 && (
+            <span style={{
+              fontSize: 8.5,
+              padding: "1px 5px",
+              borderRadius: 99,
+              background: "var(--ci-green-bg)",
+              border: "1px solid var(--ci-green-bdr)",
+              color: "var(--ci-green-dark)",
+              flexShrink: 0,
+              fontWeight: 600,
+            }}>
+              {runningCount}
+            </span>
+          )}
         </div>
-        <div style={{
-          fontSize: 10, color: "var(--ci-text-dim)",
-          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-          marginTop: 1,
-          fontFamily: "-apple-system, monospace",
+        <p style={{
+          margin: "1px 0 0",
+          fontSize: 9.5,
+          color: "var(--ci-text-dim)",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
         }}>
-          {ws.path}
-        </div>
+          {hovered || isActive ? ws.path : summaryParts.join(" · ") || ws.path}
+        </p>
       </div>
 
-      {/* 会话数 badge */}
-      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-        {waitingCount > 0 && (
-          <span style={{
-            fontSize: 10, padding: "1px 6px", borderRadius: 99,
-            background: "var(--ci-yellow-bg)",
-            border: "1px solid var(--ci-yellow-bdr)",
-            color: "var(--ci-yellow-dark)",
-            fontWeight: 600,
-          }}>
-            {waitingCount} 待操作
-          </span>
-        )}
-        {runningCount > 0 && (
-          <span style={{
-            fontSize: 10, padding: "1px 6px", borderRadius: 99,
-            background: "var(--ci-green-bg)",
-            border: "1px solid var(--ci-green-bdr)",
-            color: "var(--ci-green-dark)",
-            fontWeight: 600,
-          }}>
-            {runningCount} 运行
-          </span>
-        )}
-        {sessionCount > 0 && (
-          <span style={{
-            fontSize: 10, padding: "1px 6px", borderRadius: 99,
-            background: "var(--ci-surface)",
-            color: "var(--ci-text-muted)",
-            fontWeight: 600,
-          }}>
-            {sessionCount}
-          </span>
-        )}
+      <div style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 4,
+        flexShrink: 0,
+        opacity: showActions ? 1 : 0,
+        pointerEvents: showActions ? "auto" : "none",
+        transition: "opacity 0.12s",
+      }}>
+        <button
+          onClick={(e) => { e.stopPropagation(); onRemove(); }}
+          title="删除 workspace"
+          style={{
+            background: "transparent",
+            border: "none",
+            color: "var(--ci-text-dim)",
+            fontSize: 11,
+            cursor: "pointer",
+            padding: "2px 4px",
+            borderRadius: 4,
+            flexShrink: 0,
+          }}
+        >✕</button>
       </div>
-
-      {/* 删除按钮 */}
-      <button
-        onClick={(e) => { e.stopPropagation(); onRemove(); }}
-        style={{
-          background: "none", border: "none",
-          color: "var(--ci-text-dim)", fontSize: 11,
-          cursor: "pointer", padding: "2px 4px",
-          borderRadius: 4, flexShrink: 0,
-          transition: "color 0.12s, background 0.12s",
-        }}
-        onMouseEnter={e => {
-          e.currentTarget.style.color = "var(--ci-red)";
-          e.currentTarget.style.background = isGlass ? "none" : "var(--ci-deleted-bg)";
-        }}
-        onMouseLeave={e => {
-          e.currentTarget.style.color = "var(--ci-text-dim)";
-          e.currentTarget.style.background = "none";
-        }}
-      >✕</button>
     </div>
   );
 }
@@ -358,8 +375,6 @@ function WorkspaceStackCollapsed({
 }) {
   const sorted = [...workspaces].sort((a, b) => a.order - b.order);
   const top = sorted[0];
-  const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
-  const textShadow = isGlass ? "var(--ci-glass-text-shadow)" : "none";
 
   if (!top) return null;
 
@@ -372,110 +387,74 @@ function WorkspaceStackCollapsed({
       onClick={onClick}
       style={{
         position: "relative",
-        height: CARD_H + Math.min(sorted.length - 1, 3) * CARD_PEEK,
-        cursor: "pointer",
+        height: SUMMARY_ROW_H,
+        cursor: sorted.length > 1 ? "pointer" : "default",
       }}
     >
-      {/* 底层卡片阴影 */}
-      {sorted.slice(1, 4).map((ws, idx) => {
-        const layerIdx = idx + 1;
-        return (
-          <div key={ws.id} style={{
-            position: "absolute",
-            top: CARD_PEEK * layerIdx,
-            left: CARD_OFFSET_X * layerIdx,
-            right: -(CARD_OFFSET_X * layerIdx),
-            height: CARD_H,
-            borderRadius: 12,
-            background: "var(--ci-surface)",
-            border: "1px solid var(--ci-toolbar-border)",
-            zIndex: 10 - layerIdx,
-            boxShadow: "none",
-          }} />
-        );
-      })}
-
-      {/* 顶层卡片 */}
-      <motion.div
+      <div
         style={{
           position: "absolute",
-          top: 0, left: 0, right: 0,
-          height: CARD_H,
-          borderRadius: 12,
-          background: activeId === top.id ? "var(--ci-accent-bg)" : "var(--ci-surface)",
-          border: activeId === top.id
-            ? `1px solid ${topColor}45`
-            : "1px solid var(--ci-toolbar-border)",
-          zIndex: 20,
-          display: "flex", alignItems: "center", gap: 10,
-          padding: "0 12px",
-          boxShadow: "none",
-          textShadow,
+          inset: 0,
+          borderRadius: 7,
+          background: activeId === top.id ? "var(--ci-list-active-bg)" : "transparent",
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "6px 8px 6px 10px",
         }}
-        whileHover={isGlass ? undefined : { scale: 1.002 }}
-        transition={FADE}
       >
         {activeId === top.id && (
           <div style={{
             position: "absolute",
             left: 0,
-            top: 5,
-            bottom: 5,
-            width: 3,
+            top: 4,
+            bottom: 4,
+            width: 2,
             borderRadius: 99,
             background: topColor,
-            opacity: 0.9,
           }} />
         )}
-        {/* 颜色点 */}
+
         <div style={{
-          width: 10, height: 10, borderRadius: "50%",
-          background: topColor, flexShrink: 0,
-          boxShadow: `0 1px 4px ${topColor}80`,
+          width: 8,
+          height: 8,
+          borderRadius: "50%",
+          background: topColor,
+          flexShrink: 0,
         }} />
 
-        {/* 名称 */}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{
-            fontSize: 12, fontWeight: 600, color: "var(--ci-text)",
-            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            fontSize: 11.5,
+            fontWeight: 600,
+            color: "var(--ci-text)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
           }}>
             {top.name}
           </div>
         </div>
 
-        {/* 数量提示 */}
         {sorted.length > 1 && (
           <span style={{
-            fontSize: 10, padding: "1px 6px", borderRadius: 99,
-            background: "var(--ci-surface)",
-            color: "var(--ci-text-muted)", fontWeight: 600,
+            fontSize: 8.5,
+            padding: "1px 5px",
+            borderRadius: 99,
+            background: "var(--ci-btn-ghost-bg)",
+            color: "var(--ci-text-muted)",
+            fontWeight: 600,
+            flexShrink: 0,
           }}>
             +{sorted.length - 1}
           </span>
         )}
 
-        {/* 展开箭头 */}
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none"
-          style={{ color: "var(--ci-text-dim)", flexShrink: 0 }}>
-          <path d="M2 4l3 3 3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-        </svg>
-      </motion.div>
-
-      {/* 底部颜色条指示 */}
-      <div style={{
-        position: "absolute",
-        bottom: 0,
-        left: 8, right: 8,
-        display: "flex", gap: 3, justifyContent: "center",
-      }}>
-        {sorted.slice(0, 5).map((ws) => (
-          <div key={ws.id} style={{
-            width: 8, height: 3, borderRadius: 99,
-            background: getWorkspaceColor(ws.color),
-            opacity: ws.id === activeId ? 0.9 : 0.3,
-          }} />
-        ))}
+        {sorted.length > 1 && (
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style={{ color: "var(--ci-text-dim)", flexShrink: 0 }}>
+            <path d="M2 4l3 3 3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        )}
       </div>
     </div>
   );
@@ -494,7 +473,7 @@ export function WorkspaceStack() {
   const suppressHoverExpandRef = useRef(false);
   const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const collapsedHeight = CARD_H + Math.min(sorted.length - 1, 3) * CARD_PEEK;
+  const collapsedHeight = SUMMARY_ROW_H;
 
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
@@ -545,11 +524,11 @@ export function WorkspaceStack() {
               onClick={() => setShowForm(true)}
               style={{
                 display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                padding: "12px 0",
+                padding: "10px 0",
                 background: "var(--ci-surface)",
-                border: `1.5px dashed var(--ci-border-med)`,
-                borderRadius: 10, cursor: "pointer",
-                color: "var(--ci-text-muted)", fontSize: 12,
+                border: `1px dashed var(--ci-border-med)`,
+                borderRadius: 8, cursor: "pointer",
+                color: "var(--ci-text-muted)", fontSize: 11.5,
                 transition: "background 0.15s, border-color 0.15s",
               }}
               onMouseEnter={e => {
@@ -565,7 +544,7 @@ export function WorkspaceStack() {
                 e.currentTarget.style.borderColor = "var(--ci-border)";
               }}
             >
-              <span style={{ fontSize: 16, lineHeight: 1, color: "var(--ci-accent)" }}>+</span>
+              <span style={{ fontSize: 14, lineHeight: 1, color: "var(--ci-accent)" }}>+</span>
               添加 Workspace
             </motion.button>
           )}
@@ -637,7 +616,7 @@ export function WorkspaceStack() {
                 color: "var(--ci-text-muted)",
                 fontSize: 11,
                 cursor: "pointer",
-                padding: "5px 2px",
+                padding: "6px 2px",
                 borderRadius: 0,
                 fontWeight: 600,
                 transition: "color 0.12s, opacity 0.12s",
@@ -658,7 +637,7 @@ export function WorkspaceStack() {
               background: "none",
               border: "none",
               borderRadius: 0,
-              padding: "5px 2px",
+              padding: "6px 2px",
               color: showForm ? "var(--ci-accent)" : "var(--ci-text-muted)",
               fontSize: 12,
               cursor: "pointer",
@@ -709,13 +688,11 @@ export function WorkspaceStack() {
             transition={{ duration: 0.16, ease: "easeOut" }}
             style={{ display: "flex", flexDirection: "column", gap: 4, transformOrigin: "top center" }}
           >
-            {sorted.map((ws, idx) => (
+            {sorted.map((ws) => (
               <WorkspaceCardExpanded
                 key={ws.id}
                 ws={ws}
                 isActive={ws.id === activeWorkspaceId}
-                index={idx}
-                total={sorted.length}
                 onClick={() => {
                   bringToFront(ws.id);
                   const point = lastPointerRef.current;
