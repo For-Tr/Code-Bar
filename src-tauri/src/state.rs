@@ -5,6 +5,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+use notify::RecommendedWatcher;
+
 // ── 子进程注册表 ───────────────────────────────────────────────
 pub type ProcessMap = Arc<Mutex<HashMap<String, std::process::Child>>>;
 
@@ -24,6 +26,9 @@ pub struct PtySessionMeta {
 
 /// session_id → PTY 会话元信息（用于 hooks 事件精确路由）
 pub type PtySessionMetaMap = Arc<Mutex<HashMap<String, PtySessionMeta>>>;
+
+/// session_id → Git watcher（用于 SCM 自动刷新）
+pub type GitWatcherMap = Arc<Mutex<HashMap<String, RecommendedWatcher>>>;
 
 // ── 展开前小窗口位置快照（内存缓存，比磁盘快）─────────────────────
 /// 展开终端面板时，把小窗口的精确位置存在这里。

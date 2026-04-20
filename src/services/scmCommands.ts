@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { openDiff } from "./editorCommands";
+import { openDiff, revealExplorerPath } from "./editorCommands";
 import { useEditorStore } from "../store/editorStore";
 import { useExplorerStore } from "../store/explorerStore";
 import { type ScmActionMode, type ScmEntryGroup, useScmStore } from "../store/scmStore";
@@ -24,7 +24,7 @@ function getSession(sessionId: string) {
 
 function openScmFileInEditor(sessionId: string, path: string, preview = true) {
   useEditorStore.getState().openFile(sessionId, path, preview);
-  useExplorerStore.getState().setSelectedPath(sessionId, path);
+  revealExplorerPath(sessionId, path, "focusNoScroll", "scm");
   const workbench = useWorkbenchStore.getState();
   workbench.showScm(sessionId);
   workbench.setCenterSurface("editor");
@@ -84,7 +84,7 @@ export function selectScmFile(sessionId: string, group: ScmEntryGroup, path: str
     }).catch(() => {});
   }
 
-  openDiff(sessionId, path);
+  openDiff(sessionId, path, "focusNoScroll");
 }
 
 export async function stageScmFile(sessionId: string, path: string) {
@@ -119,6 +119,26 @@ export async function commitScm(sessionId: string) {
     await invoke("git_commit_staged", { workdir: session.workdir, message });
   });
   useScmStore.getState().setCommitMessage(sessionId, "");
+}
+
+export async function stageAllScm(sessionId: string, paths?: string[]) {
+  const session = getSession(sessionId);
+  if (!session) return;
+  await withRefresh(sessionId, async () => {
+    if (paths && paths.length > 0) {
+      await invoke("git_stage_paths", { workdir: session.workdir, paths });
+      return;
+    }
+    await invoke("git_stage_all", { workdir: session.workdir });
+  });
+}
+
+export async function unstageAllScm(sessionId: string) {
+  const session = getSession(sessionId);
+  if (!session) return;
+  await withRefresh(sessionId, async () => {
+    await invoke("git_unstage_all", { workdir: session.workdir });
+  });
 }
 
 export async function applyScmHunk(sessionId: string, path: string, mode: ScmActionMode, hunkIndex: number, action: "stage" | "unstage" | "discard") {

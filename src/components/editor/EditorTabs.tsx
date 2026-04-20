@@ -124,7 +124,9 @@ function SortableEditorTab({
   return (
     <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
       <button
-        onClick={() => setActiveTab(group.id, tabId)}
+        onClick={() => {
+          setActiveTab(group.id, tabId);
+        }}
         onDoubleClick={() => pinTab(tabId)}
         style={{
           flex: 1,

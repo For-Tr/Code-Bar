@@ -4,4 +4,5 @@ pub mod conflict;
 pub mod content;
 pub mod diff;
 pub mod status;
+pub mod watch;
 pub mod worktree;

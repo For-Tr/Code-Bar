@@ -20,7 +20,7 @@ interface SessionDirectoryListResult {
   entries: ExplorerEntry[];
 }
 
-function collectAncestorDirs(path: string) {
+export function collectAncestorDirs(path: string) {
   const parts = path.split("/").filter(Boolean);
   const dirs: string[] = [];
   for (let index = 0; index < parts.length - 1; index += 1) {
@@ -29,23 +29,75 @@ function collectAncestorDirs(path: string) {
   return dirs;
 }
 
-export function openFile(sessionId: string, path: string, preview = true) {
-  const tabId = useEditorStore.getState().openFile(sessionId, path, preview);
+export type ExplorerSelectMode = false | true | "force" | "focusNoScroll";
+export type ExplorerSelectSource = "explorer" | "editor" | "editor-tabs" | "scm" | "command";
+
+const suppressedEditorRevealBySession = new Set<string>();
+
+function shouldAutoRevealExplorerPath(
+  _sessionId: string,
+  _path: string,
+  reveal: ExplorerSelectMode,
+  source: ExplorerSelectSource,
+) {
+  if (reveal === "force") return "force" as const;
+  if (reveal === false) return false;
+  if (source === "explorer") {
+    return false;
+  }
+  if (source === "scm") {
+    return "focusNoScroll" as const;
+  }
+  return reveal;
+}
+
+export function selectExplorerPath(sessionId: string, path: string, reveal: ExplorerSelectMode = true, source: ExplorerSelectSource = "explorer") {
+  const finalReveal = shouldAutoRevealExplorerPath(sessionId, path, reveal, source);
   const explorerStore = useExplorerStore.getState();
   const currentExpanded = explorerStore.expandedDirsBySession[sessionId] ?? [];
   const ancestors = collectAncestorDirs(path);
-  const missing = ancestors.filter((dir) => !currentExpanded.includes(dir));
-  if (missing.length > 0) {
-    explorerStore.setExpandedDirs(sessionId, [...currentExpanded, ...missing]);
+  const shouldExpandAncestors = finalReveal === true || finalReveal === "force" || finalReveal === "focusNoScroll";
+  if (shouldExpandAncestors) {
+    const missing = ancestors.filter((dir) => !currentExpanded.includes(dir));
+    if (missing.length > 0) {
+      explorerStore.setExpandedDirs(sessionId, [...currentExpanded, ...missing]);
+    }
   }
-  explorerStore.setSelectedPath(sessionId, path);
+  explorerStore.setSelectedPath(sessionId, path, finalReveal);
+}
+
+export function revealExplorerPath(sessionId: string, path: string, reveal: ExplorerSelectMode = true, source: ExplorerSelectSource = "explorer") {
+  selectExplorerPath(sessionId, path, reveal, source);
+}
+
+export function suppressNextEditorReveal(sessionId: string) {
+  suppressedEditorRevealBySession.add(sessionId);
+}
+
+export function consumeSuppressedEditorReveal(sessionId: string) {
+  if (!suppressedEditorRevealBySession.has(sessionId)) {
+    return false;
+  }
+  suppressedEditorRevealBySession.delete(sessionId);
+  return true;
+}
+
+export function openFile(sessionId: string, path: string, preview = true, reveal: ExplorerSelectMode = true, source: ExplorerSelectSource = "explorer") {
+  if (source === "explorer") {
+    suppressNextEditorReveal(sessionId);
+  }
+  const tabId = useEditorStore.getState().openFile(sessionId, path, preview);
+  revealExplorerPath(sessionId, path, reveal, source);
   useWorkbenchStore.getState().showExplorer(sessionId);
   return tabId;
 }
 
-export function openDiff(sessionId: string, path: string) {
+export function openDiff(sessionId: string, path: string, reveal: ExplorerSelectMode = true, source: ExplorerSelectSource = "explorer") {
+  if (source === "explorer") {
+    suppressNextEditorReveal(sessionId);
+  }
   const tabId = useEditorStore.getState().openDiff(sessionId, path);
-  useExplorerStore.getState().setSelectedPath(sessionId, path);
+  revealExplorerPath(sessionId, path, reveal, source);
   useWorkbenchStore.getState().showScm(sessionId);
   return tabId;
 }
@@ -118,6 +170,32 @@ export async function loadDirectory(sessionId: string, dir = "") {
     store.setDirectoryError(sessionId, dir, error instanceof Error ? error.message : String(error));
     return [];
   }
+}
+
+export async function reloadVisibleDirectories(sessionId: string) {
+  const explorer = useExplorerStore.getState();
+  const expandedDirs = explorer.expandedDirsBySession[sessionId] ?? [];
+  const dirs = [...new Set(["", ...expandedDirs])];
+  await Promise.all(dirs.map((dir) => loadDirectory(sessionId, dir)));
+}
+
+export function getVisibleExplorerDirectories(sessionId: string) {
+  const explorer = useExplorerStore.getState();
+  const expandedDirs = explorer.expandedDirsBySession[sessionId] ?? [];
+  return new Set(["", ...expandedDirs]);
+}
+
+export function filterVisibleExplorerDirectories(sessionId: string, dirs: string[]) {
+  const visibleDirs = getVisibleExplorerDirectories(sessionId);
+  return [...new Set(dirs.map((dir) => dir.trim().replace(/^\/+|\/+$/g, "")))].filter((dir) => visibleDirs.has(dir));
+}
+
+export async function reloadExplorerDirectories(sessionId: string, dirs: string[]) {
+  const visibleDirs = getVisibleExplorerDirectories(sessionId);
+  const normalizedDirs = [...new Set(dirs.map((dir) => dir.trim().replace(/^\/+|\/+$/g, "")))];
+  const targets = normalizedDirs.filter((dir) => visibleDirs.has(dir));
+  const visibleTargets = targets.length > 0 ? targets : [""];
+  await Promise.all(visibleTargets.map((dir) => loadDirectory(sessionId, dir)));
 }
 
 export function closeTab(tabId: string) {

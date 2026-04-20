@@ -20,8 +20,8 @@ mod window;
 use std::path::PathBuf;
 
 use state::{
-    PopupVisible, PreExpandPos, ProcessMap, PtyKillerMap, PtyMasterMap, PtySessionMetaMap,
-    PtyWriterMap, RestoringLock,
+    GitWatcherMap, PopupVisible, PreExpandPos, ProcessMap, PtyKillerMap, PtyMasterMap,
+    PtySessionMetaMap, PtyWriterMap, RestoringLock,
 };
 use tauri::{
     menu::{Menu, MenuItem},
@@ -94,6 +94,7 @@ pub fn run() {
         .manage(PtyKillerMap::default())
         .manage(PtyMasterMap::default())
         .manage(PtySessionMetaMap::default())
+        .manage(GitWatcherMap::default())
         .manage(PopupVisible::new(false))
         .manage(PreExpandPos::new())
         .manage(RestoringLock::new())
@@ -221,11 +222,16 @@ pub fn run() {
             git::actions::git_unstage_file,
             git::actions::git_discard_file,
             git::actions::git_commit_staged,
+            git::actions::git_stage_all,
+            git::actions::git_stage_paths,
+            git::actions::git_unstage_all,
             git::actions::git_stage_hunk,
             git::actions::git_unstage_hunk,
             git::actions::git_discard_hunk,
             git::conflict::git_read_conflict_file,
             git::conflict::git_resolve_conflict,
+            git::watch::start_git_watch,
+            git::watch::stop_git_watch,
             // Session files
             session_files::remember_session_workdir,
             session_files::remove_session_workdir,

@@ -16,10 +16,13 @@ function EmptyEditorState({ message }: { message: string }) {
     <div style={{
       width: "100%",
       height: "100%",
+      minHeight: 0,
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
       padding: 24,
+      boxSizing: "border-box",
+      overflow: "hidden",
     }}>
       <div style={{
         maxWidth: 280,
@@ -52,7 +55,7 @@ export function EditorHost({
 }: {
   session: ClaudeSession | null;
   groupId: string;
-  onRefreshDiff: (sessionId?: string | null) => void;
+  onRefreshDiff: (sessionId?: string | null, options?: { reloadExplorer?: boolean }) => void;
 }) {
   const group = useEditorStore((s) => s.groupsById[groupId]);
   const tabsById = useEditorStore((s) => s.tabsById);
@@ -60,7 +63,6 @@ export function EditorHost({
   const activeGroupIdBySessionId = useEditorStore((s) => s.activeGroupIdBySessionId);
   const buffersByTabId = useEditorBufferStore((s) => s.buffersByTabId);
   const updateDraft = useEditorBufferStore((s) => s.updateDraft);
-  const setSelectedPath = useExplorerStore((s) => s.setSelectedPath);
 
   const tabIds = group?.tabIds ?? [];
   const resolvedActiveTabId = group?.activeTabId && tabIds.includes(group.activeTabId)
@@ -85,15 +87,12 @@ export function EditorHost({
   useEffect(() => {
     if (!activeTab || !session || !group) return;
     if (activeTab.sessionId !== session.id) return;
-    if (isFocusedGroup) {
-      setSelectedPath(session.id, activeTab.path);
-    }
     if (activeTab.viewMode !== "code") return;
     const fileMeta = scmFiles.find((file) => file.path === activeTab.path) ?? null;
     if (fileMeta?.type === "deleted") return;
     if (activeBuffer?.loaded || activeBuffer?.loading || activeBuffer?.error) return;
     void loadFile(activeTab.id);
-  }, [activeBuffer?.error, activeBuffer?.loaded, activeBuffer?.loading, activeTab, group, scmFiles, session, setSelectedPath]);
+  }, [activeBuffer?.error, activeBuffer?.loaded, activeBuffer?.loading, activeTab, group, scmFiles, session]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -103,7 +102,7 @@ export function EditorHost({
       event.preventDefault();
       if (activeBuffer?.dirty !== true || activeBuffer.saving || activeBuffer.isBinary || activeFile?.type === "deleted") return;
       void saveTab(activeTab.id).then(() => {
-        onRefreshDiff(activeTab.sessionId);
+        onRefreshDiff(activeTab.sessionId, { reloadExplorer: true });
       });
     };
 
@@ -128,7 +127,7 @@ export function EditorHost({
 
   if (!activeBuffer || activeBuffer.loading) {
     return (
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "var(--ci-text-dim)", fontSize: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%", height: "100%", minHeight: 0, overflow: "hidden", color: "var(--ci-text-dim)", fontSize: 12 }}>
         载入文件中…
       </div>
     );
@@ -136,7 +135,7 @@ export function EditorHost({
 
   if (activeBuffer.error) {
     return (
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", padding: 24, color: "var(--ci-deleted-text)", fontSize: 12, lineHeight: 1.7 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%", height: "100%", minHeight: 0, overflow: "hidden", padding: 24, boxSizing: "border-box", color: "var(--ci-deleted-text)", fontSize: 12, lineHeight: 1.7 }}>
         {activeBuffer.error}
       </div>
     );
@@ -147,7 +146,7 @@ export function EditorHost({
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0, overflow: "hidden" }}>
+    <div style={{ display: "flex", flexDirection: "column", width: "100%", height: "100%", minHeight: 0, overflow: "hidden" }}>
       <div style={{
         display: "flex",
         alignItems: "center",
@@ -169,7 +168,7 @@ export function EditorHost({
         <button
           onClick={() => {
             void saveTab(activeTab.id).then(() => {
-              onRefreshDiff(activeTab.sessionId);
+              onRefreshDiff(activeTab.sessionId, { reloadExplorer: true });
             });
           }}
           disabled={!activeBuffer.dirty || activeBuffer.saving}
