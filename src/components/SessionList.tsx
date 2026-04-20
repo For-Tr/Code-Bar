@@ -77,7 +77,7 @@ function StatusDot({ status }: { status: SessionStatus }) {
 
 // ── Session 卡片 ─────────────────────────────────────────────
 function SessionCard({
-  session, isSelected, isOpened, accentColor, isGlass, showExpandButton, isDeleteConfirming, onClick, onExpand, onOpenExplore, onRemove, onRotateSuspend,
+  session, isSelected, isOpened, accentColor, isGlass, showExpandButton, isDeleteConfirming, onClick, onCancelDelete, onExpand, onOpenExplore, onRemove, onRotateSuspend,
 }: {
   session: ClaudeSession;
   isSelected: boolean;
@@ -87,6 +87,7 @@ function SessionCard({
   showExpandButton: boolean;
   isDeleteConfirming: boolean;
   onClick: () => void;
+  onCancelDelete: () => void;
   onExpand: () => void;
   onOpenExplore: () => void;
   onRemove: () => void;
@@ -268,7 +269,7 @@ function SessionCard({
             确认删除
           </button>
           <button
-            onClick={(e) => { e.stopPropagation(); setHovered(false); onClick(); }}
+            onClick={(e) => { e.stopPropagation(); setHovered(false); onCancelDelete(); }}
             onMouseDown={(e) => {
               e.preventDefault();
               e.stopPropagation();
@@ -649,6 +650,9 @@ export function SessionList() {
                           return;
                         }
                         setActiveSession(session.id);
+                      }}
+                      onCancelDelete={() => {
+                        setPendingDeleteSessionId(null);
                       }}
                       onExpand={() => {
                         setPendingDeleteSessionId(null);
