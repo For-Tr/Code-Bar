@@ -124,13 +124,18 @@ function GroupSection({
   selectedPath: string | null;
   busy: boolean;
 }) {
+  const [hoveredPath, setHoveredPath] = useState<string | null>(null);
+
   return (
     <>
       {files.map((file) => {
         const isSelected = selectedPath === file.path;
+        const isHovered = hoveredPath === file.path;
         return (
           <div
             key={`${group}:${file.path}`}
+            onMouseEnter={() => setHoveredPath(file.path)}
+            onMouseLeave={() => setHoveredPath((current) => (current === file.path ? null : current))}
             style={{
               width: "100%",
               display: "flex",
@@ -138,8 +143,8 @@ function GroupSection({
               gap: 8,
               minHeight: 22,
               padding: "0 8px 0 24px",
-              background: isSelected ? "var(--ci-accent-bg)" : "transparent",
-              color: isSelected ? "var(--ci-text)" : "var(--ci-text-muted)",
+              background: isSelected ? "var(--ci-list-active-bg)" : isHovered ? "var(--ci-list-hover-bg)" : "transparent",
+              color: isSelected || isHovered ? "var(--ci-text)" : "var(--ci-text-muted)",
               borderLeft: isSelected ? "1px solid var(--ci-accent)" : "1px solid transparent",
             }}
           >
@@ -167,7 +172,7 @@ function GroupSection({
                 {file.path}
               </span>
             </button>
-            <div style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0, opacity: isSelected || isHovered ? 1 : 0, pointerEvents: isSelected || isHovered ? "auto" : "none" }}>
               {(group === "unstaged" || group === "untracked") && (
                 <ActionButton label="Stage" icon={<ArrowUp size={12} strokeWidth={1.8} />} onClick={() => stageScmFile(sessionId, file.path)} disabled={busy} />
               )}

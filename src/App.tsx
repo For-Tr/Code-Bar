@@ -3,19 +3,18 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { setLiquidGlassEffect, GlassMaterialVariant } from "tauri-plugin-liquid-glass-api";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { TitleBar } from "./components/TitleBar";
 import { StatusBar } from "./components/StatusBar";
 import { WorkspaceStack } from "./components/WorkspaceStack";
 import { SessionList } from "./components/SessionList";
-import { DiffViewer } from "./components/DiffViewer";
 import { SessionDetail } from "./components/SessionDetail";
 import { SplitWidgetPanel } from "./components/SplitWidgetPanel";
 import { SplitSwapProvider } from "./components/SplitSwapLayout";
 import { WorkbenchSidebar } from "./workbench/WorkbenchSidebar";
 import { WorkbenchCenter } from "./workbench/WorkbenchCenter";
 import Settings from "./components/Settings";
-import { useSessionStore, DiffFile, type ClaudeSession } from "./store/sessionStore";
+import { useSessionStore, type DiffFile, type ClaudeSession } from "./store/sessionStore";
 import {
   useSettingsStore,
   isGlassTheme,
@@ -26,7 +25,6 @@ import { useWorkbenchStore } from "./store/workbenchStore";
 import { useScmStore } from "./store/scmStore";
 
 const spring = { type: "spring" as const, stiffness: 320, damping: 28, mass: 1 };
-const EMPTY_DIFF_FILES: DiffFile[] = [];
 
 export default function App() {
   const {
@@ -74,6 +72,8 @@ export default function App() {
         root.style.setProperty("--ci-accent",       "#0A84FF");
         root.style.setProperty("--ci-accent-bg",    "rgba(10,132,255,0.15)");
         root.style.setProperty("--ci-accent-bdr",   "rgba(10,132,255,0.30)");
+        root.style.setProperty("--ci-list-hover-bg", "rgba(255,255,255,0.08)");
+        root.style.setProperty("--ci-list-active-bg", "rgba(255,255,255,0.05)");
         root.style.setProperty("--ci-green",        "#30D158");
         root.style.setProperty("--ci-green-dark",   "#4cd964");
         root.style.setProperty("--ci-green-bg",     "rgba(48,209,88,0.15)");
@@ -155,6 +155,8 @@ export default function App() {
         root.style.setProperty("--ci-accent", "#2d8cff");
         root.style.setProperty("--ci-accent-bg", "rgba(63,145,255,0.10)");
         root.style.setProperty("--ci-accent-bdr", "rgba(96,175,255,0.20)");
+        root.style.setProperty("--ci-list-hover-bg", "rgba(255,255,255,0.12)");
+        root.style.setProperty("--ci-list-active-bg", "rgba(63,145,255,0.10)");
         root.style.setProperty("--ci-green", "#34C759");
         root.style.setProperty("--ci-green-dark", "#19793a");
         root.style.setProperty("--ci-green-bg", "rgba(52,199,89,0.10)");
@@ -236,6 +238,8 @@ export default function App() {
         root.style.setProperty("--ci-accent",       "#007AFF");
         root.style.setProperty("--ci-accent-bg",    "rgba(0,122,255,0.08)");
         root.style.setProperty("--ci-accent-bdr",   "rgba(0,122,255,0.20)");
+        root.style.setProperty("--ci-list-hover-bg", "rgba(0,0,0,0.05)");
+        root.style.setProperty("--ci-list-active-bg", "rgba(0,122,255,0.10)");
         root.style.setProperty("--ci-green",        "#34C759");
         root.style.setProperty("--ci-green-dark",   "#1a7f37");
         root.style.setProperty("--ci-green-bg",     "rgba(52,199,89,0.10)");
@@ -352,7 +356,6 @@ export default function App() {
   const activeSession = sessions.find(
     (s) => s.id === activeSessionId && s.workspaceId === activeWorkspaceId
   );
-  const activeScmFiles = useScmStore((s) => activeSession ? (s.snapshotBySessionId[activeSession.id]?.files ?? activeSession.diffFiles) : EMPTY_DIFF_FILES);
   const expandedSession = sessions.find((s) => s.id === expandedSessionId) ?? null;
   const visibleSplitSessionId = expandedSession?.workspaceId === activeWorkspaceId
     ? expandedSession.id
@@ -680,7 +683,6 @@ export default function App() {
     useWorkbenchStore.getState().resetWorkbenchMode();
   }, [sidebarSection, workbenchSession]);
 
-  const hasDiff = activeScmFiles.length > 0;
   const splitSidebarWidth = settings.splitPaneSidebarWidth;
   const splitWidgetPanelWidth = settings.splitWidgetPanelWidth;
   const splitWidgetPanelCollapsed = settings.splitWidgetPanelCollapsed;
@@ -747,64 +749,6 @@ export default function App() {
       <div style={{ padding: "0 18px 12px" }}>
         <SessionList />
       </div>
-
-      <AnimatePresence>
-        {hasDiff && (
-          <motion.div
-            key="diff"
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.2 }}
-            style={{
-              margin: "0 18px 16px",
-              overflow: "hidden",
-              background: "transparent",
-            }}
-          >
-            <div style={{
-              display: "flex", alignItems: "center", gap: 8,
-              padding: "8px 0 6px",
-              borderTop: "1px solid var(--ci-toolbar-border)",
-            }}>
-              <span style={{
-                fontSize: 10, fontWeight: 600,
-                letterSpacing: "0.07em", textTransform: "uppercase",
-                color: "var(--ci-text-dim)",
-              }}>
-                变更
-              </span>
-              <span style={{
-                fontSize: 9.5, padding: "1px 6px", borderRadius: 999,
-                background: "var(--ci-green-bg)",
-                border: "1px solid var(--ci-green-bdr)",
-                color: "var(--ci-green-dark)",
-                fontWeight: 600,
-              }}>
-                +{activeScmFiles.reduce((s, f) => s + f.additions, 0)}
-              </span>
-              <span style={{
-                fontSize: 9.5, padding: "1px 6px", borderRadius: 999,
-                background: "var(--ci-deleted-bg)",
-                border: "1px solid var(--ci-border-med)",
-                color: "var(--ci-deleted-text)",
-                fontWeight: 600,
-              }}>
-                −{activeScmFiles.reduce((s, f) => s + f.deletions, 0)}
-              </span>
-              <div style={{ flex: 1, height: 1, background: "var(--ci-border)" }} />
-            </div>
-            <div style={{
-              border: "1px solid var(--ci-toolbar-border)",
-              borderRadius: 14,
-              overflow: "hidden",
-              background: "var(--ci-surface)",
-            }}>
-              <DiffViewer files={activeScmFiles} />
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       <div style={{
         position: "sticky",

@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -11,7 +11,6 @@ import { showScm, resetWorkbenchMode } from "../../services/workbenchCommands";
 import { useEditorBufferStore } from "../../store/editorBufferStore";
 import { type ExplorerEntry, useExplorerStore } from "../../store/explorerStore";
 import { EMPTY_SCM_GROUPS, useScmStore } from "../../store/scmStore";
-import { useSettingsStore } from "../../store/settingsStore";
 import { type ClaudeSession } from "../../store/sessionStore";
 import { OpenEditorsPane } from "./OpenEditorsPane";
 import { WorkbenchTooltip } from "../ui/WorkbenchTooltip";
@@ -137,7 +136,6 @@ export function ExplorerPane({
   session: ClaudeSession;
   onRefreshDiff: (sessionId?: string | null) => void;
 }) {
-  const theme = useSettingsStore((s) => s.settings.theme);
   const expandedDirsBySession = useExplorerStore((s) => s.expandedDirsBySession);
   const selectedPathBySession = useExplorerStore((s) => s.selectedPathBySession);
   const childrenBySessionPath = useExplorerStore((s) => s.childrenBySessionPath);
@@ -154,7 +152,9 @@ export function ExplorerPane({
   const rootKey = `${session.id}:`;
   const rootLoading = loadingBySessionPath[rootKey] ?? false;
   const rootError = errorBySessionPath[rootKey] ?? null;
-  const rowActiveBackground = theme === "dark" ? "rgba(255,255,255,0.05)" : "rgba(0,122,255,0.10)";
+  const rowActiveBackground = "var(--ci-list-active-bg)";
+  const rowHoverBackground = "var(--ci-list-hover-bg)";
+  const [hoveredNodeKey, setHoveredNodeKey] = useState<string | null>(null);
 
   useEffect(() => {
     if (!(rootKey in childrenBySessionPath) && !rootLoading && !rootError) {
@@ -278,6 +278,7 @@ export function ExplorerPane({
         ) : nodes.map((node) => {
           if (node.type === "dir") {
             const isOpen = expandedDirSet.has(node.path);
+            const isHovered = hoveredNodeKey === node.key;
             return (
               <div key={node.key}>
                 <button
@@ -287,11 +288,14 @@ export function ExplorerPane({
                       void loadDirectory(session.id, node.path);
                     }
                   }}
+                  onMouseEnter={() => setHoveredNodeKey(node.key)}
+                  onMouseLeave={() => setHoveredNodeKey((current) => (current === node.key ? null : current))}
                   style={{
                     ...rowBaseStyle,
                     padding: "0 10px",
                     paddingLeft: 8 + node.depth * 14,
-                    color: "var(--ci-text-muted)",
+                    background: isHovered ? rowHoverBackground : "transparent",
+                    color: isHovered ? "var(--ci-text)" : "var(--ci-text-muted)",
                     cursor: "pointer",
                   }}
                 >
@@ -314,6 +318,7 @@ export function ExplorerPane({
           }
 
           const isSelected = selectedPath === node.path;
+          const isHovered = hoveredNodeKey === node.key;
           const buffer = buffersByTabId[`code:${session.id}:${node.path}`];
           const kind = statusByPath.get(node.path) ?? null;
           return (
@@ -333,12 +338,14 @@ export function ExplorerPane({
                 openFile(session.id, node.path, true);
               }}
               onDoubleClick={() => openFile(session.id, node.path, false)}
+              onMouseEnter={() => setHoveredNodeKey(node.key)}
+              onMouseLeave={() => setHoveredNodeKey((current) => (current === node.key ? null : current))}
               style={{
                 ...rowBaseStyle,
                 padding: "0 10px",
                 paddingLeft: 24 + node.depth * 14,
-                background: isSelected ? rowActiveBackground : "transparent",
-                color: isSelected ? "var(--ci-text)" : "var(--ci-text-muted)",
+                background: isSelected ? rowActiveBackground : isHovered ? rowHoverBackground : "transparent",
+                color: isSelected || isHovered ? "var(--ci-text)" : "var(--ci-text-muted)",
                 cursor: "pointer",
                 borderLeft: isSelected ? "1px solid var(--ci-accent)" : "1px solid transparent",
               }}

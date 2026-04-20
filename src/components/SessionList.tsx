@@ -8,7 +8,6 @@ import { ClaudeSession, SessionStatus, orderWorkspaceSessions, useSessionStore }
 import { useWorkspaceStore, getWorkspaceColor } from "../store/workspaceStore";
 import { useSettingsStore, RUNNER_LABELS, sanitizeRunnerConfig, isGlassTheme } from "../store/settingsStore";
 import { useWorkbenchStore } from "../store/workbenchStore";
-import { useScmStore } from "../store/scmStore";
 import { showExplorer, showSessionSurface } from "../services/workbenchCommands";
 
 // ── 状态配置（使用 CSS 变量）────────────────────────────────
@@ -73,7 +72,7 @@ const ExpandIcon = () => (
 
 function StatusDot({ status }: { status: SessionStatus }) {
   const { dotColor } = STATUS_CONFIG[status];
-  return <div style={{ width: 9, height: 9, borderRadius: "50%", background: dotColor, flexShrink: 0 }} />;
+  return <div style={{ width: 8, height: 8, borderRadius: "50%", background: dotColor, flexShrink: 0 }} />;
 }
 
 // ── Session 卡片 ─────────────────────────────────────────────
@@ -93,16 +92,49 @@ function SessionCard({
   onRemove: () => void;
   onRotateSuspend: () => void;
 }) {
+  const [hovered, setHovered] = useState(false);
   const runnerLabel = RUNNER_LABELS[session.runner.type];
-  const scmFiles = useScmStore((s) => s.snapshotBySessionId[session.id]?.files ?? session.diffFiles);
-  const totalAdditions = scmFiles.reduce((sum, file) => sum + file.additions, 0);
-  const totalDeletions = scmFiles.reduce((sum, file) => sum + file.deletions, 0);
   const cfg = STATUS_CONFIG[session.status];
   const isWaiting = session.status === "waiting";
   const isSuspended = session.status === "suspended";
   const isRunning = session.status === "running";
   const isError   = session.status === "error";
   const textShadow = isGlass ? "var(--ci-glass-text-shadow)" : "none";
+  const showActions = hovered || isSelected || isOpened || isDeleteConfirming;
+  const showSecondary = hovered || isSelected || isOpened || isDeleteConfirming;
+  const rowBackground = isDeleteConfirming
+    ? "var(--ci-deleted-bg)"
+    : isOpened
+    ? "var(--ci-list-active-bg)"
+    : hovered || isSelected
+    ? "var(--ci-list-hover-bg)"
+    : "transparent";
+  const nameColor = isOpened || isSelected || hovered || isWaiting ? "var(--ci-text)" : "var(--ci-text-muted)";
+  const showRunner = hovered || isSelected || isOpened;
+  const runnerColor = hovered || isSelected || isOpened ? "var(--ci-text-muted)" : "var(--ci-text-dim)";
+  const runnerOpacity = hovered || isSelected || isOpened ? 0.95 : 0;
+  const iconButtonStyle = {
+    background: "var(--ci-btn-ghost-bg)",
+    border: "1px solid transparent",
+    color: "var(--ci-text-dim)",
+    cursor: "pointer",
+    padding: "3px 5px",
+    borderRadius: 5,
+    flexShrink: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  } as const;
+  const textButtonStyle = {
+    background: "var(--ci-btn-ghost-bg)",
+    border: "1px solid transparent",
+    color: "var(--ci-text-dim)",
+    cursor: "pointer",
+    padding: "3px 6px",
+    borderRadius: 5,
+    flexShrink: 0,
+    fontSize: 10,
+  } as const;
 
   return (
     <motion.div
@@ -113,265 +145,104 @@ function SessionCard({
       exit={{ opacity: 0, x: -6, height: 0 }}
       transition={{ duration: 0.16 }}
       onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       style={{
-        display: "flex", alignItems: "center", gap: 10,
-        padding: "11px 12px",
-        borderRadius: 12,
-        background: isOpened
-          ? "var(--ci-accent-bg)"
-          : "transparent",
-        border: isOpened
-          ? `1px solid ${accentColor}55`
-          : isDeleteConfirming
-          ? "1px solid var(--ci-red)"
-          : showExpandButton && isSelected
-          ? "1px solid var(--ci-border-med)"
-          : isSuspended || isError
-          ? "1px solid var(--ci-border-med)"
-          : "1px solid var(--ci-toolbar-border)",
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        padding: "6px 8px 6px 10px",
+        borderRadius: 7,
+        background: rowBackground,
+        border: isDeleteConfirming ? "1px solid rgba(255,59,48,0.24)" : "1px solid transparent",
         cursor: "pointer",
         position: "relative",
         overflow: "hidden",
-        transition: isGlass ? "border-color 0.15s, color 0.15s" : "background 0.15s, border-color 0.15s, box-shadow 0.15s",
-        boxShadow: isOpened ? `0 10px 24px ${accentColor}14` : "none",
+        transition: "background 0.12s, border-color 0.12s",
         textShadow,
       }}
     >
-      {/* 左侧状态色条 */}
-      {(isOpened || cfg.leftAccent) && (
+      {isOpened && (
         <div style={{
           position: "absolute",
-          left: 0, top: 5, bottom: 5,
-          width: isOpened ? 4 : 3,
+          left: 0,
+          top: 4,
+          bottom: 4,
+          width: 2,
           borderRadius: 99,
-          background: isOpened ? accentColor : cfg.leftAccent,
-          opacity: isOpened ? 1 : 0.8,
+          background: accentColor,
         }} />
       )}
 
       <StatusDot status={session.status} />
 
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 5, minWidth: 0 }}>
           <span style={{
-            color: isOpened || isSelected || isWaiting ? "var(--ci-text)" : "var(--ci-text-muted)",
-            fontSize: 12, fontWeight: isOpened || isWaiting ? 700 : 600,
-            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            color: nameColor,
+            fontSize: 11.5,
+            fontWeight: isOpened ? 700 : 600,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
             minWidth: 0,
           }}>
             {session.name}
           </span>
           <span style={{
-            fontSize: 9.5, padding: "1px 6px", borderRadius: 99,
-            background: "var(--ci-accent-bg)",
-            border: "1px solid var(--ci-accent-bdr)",
-            color: "var(--ci-accent)",
-            flexShrink: 0, fontWeight: 600,
+            fontSize: 9.5,
+            color: runnerColor,
+            opacity: runnerOpacity,
+            maxWidth: showRunner ? 80 : 0,
+            overflow: "hidden",
+            whiteSpace: "nowrap",
+            flexShrink: 0,
+            transition: "opacity 0.12s, color 0.12s, max-width 0.12s",
           }}>
             {runnerLabel}
           </span>
-          {/* 状态 badge：idle 时不显示 */}
           {session.status !== "idle" && (
             <span style={{
-              fontSize: 9, padding: "1px 6px", borderRadius: 99,
+              fontSize: 8.5,
+              padding: "1px 5px",
+              borderRadius: 99,
               background: cfg.badgeBg,
               border: `1px solid ${cfg.badgeBorder}`,
               color: cfg.badgeText,
-              flexShrink: 0, fontWeight: 600,
+              flexShrink: 0,
+              fontWeight: 600,
             }}>
               {cfg.label}
             </span>
           )}
         </div>
 
-        {/* waiting：操作提示 */}
-        {isWaiting && (
-          <p
-            style={{
-              margin: "2px 0 0", fontSize: 11,
-              color: "var(--ci-text-dim)",
-              display: "flex", alignItems: "center", gap: 4,
-            }}
-          >
-            <span style={{ fontSize: 10 }}>⚡</span>
-            {showExpandButton ? "点击展开终端查看并输入" : "点击卡片聚焦会话"}
-          </p>
-        )}
-
-        {/* 运行中：当前任务 */}
-        {!isWaiting && session.currentTask && (
+        {showSecondary && (session.currentTask ? (
           <p style={{
-            margin: "2px 0 0", fontSize: 11,
-            color: isError
-              ? "var(--ci-deleted-text)"
-              : "var(--ci-text-dim)",
-            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            margin: "1px 0 0",
+            fontSize: 10,
+            color: isError ? "var(--ci-deleted-text)" : "var(--ci-text-dim)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
           }}>
             {isRunning && <span style={{ marginRight: 3 }}>›</span>}
             {session.currentTask}
           </p>
-        )}
-
-        {/* Worktree 分支信息 */}
-        {session.branchName && (
+        ) : session.branchName ? (
           <p style={{
-            margin: "3px 0 0", fontSize: 10,
+            margin: "1px 0 0",
+            fontSize: 9.5,
             color: "var(--ci-text-dim)",
-            display: "flex", alignItems: "center", gap: 4,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
           }}>
-            <span style={{
-              fontSize: 8.5, padding: "1px 6px", borderRadius: 99,
-              background: "var(--ci-purple-bg)",
-              border: "1px solid var(--ci-purple-bdr)",
-              color: "var(--ci-purple)",
-              fontFamily: "monospace",
-              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-              maxWidth: 140,
-            }}>
-              ⎇ s-{session.id}
-            </span>
-            {scmFiles.length > 0 && (
-              <>
-                <span style={{ opacity: 0.35 }}>·</span>
-                <span style={{ color: "var(--ci-green-dark)", fontWeight: 600 }}>
-                  +{totalAdditions}
-                </span>
-                <span style={{ color: "var(--ci-deleted-text)", fontWeight: 600 }}>
-                  −{totalDeletions}
-                </span>
-              </>
-            )}
+            <span style={{ fontFamily: "monospace" }}>⎇ s-{session.id}</span>
           </p>
-        )}
-
-        {!session.branchName && scmFiles.length > 0 && (
-          <p style={{
-            margin: "2px 0 0", fontSize: 10,
-            color: "var(--ci-text-dim)",
-            display: "flex", alignItems: "center", gap: 4,
-          }}>
-            {scmFiles.length} 变更{" "}
-            <span style={{ color: "var(--ci-green-dark)", fontWeight: 600 }}>
-              +{totalAdditions}
-            </span>{" "}
-            <span style={{ color: "var(--ci-deleted-text)", fontWeight: 600 }}>
-              −{totalDeletions}
-            </span>
-          </p>
-        )}
+        ) : null)}
       </div>
 
-      {(isWaiting || isSuspended) && (
-        <button
-          onClick={(e) => { e.stopPropagation(); onRotateSuspend(); }}
-          onMouseDown={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-          }}
-          title={isWaiting ? "挂起" : "恢复为需要操作"}
-          style={{
-            background: isWaiting ? "var(--ci-btn-ghost-bg)" : "rgba(107,114,128,0.14)",
-            border: isWaiting ? "1px solid var(--ci-border)" : "1px solid rgba(107,114,128,0.36)",
-            color: isWaiting ? "var(--ci-text-dim)" : "#6B7280",
-            cursor: "pointer",
-            padding: "4px 8px",
-            borderRadius: 6,
-            flexShrink: 0,
-            fontSize: 11,
-            transition: "all 0.12s",
-          }}
-          onMouseEnter={e => {
-            e.currentTarget.style.background = isWaiting ? "rgba(107,114,128,0.14)" : "rgba(107,114,128,0.2)";
-            e.currentTarget.style.borderColor = "rgba(107,114,128,0.44)";
-            e.currentTarget.style.color = "#4B5563";
-          }}
-          onMouseLeave={e => {
-            e.currentTarget.style.background = isWaiting ? "var(--ci-btn-ghost-bg)" : "rgba(107,114,128,0.14)";
-            e.currentTarget.style.borderColor = isWaiting ? "var(--ci-border)" : "rgba(107,114,128,0.36)";
-            e.currentTarget.style.color = isWaiting ? "var(--ci-text-dim)" : "#6B7280";
-          }}
-        >
-          {isWaiting ? "挂起" : "恢复"}
-        </button>
-      )}
-
-      {isSelected && (
-        <button
-          onClick={(e) => { e.stopPropagation(); onOpenExplore(); }}
-          onMouseDown={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-          }}
-          title="打开文件树"
-          style={{
-            background: "var(--ci-btn-ghost-bg)",
-            border: "1px solid transparent",
-            color: "var(--ci-text-dim)",
-            cursor: "pointer",
-            padding: "4px 6px",
-            borderRadius: 6,
-            flexShrink: 0,
-            display: "flex",
-            alignItems: "center",
-            transition: isGlass ? "color 0.12s" : "color 0.12s, background 0.12s, border-color 0.12s",
-          }}
-          onMouseEnter={e => {
-            e.currentTarget.style.color = accentColor;
-            e.currentTarget.style.background = isGlass ? "var(--ci-btn-ghost-bg)" : `${accentColor}15`;
-            e.currentTarget.style.borderColor = isGlass ? "transparent" : `${accentColor}30`;
-          }}
-          onMouseLeave={e => {
-            e.currentTarget.style.color = "var(--ci-text-dim)";
-            e.currentTarget.style.background = "var(--ci-btn-ghost-bg)";
-            e.currentTarget.style.borderColor = "transparent";
-          }}
-        >
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" style={{ display: "block" }}>
-            <path d="M1.75 3.75A1.25 1.25 0 0 1 3 2.5h3.1c.32 0 .63.13.85.35l.8.8c.23.22.53.35.85.35H13a1.25 1.25 0 0 1 1.25 1.25v6.5A1.25 1.25 0 0 1 13 13H3a1.25 1.25 0 0 1-1.25-1.25v-8Z" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round"/>
-          </svg>
-        </button>
-      )}
-
-      {showExpandButton && (
-        <button
-          onClick={(e) => { e.stopPropagation(); onExpand(); }}
-          onMouseDown={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-          }}
-          title="展开终端"
-          style={{
-            background: isWaiting ? "var(--ci-yellow-bg)" : "var(--ci-btn-ghost-bg)",
-            border: isWaiting ? "1px solid var(--ci-yellow-bdr)" : "1px solid transparent",
-            color: isWaiting ? "var(--ci-yellow-dark)" : "var(--ci-text-dim)",
-            cursor: "pointer", padding: "4px 6px", borderRadius: 6,
-            flexShrink: 0, display: "flex", alignItems: "center",
-            transition: isGlass ? "color 0.12s" : "color 0.12s, background 0.12s, border-color 0.12s",
-          }}
-          onMouseEnter={e => {
-            e.currentTarget.style.color = isWaiting ? "var(--ci-yellow)" : accentColor;
-            e.currentTarget.style.background = isGlass
-              ? (isWaiting ? "var(--ci-yellow-bg)" : "var(--ci-btn-ghost-bg)")
-              : isWaiting
-              ? "rgba(255,159,10,0.18)"
-              : `${accentColor}15`;
-            e.currentTarget.style.borderColor = isGlass
-              ? (isWaiting ? "var(--ci-yellow-bdr)" : "transparent")
-              : isWaiting
-              ? "rgba(255,159,10,0.4)"
-              : `${accentColor}30`;
-          }}
-          onMouseLeave={e => {
-            e.currentTarget.style.color = isWaiting ? "var(--ci-yellow-dark)" : "var(--ci-text-dim)";
-            e.currentTarget.style.background = isWaiting ? "var(--ci-yellow-bg)" : "var(--ci-btn-ghost-bg)";
-            e.currentTarget.style.borderColor = isWaiting ? "var(--ci-yellow-bdr)" : "transparent";
-          }}
-        >
-          <ExpandIcon />
-        </button>
-      )}
-
-      {/* 删除 */}
       {isDeleteConfirming ? (
         <div
           onClick={(e) => e.stopPropagation()}
@@ -389,15 +260,11 @@ function SessionCard({
           <button
             onClick={(e) => { e.stopPropagation(); onRemove(); }}
             style={{
+              ...textButtonStyle,
               background: "var(--ci-deleted-bg)",
               border: "1px solid rgba(255,59,48,0.28)",
               color: "var(--ci-red)",
-              fontSize: 11,
-              fontWeight: 700,
-              cursor: "pointer",
-              padding: "4px 8px",
-              borderRadius: 6,
-              flexShrink: 0,
+              fontWeight: 600,
             }}
           >
             确认删除
@@ -405,41 +272,91 @@ function SessionCard({
           <button
             onClick={(e) => { e.stopPropagation(); onClick(); }}
             style={{
-              background: "var(--ci-btn-ghost-bg)",
+              ...textButtonStyle,
               border: "1px solid var(--ci-border)",
-              color: "var(--ci-text-dim)",
-              fontSize: 11,
-              cursor: "pointer",
-              padding: "4px 8px",
-              borderRadius: 6,
-              flexShrink: 0,
             }}
           >
             取消
           </button>
         </div>
       ) : (
-        <button
-          onClick={(e) => { e.stopPropagation(); onRemove(); }}
-          onMouseDown={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-          }}
-          style={{
-            background: "none", border: "none",
-            color: "var(--ci-text-dim)", fontSize: 11,
-            cursor: "pointer", padding: "2px 4px", borderRadius: 4,
-            flexShrink: 0, transition: "color 0.12s, background 0.12s",
-          }}
-          onMouseEnter={e => {
-            e.currentTarget.style.color = "var(--ci-red)";
-            e.currentTarget.style.background = isGlass ? "none" : "var(--ci-deleted-bg)";
-          }}
-          onMouseLeave={e => {
-            e.currentTarget.style.color = "var(--ci-text-dim)";
-            e.currentTarget.style.background = "none";
-          }}
-        >✕</button>
+        <div style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 4,
+          flexShrink: 0,
+          opacity: showActions ? 1 : 0,
+          pointerEvents: showActions ? "auto" : "none",
+          transition: "opacity 0.12s",
+        }}>
+          {(isWaiting || isSuspended) && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onRotateSuspend(); }}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              title={isWaiting ? "挂起" : "恢复为需要操作"}
+              style={{
+                ...textButtonStyle,
+                color: isSuspended ? "#6B7280" : "var(--ci-text-dim)",
+              }}
+            >
+              {isWaiting ? "挂起" : "恢复"}
+            </button>
+          )}
+
+          {(isSelected || isOpened) && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onOpenExplore(); }}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              title="打开文件树"
+              style={iconButtonStyle}
+            >
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" style={{ display: "block" }}>
+                <path d="M1.75 3.75A1.25 1.25 0 0 1 3 2.5h3.1c.32 0 .63.13.85.35l.8.8c.23.22.53.35.85.35H13a1.25 1.25 0 0 1 1.25 1.25v6.5A1.25 1.25 0 0 1 13 13H3a1.25 1.25 0 0 1-1.25-1.25v-8Z" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round"/>
+              </svg>
+            </button>
+          )}
+
+          {showExpandButton && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onExpand(); }}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              title="展开终端"
+              style={{
+                ...iconButtonStyle,
+                background: isWaiting ? "var(--ci-yellow-bg)" : "var(--ci-btn-ghost-bg)",
+                border: isWaiting ? "1px solid var(--ci-yellow-bdr)" : "1px solid transparent",
+                color: isWaiting ? "var(--ci-yellow-dark)" : "var(--ci-text-dim)",
+              }}
+            >
+              <ExpandIcon />
+            </button>
+          )}
+
+          <button
+            onClick={(e) => { e.stopPropagation(); onRemove(); }}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+            title="删除会话"
+            style={{
+              ...iconButtonStyle,
+              background: "transparent",
+              padding: "2px 4px",
+            }}
+          >
+            ✕
+          </button>
+        </div>
       )}
     </motion.div>
   );

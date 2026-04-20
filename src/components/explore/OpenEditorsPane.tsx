@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { FileCode2, GitCommitHorizontal, X } from "lucide-react";
 import { closeTab } from "../../services/editorCommands";
 import { useEditorBufferStore } from "../../store/editorBufferStore";
@@ -11,6 +12,7 @@ export function OpenEditorsPane({ session }: { session: ClaudeSession }) {
   const tabOrder = useEditorStore((s) => s.tabOrder);
   const setActiveTab = useEditorStore((s) => s.setActiveTab);
   const buffersByTabId = useEditorBufferStore((s) => s.buffersByTabId);
+  const [hoveredTabId, setHoveredTabId] = useState<string | null>(null);
 
   const tabIds = tabOrder.filter((tabId) => tabsById[tabId]?.sessionId === session.id);
   if (tabIds.length === 0) return null;
@@ -24,18 +26,21 @@ export function OpenEditorsPane({ session }: { session: ClaudeSession }) {
         const tab = tabsById[tabId];
         if (!tab) return null;
         const isActive = activeTabId === tabId;
+        const isHovered = hoveredTabId === tabId;
         const dirty = buffersByTabId[tabId]?.dirty === true;
         return (
           <div
             key={tabId}
+            onMouseEnter={() => setHoveredTabId(tabId)}
+            onMouseLeave={() => setHoveredTabId((current) => (current === tabId ? null : current))}
             style={{
               display: "flex",
               alignItems: "center",
               gap: 6,
               padding: "0 8px 0 12px",
               minHeight: 22,
-              background: isActive ? "var(--ci-accent-bg)" : "transparent",
-              color: isActive ? "var(--ci-text)" : "var(--ci-text-muted)",
+              background: isActive ? "var(--ci-list-active-bg)" : isHovered ? "var(--ci-list-hover-bg)" : "transparent",
+              color: isActive || isHovered ? "var(--ci-text)" : "var(--ci-text-muted)",
               borderLeft: isActive ? "1px solid var(--ci-accent)" : "1px solid transparent",
             }}
           >
@@ -79,7 +84,8 @@ export function OpenEditorsPane({ session }: { session: ClaudeSession }) {
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  opacity: isActive ? 0.9 : 0.5,
+                  opacity: isActive || isHovered ? 0.9 : 0,
+                  pointerEvents: isActive || isHovered ? "auto" : "none",
                 }}
                 title={`关闭 ${tab.title}`}
               >
