@@ -252,9 +252,9 @@ export function ExplorerPane({
             <button
               key={node.key}
               onClick={() => {
-                openFile(session.id, node.path, true, true);
+                openFile(session.id, node.path, true, true, "explorer");
               }}
-              onDoubleClick={() => openFile(session.id, node.path, false, true)}
+              onDoubleClick={() => openFile(session.id, node.path, false, true, "explorer")}
               style={{
                 ...rowBaseStyle,
                 padding: "0 10px",

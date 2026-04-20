@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
-import { loadFile, saveTab, selectExplorerPath } from "../../services/editorCommands";
+import { loadFile, revealExplorerPath, saveTab } from "../../services/editorCommands";
 import { useEditorBufferStore, type EditorBufferState } from "../../store/editorBufferStore";
 import { useEditorStore } from "../../store/editorStore";
 import { useExplorerStore } from "../../store/explorerStore";
@@ -88,7 +88,7 @@ export function EditorHost({
     const selectionKey = `${activeTab.sessionId}:${activeTab.viewMode}:${activeTab.path}`;
     if (lastExplorerSelectionKeyRef.current === selectionKey) return;
     lastExplorerSelectionKeyRef.current = selectionKey;
-    selectExplorerPath(session.id, activeTab.path, "focusNoScroll");
+    revealExplorerPath(session.id, activeTab.path, "focusNoScroll", "editor");
   }, [activeTab?.path, activeTab?.sessionId, activeTab?.viewMode, session?.id]);
 
   useEffect(() => {

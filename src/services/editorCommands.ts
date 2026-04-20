@@ -30,31 +30,51 @@ export function collectAncestorDirs(path: string) {
 }
 
 export type ExplorerSelectMode = false | true | "force" | "focusNoScroll";
+export type ExplorerSelectSource = "explorer" | "editor" | "editor-tabs" | "scm" | "command";
 
-export function selectExplorerPath(sessionId: string, path: string, reveal: ExplorerSelectMode = true) {
+function shouldAutoRevealExplorerPath(
+  _sessionId: string,
+  _path: string,
+  reveal: ExplorerSelectMode,
+  source: ExplorerSelectSource,
+) {
+  if (reveal === "force") return "force" as const;
+  if (reveal === false) return false;
+  if (source === "editor" || source === "editor-tabs" || source === "scm") {
+    return "focusNoScroll" as const;
+  }
+  return reveal;
+}
+
+export function selectExplorerPath(sessionId: string, path: string, reveal: ExplorerSelectMode = true, source: ExplorerSelectSource = "explorer") {
+  const finalReveal = shouldAutoRevealExplorerPath(sessionId, path, reveal, source);
   const explorerStore = useExplorerStore.getState();
   const currentExpanded = explorerStore.expandedDirsBySession[sessionId] ?? [];
   const ancestors = collectAncestorDirs(path);
-  const shouldExpandAncestors = reveal === true || reveal === "force" || reveal === "focusNoScroll";
+  const shouldExpandAncestors = finalReveal === true || finalReveal === "force" || finalReveal === "focusNoScroll";
   if (shouldExpandAncestors) {
     const missing = ancestors.filter((dir) => !currentExpanded.includes(dir));
     if (missing.length > 0) {
       explorerStore.setExpandedDirs(sessionId, [...currentExpanded, ...missing]);
     }
   }
-  explorerStore.setSelectedPath(sessionId, path, reveal);
+  explorerStore.setSelectedPath(sessionId, path, finalReveal);
 }
 
-export function openFile(sessionId: string, path: string, preview = true, reveal: ExplorerSelectMode = true) {
+export function revealExplorerPath(sessionId: string, path: string, reveal: ExplorerSelectMode = true, source: ExplorerSelectSource = "explorer") {
+  selectExplorerPath(sessionId, path, reveal, source);
+}
+
+export function openFile(sessionId: string, path: string, preview = true, reveal: ExplorerSelectMode = true, source: ExplorerSelectSource = "explorer") {
   const tabId = useEditorStore.getState().openFile(sessionId, path, preview);
-  selectExplorerPath(sessionId, path, reveal);
+  revealExplorerPath(sessionId, path, reveal, source);
   useWorkbenchStore.getState().showExplorer(sessionId);
   return tabId;
 }
 
-export function openDiff(sessionId: string, path: string, reveal: ExplorerSelectMode = true) {
+export function openDiff(sessionId: string, path: string, reveal: ExplorerSelectMode = true, source: ExplorerSelectSource = "explorer") {
   const tabId = useEditorStore.getState().openDiff(sessionId, path);
-  selectExplorerPath(sessionId, path, reveal);
+  revealExplorerPath(sessionId, path, reveal, source);
   useWorkbenchStore.getState().showScm(sessionId);
   return tabId;
 }
