@@ -424,9 +424,9 @@ export function SplitStaticTerminalTabs({ itemId }: { itemId: string }) {
                 gap: 4,
                 minWidth: 0,
                 padding: "2px 4px 2px 8px",
-                borderRadius: 9,
+                borderRadius: 8,
                 border: `1px solid ${isActive ? "var(--ci-accent-bdr)" : "transparent"}`,
-                background: isActive ? "var(--ci-accent-bg)" : "rgba(255,255,255,0.02)",
+                background: isActive ? "var(--ci-accent-bg)" : "transparent",
               }}
             >
               <button
@@ -504,12 +504,12 @@ export function SplitStaticTerminalTabs({ itemId }: { itemId: string }) {
           justifyContent: "center",
           width: 22,
           height: 22,
-          borderRadius: 8,
-          background: "none",
+          borderRadius: 7,
+          background: "var(--ci-btn-ghost-bg)",
           border: "1px solid var(--ci-toolbar-border)",
           color: "var(--ci-text-muted)",
           cursor: "pointer",
-          fontSize: 14,
+          fontSize: 13,
           padding: 0,
           flexShrink: 0,
         }}
@@ -536,41 +536,44 @@ export function SplitDetailHost() {
       overflow: "hidden",
       display: "flex",
       flexDirection: "column",
-      background: "var(--ci-surface-hi)",
+      background: "transparent",
     }}>
       <div style={{
         display: "flex",
         alignItems: "center",
         gap: 8,
-        padding: "8px 10px",
-        borderBottom: "1px solid var(--ci-toolbar-border)",
-        background: "var(--ci-toolbar-bg)",
+        padding: "8px 10px 6px",
+        background: "transparent",
         flexShrink: 0,
       }}>
-        <div style={{
-          minWidth: 0,
-          flex: 1,
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-          fontSize: 10,
-          fontFamily: "monospace",
-          color: "var(--ci-text-muted)",
-        }}>
-          {item.title}
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ fontSize: 10, color: "var(--ci-text-dim)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+            {item.kind === "session-detail" ? "Session" : item.kind === "terminal" ? "Terminal" : "Widget"}
+          </div>
+          <div style={{
+            marginTop: 2,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            fontSize: 11,
+            fontWeight: 600,
+            color: "var(--ci-text-muted)",
+          }}>
+            {item.title}
+          </div>
         </div>
         {item.kind === "terminal" && <SplitStaticTerminalTabs itemId={item.id} />}
         {item.kind === "session-detail" && expandedSessionId && (
           <button
             onClick={() => setExpandedSession(null)}
             style={{
-              background: "none",
+              background: "var(--ci-btn-ghost-bg)",
               border: "1px solid var(--ci-toolbar-border)",
-              borderRadius: 8,
+              borderRadius: 7,
               color: "var(--ci-text-muted)",
               cursor: "pointer",
               fontSize: 11,
-              padding: "3px 8px",
+              padding: "4px 8px",
               flexShrink: 0,
             }}
           >

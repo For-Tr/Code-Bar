@@ -60,7 +60,7 @@ export function WorkbenchSidebar({
       <TitleBar />
       <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
         {session && sidebarSection !== "sessions" && (
-          <div style={{ width: 48, display: "flex", flexDirection: "column", alignItems: "stretch", borderRight: "1px solid var(--ci-toolbar-border)", background: "var(--ci-toolbar-bg)" }}>
+          <div style={{ width: 48, display: "flex", flexDirection: "column", alignItems: "stretch", borderRight: "1px solid var(--ci-toolbar-border)", background: "transparent" }}>
             <ActivityButton label="Sessions" active={false} onClick={() => showSessionSurface(session.id)} icon={<MessageSquareCode size={20} strokeWidth={1.9} />} />
             <ActivityButton label="Explorer" active={sidebarSection === "explorer"} onClick={() => showExplorer(session.id)} icon={<Files size={20} strokeWidth={1.9} />} />
             <ActivityButton label="Source Control" active={sidebarSection === "scm"} onClick={() => showScm(session.id)} icon={<GitBranchPlus size={20} strokeWidth={1.9} />} />
@@ -75,7 +75,7 @@ export function WorkbenchSidebar({
               gap: 12,
               padding: "8px 12px",
               borderBottom: "1px solid var(--ci-toolbar-border)",
-              background: "var(--ci-toolbar-bg)",
+              background: "transparent",
               minHeight: 34,
             }}>
               <div style={{ minWidth: 0 }}>

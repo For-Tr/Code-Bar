@@ -38,7 +38,7 @@ export function EditorTabs({ session }: { session: ClaudeSession | null }) {
       borderBottom: "1px solid var(--ci-toolbar-border)",
       overflowX: "auto",
       scrollbarWidth: "none",
-      background: "var(--ci-toolbar-bg)",
+      background: "transparent",
     }}>
       {openTabs.length === 0 ? (
         <div style={{ display: "flex", alignItems: "center", padding: "0 14px", fontSize: 11, color: "var(--ci-text-dim)" }}>

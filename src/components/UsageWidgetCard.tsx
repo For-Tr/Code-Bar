@@ -41,7 +41,7 @@ function FlatProgress({ label, leftPercent, reset }: { label: string; leftPercen
   const clamped = Math.max(0, Math.min(100, leftPercent));
   const tone = clamped <= 15 ? "var(--ci-red)" : clamped <= 40 ? "var(--ci-yellow-dark)" : "var(--ci-accent)";
   return (
-    <div style={{ display: "grid", gap: 4 }}>
+    <div style={{ display: "grid", gap: 6, padding: "8px 9px", borderRadius: 10, background: "var(--ci-surface)", border: "1px solid var(--ci-toolbar-border)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
         <span style={{ fontSize: 10, color: "var(--ci-text-dim)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{label} limit</span>
         <span style={{ fontSize: 11, color: tone, fontWeight: 600 }}>{clamped.toFixed(0)}% left</span>
@@ -123,7 +123,7 @@ export function UsageWidgetCard() {
     <div style={{
       width: "100%",
       height: "100%",
-      padding: 10,
+      padding: 9,
       boxSizing: "border-box",
       display: "flex",
       flexDirection: "column",
@@ -132,18 +132,18 @@ export function UsageWidgetCard() {
       overflow: "hidden",
     }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ci-text)" }}>
-          {RUNNER_LABELS[runnerType]}
+        <div style={{ fontSize: 11, fontWeight: 600, color: "var(--ci-text-muted)" }}>
+            {RUNNER_LABELS[runnerType]}
         </div>
         <button
           onClick={handleRefresh}
           disabled={loading}
           style={{
-            background: "transparent",
+            background: "var(--ci-btn-ghost-bg)",
             border: "1px solid var(--ci-toolbar-border)",
             color: "var(--ci-text-muted)",
-            borderRadius: 8,
-            padding: "5px 9px",
+            borderRadius: 7,
+            padding: "4px 8px",
             fontSize: 11,
             cursor: loading ? "default" : "pointer",
           }}
@@ -152,27 +152,23 @@ export function UsageWidgetCard() {
         </button>
       </div>
 
-      <div style={{ display: "grid", gap: 6, flex: 1, minHeight: 0, overflowY: "auto" }}>
+      <div style={{ display: "grid", gap: 8, flex: 1, minHeight: 0, overflowY: "auto" }}>
         {snapshot?.error && (
-          <div style={{ fontSize: 12, color: "var(--ci-red)", lineHeight: 1.5 }}>
+          <div style={{ fontSize: 12, color: "var(--ci-red)", lineHeight: 1.5, padding: "8px 9px", borderRadius: 10, background: "var(--ci-deleted-bg)", border: "1px solid var(--ci-toolbar-border)" }}>
             {snapshot.error}
           </div>
         )}
 
         {parsedWindows.fiveHour && (
-          <div style={{ paddingTop: 4, borderTop: "1px solid var(--ci-toolbar-border)" }}>
-            <FlatProgress label="5h" leftPercent={parsedWindows.fiveHour.leftPercent} reset={formatResetText(parsedWindows.fiveHour.resetRaw)} />
-          </div>
+          <FlatProgress label="5h" leftPercent={parsedWindows.fiveHour.leftPercent} reset={formatResetText(parsedWindows.fiveHour.resetRaw)} />
         )}
 
         {parsedWindows.weekly && (
-          <div style={{ paddingTop: 4, borderTop: "1px solid var(--ci-toolbar-border)" }}>
-            <FlatProgress label="7d" leftPercent={parsedWindows.weekly.leftPercent} reset={formatResetText(parsedWindows.weekly.resetRaw)} />
-          </div>
+          <FlatProgress label="7d" leftPercent={parsedWindows.weekly.leftPercent} reset={formatResetText(parsedWindows.weekly.resetRaw)} />
         )}
 
         {!snapshot && !loading && (
-          <div style={{ fontSize: 12, color: "var(--ci-text-dim)", lineHeight: 1.6, paddingTop: 4, borderTop: "1px solid var(--ci-toolbar-border)" }}>
+          <div style={{ fontSize: 12, color: "var(--ci-text-dim)", lineHeight: 1.6, padding: "8px 9px", borderRadius: 10, background: "var(--ci-surface)", border: "1px solid var(--ci-toolbar-border)" }}>
             点击刷新，查询当前限额状态。
           </div>
         )}

@@ -234,7 +234,7 @@ export function ScmSidebar({ session }: { session: ClaudeSession | null }) {
     : snapshot.map(mapDiffFileToStatusEntry);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0, background: "var(--ci-toolbar-bg)" }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0, background: "transparent" }}>
       <div style={{
         display: "flex",
         alignItems: "center",

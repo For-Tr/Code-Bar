@@ -45,7 +45,7 @@ export function DiffEditorSurface({
         <div style={{
           padding: "8px 12px",
           borderBottom: "1px solid var(--ci-toolbar-border)",
-          background: "var(--ci-toolbar-bg)",
+          background: "transparent",
           fontSize: 11,
           color: "var(--ci-text-dim)",
           display: "flex",

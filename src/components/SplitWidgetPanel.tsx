@@ -494,10 +494,10 @@ function TerminalCardDropZone({
       ref={setNodeRef}
       style={{
         minWidth: 0,
-        borderRadius: 10,
+        borderRadius: 8,
         padding: 2,
         border: `1px dashed ${isOver ? "var(--ci-accent)" : showHint ? "var(--ci-accent-bdr)" : "transparent"}`,
-        background: isOver ? "var(--ci-accent-bg)" : showHint ? "rgba(63,145,255,0.06)" : "transparent",
+        background: isOver ? "var(--ci-list-active-bg)" : showHint ? "var(--ci-list-hover-bg)" : "transparent",
         boxShadow: isOver ? "0 0 0 1px var(--ci-accent-bdr) inset" : "none",
         transition: "background 0.15s, border-color 0.15s, box-shadow 0.15s",
       }}
@@ -545,15 +545,15 @@ function TerminalTabChip({
         gap: 4,
         minWidth: 0,
         padding: "2px 4px 2px 8px",
-        borderRadius: 9,
+        borderRadius: 8,
         border: `1px solid ${isDragging ? "var(--ci-accent)" : isActive ? "var(--ci-accent-bdr)" : showHover ? "var(--ci-toolbar-border)" : "transparent"}`,
         background: isDragging
           ? "rgba(63,145,255,0.14)"
           : isActive
           ? "var(--ci-accent-bg)"
           : showHover
-          ? "rgba(255,255,255,0.06)"
-          : "rgba(255,255,255,0.02)",
+          ? "var(--ci-list-hover-bg)"
+          : "transparent",
         boxShadow: isDragging ? "0 8px 18px rgba(15,23,42,0.14)" : "none",
         transform: transform ? CSS.Transform.toString(transform) : undefined,
         opacity: isDragging ? 0 : 1,
@@ -700,71 +700,83 @@ export function SplitWidgetPanel() {
       height: "100%",
       position: "relative",
       overflow: "hidden",
-      backgroundColor: isGlass ? "transparent" : "var(--ci-surface)",
-      backgroundImage: `radial-gradient(var(--ci-toolbar-border) 0.8px, transparent 0.8px)`,
-      backgroundSize: `${gridUnit}px ${gridUnit}px`,
-      backgroundPosition: `${gridUnit / 2}px ${gridUnit / 2}px`,
+      display: "flex",
+      flexDirection: "column",
+      background: isGlass ? "var(--ci-toolbar-bg)" : "linear-gradient(180deg, var(--ci-toolbar-bg) 0%, var(--ci-surface) 100%)",
     }}>
       <div style={{
-        position: "absolute",
-        top: 10,
-        right: 14,
-        zIndex: 20,
         display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
         gap: 10,
+        padding: "8px 10px 6px",
+        background: "transparent",
       }}>
-        <button
-          onClick={() => {
-            if (settings.splitWidgetCanvas.filledSnapshot && settings.splitWidgetCanvas.filledSnapshot.length > 0) {
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 10, color: "var(--ci-text-dim)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+            Widgets
+          </div>
+          <div style={{ marginTop: 2, fontSize: 11, color: "var(--ci-text-muted)", opacity: 0.9, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {activeWorkspace?.name ?? "Split panel"}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+          <button
+            onClick={() => {
+              if (settings.splitWidgetCanvas.filledSnapshot && settings.splitWidgetCanvas.filledSnapshot.length > 0) {
+                patchSettings({
+                  splitWidgetCanvas: {
+                    ...settings.splitWidgetCanvas,
+                    items: settings.splitWidgetCanvas.filledSnapshot,
+                    filledSnapshot: null,
+                  },
+                });
+                return;
+              }
+              const expanded = expandLayoutToFill(repairedWidgets, maxCols, maxRows);
+              const repaired = repairLayout(expanded, maxCols, maxRows).map((item) => insetRect(item, maxCols, maxRows));
               patchSettings({
                 splitWidgetCanvas: {
                   ...settings.splitWidgetCanvas,
-                  items: settings.splitWidgetCanvas.filledSnapshot,
-                  filledSnapshot: null,
+                  items: settings.splitWidgetCanvas.items.map((item) => {
+                    const match = repaired.find((candidate) => candidate.id === item.id);
+                    return match ?? item;
+                  }),
+                  filledSnapshot: settings.splitWidgetCanvas.items,
                 },
               });
-              return;
-            }
-            const expanded = expandLayoutToFill(repairedWidgets, maxCols, maxRows);
-            const repaired = repairLayout(expanded, maxCols, maxRows).map((item) => insetRect(item, maxCols, maxRows));
-            patchSettings({
-              splitWidgetCanvas: {
-                ...settings.splitWidgetCanvas,
-                items: settings.splitWidgetCanvas.items.map((item) => {
-                  const match = repaired.find((candidate) => candidate.id === item.id);
-                  return match ?? item;
-                }),
-                filledSnapshot: settings.splitWidgetCanvas.items,
-              },
-            });
-          }}
-          style={{
-            background: "none",
-            border: "none",
-            color: "var(--ci-text-muted)",
-            cursor: "pointer",
-            fontSize: 12,
-            padding: 0,
-          }}
-        >
-          {settings.splitWidgetCanvas.filledSnapshot ? "还原" : "铺满"}
-        </button>
-        <button
-          onClick={() => patchSettings({ splitWidgetPanelCollapsed: true })}
-          style={{
-            background: "none",
-            border: "none",
-            color: "var(--ci-text-muted)",
-            cursor: "pointer",
-            fontSize: 12,
-            padding: 0,
-          }}
-        >
-          收起
-        </button>
+            }}
+            style={{
+              background: "var(--ci-btn-ghost-bg)",
+              border: "1px solid var(--ci-toolbar-border)",
+              color: "var(--ci-text-muted)",
+              cursor: "pointer",
+              fontSize: 11,
+              padding: "4px 8px",
+              borderRadius: 7,
+            }}
+          >
+            {settings.splitWidgetCanvas.filledSnapshot ? "还原" : "铺满"}
+          </button>
+          <button
+            onClick={() => patchSettings({ splitWidgetPanelCollapsed: true })}
+            style={{
+              background: "var(--ci-btn-ghost-bg)",
+              border: "1px solid var(--ci-toolbar-border)",
+              color: "var(--ci-text-muted)",
+              cursor: "pointer",
+              fontSize: 11,
+              padding: "4px 8px",
+              borderRadius: 7,
+            }}
+          >
+            收起
+          </button>
+        </div>
       </div>
 
-      {repairedWidgets.length > 0 ? (
+      <div style={{ flex: 1, minHeight: 0, position: "relative", overflow: "hidden" }}>
+        {repairedWidgets.length > 0 ? (
         <DndContext
           sensors={sensors}
           collisionDetection={pointerWithin}
@@ -1083,12 +1095,12 @@ export function SplitWidgetPanel() {
                       justifyContent: "center",
                       width: 22,
                       height: 22,
-                      borderRadius: 8,
-                      background: "none",
+                      borderRadius: 7,
+                      background: "var(--ci-btn-ghost-bg)",
                       border: "1px solid var(--ci-toolbar-border)",
                       color: "var(--ci-text-muted)",
                       cursor: "pointer",
-                      fontSize: 14,
+                      fontSize: 13,
                       padding: 0,
                       flexShrink: 0,
                     }}
@@ -1138,12 +1150,12 @@ export function SplitWidgetPanel() {
                       justifyContent: "center",
                       width: 22,
                       height: 22,
-                      borderRadius: 8,
-                      background: isDetailCard ? `${workspaceAccent}1A` : "none",
-                      border: `1px solid ${isDetailCard ? `${workspaceAccent}55` : "var(--ci-toolbar-border)"}`,
+                      borderRadius: 7,
+                      background: isDetailCard ? `${workspaceAccent}14` : "var(--ci-btn-ghost-bg)",
+                      border: `1px solid ${isDetailCard ? `${workspaceAccent}45` : "var(--ci-toolbar-border)"}`,
                       color: isDetailCard ? workspaceAccent : "var(--ci-text-muted)",
                       cursor: "pointer",
-                      fontSize: 12,
+                      fontSize: 11,
                       padding: 0,
                     }}
                     aria-label="与 detail 互换"
@@ -1206,8 +1218,8 @@ export function SplitWidgetPanel() {
           <div style={{
             maxWidth: 220,
             padding: "18px 20px",
-            borderRadius: 16,
-            background: "var(--ci-surface-hi)",
+            borderRadius: 12,
+            background: "var(--ci-surface)",
             border: "1px solid var(--ci-toolbar-border)",
             color: "var(--ci-text-dim)",
             fontSize: 12,
@@ -1220,6 +1232,7 @@ export function SplitWidgetPanel() {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

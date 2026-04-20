@@ -82,7 +82,7 @@ export function ExploreSidebar({
         width: "100%",
         height: "100%",
         minHeight: 0,
-        background: "var(--ci-toolbar-bg)",
+        background: "transparent",
         borderRight: "1px solid var(--ci-toolbar-border)",
       }}>
         {session ? <ExplorerPane session={session} onRefreshDiff={onRefreshDiff} /> : <EmptyEditorState message="选择一个会话进入 Explorer。" />}
@@ -106,7 +106,7 @@ export function ExploreEditor({
         minHeight: 0,
         display: "flex",
         flexDirection: "column",
-        background: "var(--ci-surface)",
+        background: "transparent",
       }}>
         <EditorTabs session={session} />
         <div style={{ flex: 1, minHeight: 0 }}>

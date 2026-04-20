@@ -153,7 +153,7 @@ export function EditorHost({
         gap: 12,
         padding: "8px 14px",
         borderBottom: "1px solid var(--ci-toolbar-border)",
-        background: "var(--ci-toolbar-bg)",
+        background: "transparent",
       }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 12, color: "var(--ci-text)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>

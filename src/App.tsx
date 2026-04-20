@@ -903,34 +903,36 @@ export default function App() {
                         height: "100%",
                         background: "var(--ci-toolbar-border)",
                         borderRadius: 999,
+                        opacity: 0.8,
                       }} />
                     </div>
                   )}
 
                   {splitWidgetPanelCollapsed ? (
                     <div style={{
-                      width: 36,
+                      width: 42,
                       flexShrink: 0,
                       borderLeft: "1px solid var(--ci-toolbar-border)",
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
-                      background: isGlass ? "var(--ci-toolbar-bg)" : "transparent",
+                      background: isGlass ? "var(--ci-toolbar-bg)" : "var(--ci-surface)",
                     }}>
                       <button
                         onClick={() => patchSettings({ splitWidgetPanelCollapsed: false })}
                         title="展开组件区"
                         style={{
-                          background: "none",
-                          border: "none",
+                          background: "var(--ci-btn-ghost-bg)",
+                          border: "1px solid var(--ci-toolbar-border)",
                           color: "var(--ci-text-muted)",
                           cursor: "pointer",
-                          fontSize: 12,
+                          fontSize: 11,
                           writingMode: "vertical-rl",
-                          padding: 0,
+                          padding: "8px 6px",
+                          borderRadius: 8,
                         }}
                       >
-                        展开
+                        组件
                       </button>
                     </div>
                   ) : (

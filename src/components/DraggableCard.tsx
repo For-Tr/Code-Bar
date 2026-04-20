@@ -1,4 +1,4 @@
-import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
+import { useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 
@@ -83,6 +83,7 @@ export function DraggableCard({
   onResize?: (edge: ResizeEdge, deltaCols: number, deltaRows: number) => void;
   children: ReactNode;
 }) {
+  const [hovered, setHovered] = useState(false);
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id, data: dragData });
   const snappedTransform = transform
     ? {
@@ -128,6 +129,8 @@ export function DraggableCard({
   return (
     <div
       ref={setNodeRef}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       style={{
         position: "absolute",
         left: col * gridUnit,
@@ -140,21 +143,21 @@ export function DraggableCard({
         zIndex: isDragging ? 10 : 1,
         display: "flex",
         flexDirection: "column",
-        borderRadius: 14,
+        borderRadius: 12,
         overflow: "hidden",
-        background: "var(--ci-surface-hi)",
-        border: `1px solid ${isDragging ? "var(--ci-accent-bdr)" : "var(--ci-toolbar-border)"}`,
-        boxShadow: isDragging ? "0 0 0 1px var(--ci-accent-bdr), var(--ci-card-shadow-strong)" : "var(--ci-card-shadow)",
-        transition: "border-color 0.15s, box-shadow 0.15s",
+        background: "var(--ci-surface)",
+        border: `1px solid ${isDragging ? "var(--ci-accent-bdr)" : hovered ? "var(--ci-border-med)" : "var(--ci-toolbar-border)"}`,
+        boxShadow: isDragging ? "0 0 0 1px var(--ci-accent-bdr), var(--ci-card-shadow-strong)" : hovered ? "var(--ci-card-shadow)" : "0 2px 10px rgba(15,23,42,0.05)",
+        transition: "border-color 0.15s, box-shadow 0.15s, background 0.15s",
       }}
     >
       <div
         style={{
           display: "flex",
           flexDirection: "column",
-          gap: headerActions ? 8 : 0,
-          padding: headerActions ? "8px 10px" : "8px 10px 6px",
-          background: "var(--ci-toolbar-bg)",
+          gap: headerActions ? 6 : 0,
+          padding: headerActions ? "6px 8px" : "6px 8px 4px",
+          background: "transparent",
           flexShrink: 0,
         }}
       >
@@ -173,15 +176,16 @@ export function DraggableCard({
             style={{
               display: "flex",
               alignItems: "center",
-              gap: 8,
+              gap: 7,
               minWidth: 0,
               flex: 1,
               cursor: isDragging ? "grabbing" : "grab",
               touchAction: "none",
-              color: "var(--ci-text-muted)",
+              color: hovered || isDragging ? "var(--ci-text-muted)" : "var(--ci-text-dim)",
+              transition: "color 0.12s, opacity 0.12s",
             }}
           >
-            <span style={{ display: "inline-flex", flexShrink: 0 }}>
+            <span style={{ display: "inline-flex", flexShrink: 0, opacity: hovered || isDragging ? 0.9 : 0.55 }}>
               <DragHandleIcon />
             </span>
             <span
@@ -191,7 +195,8 @@ export function DraggableCard({
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
                 fontSize: 10,
-                fontFamily: "monospace",
+                fontWeight: 600,
+                letterSpacing: "0.01em",
               }}
             >
               {title}
@@ -199,14 +204,14 @@ export function DraggableCard({
           </div>
 
           {headerControls && (
-            <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
               {headerControls}
             </div>
           )}
         </div>
 
         {headerActions && (
-          <div style={{ minWidth: 0 }}>
+          <div style={{ minWidth: 0, paddingTop: 1 }}>
             {headerActions}
           </div>
         )}

@@ -28,7 +28,7 @@ export function ConflictDetailSurface({
       <div style={{
         padding: "8px 12px",
         borderBottom: "1px solid var(--ci-toolbar-border)",
-        background: "var(--ci-toolbar-bg)",
+        background: "transparent",
         display: "flex",
         alignItems: "center",
         gap: 10,
@@ -93,7 +93,7 @@ export function ConflictDetailSurface({
       <div style={{ flex: 1, minHeight: 0, overflow: "auto", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0 }}>
         {payload.versions.map((version) => (
           <div key={version.label} style={{ minHeight: 0, display: "flex", flexDirection: "column", borderRight: version.label === "ours" || version.label === "working" ? "none" : "1px solid var(--ci-toolbar-border)", borderBottom: version.label === "base" || version.label === "ours" ? "1px solid var(--ci-toolbar-border)" : "none" }}>
-            <div style={{ padding: "6px 10px", borderBottom: "1px solid var(--ci-toolbar-border)", background: "var(--ci-toolbar-bg)", fontSize: 10, color: "var(--ci-text-dim)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+            <div style={{ padding: "6px 10px", borderBottom: "1px solid var(--ci-toolbar-border)", background: "transparent", fontSize: 10, color: "var(--ci-text-dim)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
               {version.label}
             </div>
             {version.missing ? (
