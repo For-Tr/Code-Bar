@@ -176,7 +176,7 @@ function DiffFileRow({
       </button>
 
       {isOpen && (
-        <div style={{ background: "var(--ci-code-bg)", borderTop: "1px solid var(--ci-toolbar-border)", maxHeight: 420, overflowY: "auto", overflowX: "auto" }}>
+        <div style={{ background: "var(--ci-code-bg)", borderTop: "1px solid var(--ci-toolbar-border)", overflowY: "visible", overflowX: "auto" }}>
           {isBinary ? (
             <div style={{ padding: "14px 16px", fontSize: 11, color: "var(--ci-text-dim)" }}>
               二进制文件暂不支持预览
