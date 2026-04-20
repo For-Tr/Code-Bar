@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPoi
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { filterVisibleExplorerDirectories, reloadExplorerDirectories, reloadVisibleDirectories } from "./services/editorCommands";
+import { consumeSuppressedEditorReveal, filterVisibleExplorerDirectories, reloadExplorerDirectories, reloadVisibleDirectories, revealExplorerPath } from "./services/editorCommands";
 import { setLiquidGlassEffect, GlassMaterialVariant } from "tauri-plugin-liquid-glass-api";
 import { motion, AnimatePresence } from "framer-motion";
 import { TitleBar } from "./components/TitleBar";
@@ -26,10 +26,24 @@ import { useWorkspaceStore } from "./store/workspaceStore";
 import { useWorkbenchStore } from "./store/workbenchStore";
 import { useScmStore } from "./store/scmStore";
 import { useExplorerStore, type ExplorerEntry } from "./store/explorerStore";
+import { useEditorStore } from "./store/editorStore";
 
 const spring = { type: "spring" as const, stiffness: 320, damping: 28, mass: 1 };
 const EMPTY_DIFF_FILES: DiffFile[] = [];
 const MAX_FRONTEND_ERROR_LOGS = 50;
+
+function getExplorerSyncSelection(state: ReturnType<typeof useEditorStore.getState>) {
+  return Object.fromEntries(
+    Object.entries(state.activeGroupIdBySessionId).flatMap(([sessionId, groupId]) => {
+      if (!groupId) return [];
+      const group = state.groupsById[groupId];
+      if (!group?.activeTabId) return [];
+      const tab = state.tabsById[group.activeTabId];
+      if (!tab) return [];
+      return [[sessionId, `${tab.sessionId}:${tab.viewMode}:${tab.path}:${groupId}`]];
+    }),
+  );
+}
 
 interface FrontendErrorLog {
   id: number;
@@ -499,6 +513,26 @@ export default function App() {
     refreshInFlightRef.current[targetId] = task;
   }, []);
 
+
+  useEffect(() => {
+    const unsubscribe = useEditorStore.subscribe((state, prevState) => {
+      const nextSelections = getExplorerSyncSelection(state);
+      const prevSelections = getExplorerSyncSelection(prevState);
+      Object.entries(nextSelections).forEach(([sessionId, nextSelectionKey]) => {
+        if (prevSelections[sessionId] === nextSelectionKey) return;
+        const groupId = state.activeGroupIdBySessionId[sessionId];
+        if (!groupId) return;
+        const group = state.groupsById[groupId];
+        if (!group?.activeTabId) return;
+        const tab = state.tabsById[group.activeTabId];
+        if (!tab) return;
+        if (consumeSuppressedEditorReveal(sessionId)) return;
+        revealExplorerPath(sessionId, tab.path, true, "editor");
+      });
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     if (!("__TAURI_INTERNALS__" in window)) return;

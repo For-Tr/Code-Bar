@@ -32,6 +32,8 @@ export function collectAncestorDirs(path: string) {
 export type ExplorerSelectMode = false | true | "force" | "focusNoScroll";
 export type ExplorerSelectSource = "explorer" | "editor" | "editor-tabs" | "scm" | "command";
 
+const suppressedEditorRevealBySession = new Set<string>();
+
 function shouldAutoRevealExplorerPath(
   _sessionId: string,
   _path: string,
@@ -40,7 +42,10 @@ function shouldAutoRevealExplorerPath(
 ) {
   if (reveal === "force") return "force" as const;
   if (reveal === false) return false;
-  if (source === "editor" || source === "editor-tabs" || source === "scm") {
+  if (source === "explorer") {
+    return false;
+  }
+  if (source === "scm") {
     return "focusNoScroll" as const;
   }
   return reveal;
@@ -65,7 +70,22 @@ export function revealExplorerPath(sessionId: string, path: string, reveal: Expl
   selectExplorerPath(sessionId, path, reveal, source);
 }
 
+export function suppressNextEditorReveal(sessionId: string) {
+  suppressedEditorRevealBySession.add(sessionId);
+}
+
+export function consumeSuppressedEditorReveal(sessionId: string) {
+  if (!suppressedEditorRevealBySession.has(sessionId)) {
+    return false;
+  }
+  suppressedEditorRevealBySession.delete(sessionId);
+  return true;
+}
+
 export function openFile(sessionId: string, path: string, preview = true, reveal: ExplorerSelectMode = true, source: ExplorerSelectSource = "explorer") {
+  if (source === "explorer") {
+    suppressNextEditorReveal(sessionId);
+  }
   const tabId = useEditorStore.getState().openFile(sessionId, path, preview);
   revealExplorerPath(sessionId, path, reveal, source);
   useWorkbenchStore.getState().showExplorer(sessionId);
@@ -73,6 +93,9 @@ export function openFile(sessionId: string, path: string, preview = true, reveal
 }
 
 export function openDiff(sessionId: string, path: string, reveal: ExplorerSelectMode = true, source: ExplorerSelectSource = "explorer") {
+  if (source === "explorer") {
+    suppressNextEditorReveal(sessionId);
+  }
   const tabId = useEditorStore.getState().openDiff(sessionId, path);
   revealExplorerPath(sessionId, path, reveal, source);
   useWorkbenchStore.getState().showScm(sessionId);

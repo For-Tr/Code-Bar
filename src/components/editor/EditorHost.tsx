@@ -1,5 +1,5 @@
-import { useEffect, useRef } from "react";
-import { loadFile, revealExplorerPath, saveTab } from "../../services/editorCommands";
+import { useEffect } from "react";
+import { loadFile, saveTab } from "../../services/editorCommands";
 import { useEditorBufferStore, type EditorBufferState } from "../../store/editorBufferStore";
 import { useEditorStore } from "../../store/editorStore";
 import { useExplorerStore } from "../../store/explorerStore";
@@ -16,10 +16,13 @@ function EmptyEditorState({ message }: { message: string }) {
     <div style={{
       width: "100%",
       height: "100%",
+      minHeight: 0,
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
       padding: 24,
+      boxSizing: "border-box",
+      overflow: "hidden",
     }}>
       <div style={{
         maxWidth: 280,
@@ -60,7 +63,6 @@ export function EditorHost({
   const activeGroupIdBySessionId = useEditorStore((s) => s.activeGroupIdBySessionId);
   const buffersByTabId = useEditorBufferStore((s) => s.buffersByTabId);
   const updateDraft = useEditorBufferStore((s) => s.updateDraft);
-  const lastExplorerSelectionKeyRef = useRef<string | null>(null);
 
   const tabIds = group?.tabIds ?? [];
   const resolvedActiveTabId = group?.activeTabId && tabIds.includes(group.activeTabId)
@@ -81,16 +83,6 @@ export function EditorHost({
       setActiveTab(group.id, resolvedActiveTabId);
     }
   }, [group, resolvedActiveTabId, setActiveTab]);
-
-  useEffect(() => {
-    if (!activeTab || !session || !group) return;
-    if (activeTab.sessionId !== session.id) return;
-    if (!isFocusedGroup) return;
-    const selectionKey = `${activeTab.sessionId}:${activeTab.viewMode}:${activeTab.path}:${groupId}`;
-    if (lastExplorerSelectionKeyRef.current === selectionKey) return;
-    lastExplorerSelectionKeyRef.current = selectionKey;
-    revealExplorerPath(session.id, activeTab.path, "focusNoScroll", "editor");
-  }, [activeTab?.path, activeTab?.sessionId, activeTab?.viewMode, groupId, isFocusedGroup, session?.id]);
 
   useEffect(() => {
     if (!activeTab || !session || !group) return;
@@ -135,7 +127,7 @@ export function EditorHost({
 
   if (!activeBuffer || activeBuffer.loading) {
     return (
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "var(--ci-text-dim)", fontSize: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%", height: "100%", minHeight: 0, overflow: "hidden", color: "var(--ci-text-dim)", fontSize: 12 }}>
         载入文件中…
       </div>
     );
@@ -143,7 +135,7 @@ export function EditorHost({
 
   if (activeBuffer.error) {
     return (
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", padding: 24, color: "var(--ci-deleted-text)", fontSize: 12, lineHeight: 1.7 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%", height: "100%", minHeight: 0, overflow: "hidden", padding: 24, boxSizing: "border-box", color: "var(--ci-deleted-text)", fontSize: 12, lineHeight: 1.7 }}>
         {activeBuffer.error}
       </div>
     );
@@ -154,7 +146,7 @@ export function EditorHost({
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0, overflow: "hidden" }}>
+    <div style={{ display: "flex", flexDirection: "column", width: "100%", height: "100%", minHeight: 0, overflow: "hidden" }}>
       <div style={{
         display: "flex",
         alignItems: "center",

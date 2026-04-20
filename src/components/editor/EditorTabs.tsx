@@ -3,7 +3,7 @@ import { FileCode2, GitCommitHorizontal, X } from "lucide-react";
 import { SortableContext, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { useDroppable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import { closeTab, revealExplorerPath } from "../../services/editorCommands";
+import { closeTab } from "../../services/editorCommands";
 import { useEditorBufferStore } from "../../store/editorBufferStore";
 import { useEditorStore, type EditorGroup, type EditorViewMode } from "../../store/editorStore";
 import { type ClaudeSession } from "../../store/sessionStore";
@@ -126,9 +126,6 @@ function SortableEditorTab({
       <button
         onClick={() => {
           setActiveTab(group.id, tabId);
-          if (tab.viewMode === "code") {
-            revealExplorerPath(session.id, tab.path, "focusNoScroll", "editor-tabs");
-          }
         }}
         onDoubleClick={() => pinTab(tabId)}
         style={{
