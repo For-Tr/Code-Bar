@@ -11,6 +11,7 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
+import { useAppI18n } from "../i18n";
 import { DraggableCard, type ResizeEdge } from "./DraggableCard";
 import { SplitDockOutlet, useSplitSwapSnapshot } from "./SplitSwapLayout";
 import {
@@ -524,6 +525,7 @@ function TerminalTabChip({
   canClose: boolean;
   draggable?: boolean;
 }) {
+  const { t } = useAppI18n();
   const [hovered, setHovered] = useState(false);
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: `terminal-tab-${widgetId}-${tab.id}`,
@@ -607,7 +609,7 @@ function TerminalTabChip({
             lineHeight: 1,
             flexShrink: 0,
           }}
-          aria-label={`关闭 ${tab.title}`}
+          aria-label={t("editor.closeTab", { title: tab.title })}
         >
           ×
         </button>
@@ -617,6 +619,7 @@ function TerminalTabChip({
 }
 
 export function SplitWidgetPanel() {
+  const { t } = useAppI18n();
   const { settings, patchSettings } = useSettingsStore();
   const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
   const activeWorkspace = useWorkspaceStore((s) => s.workspaces.find((workspace) => workspace.id === s.activeWorkspaceId) ?? null);
@@ -714,10 +717,10 @@ export function SplitWidgetPanel() {
       }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 10, color: "var(--ci-text-dim)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-            Widgets
+            {t("app.split.widgets")}
           </div>
           <div style={{ marginTop: 2, fontSize: 11, color: "var(--ci-text-muted)", opacity: 0.9, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {activeWorkspace?.name ?? "Split panel"}
+            {activeWorkspace?.name ?? t("split.splitPanel")}
           </div>
         </div>
         <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
@@ -755,7 +758,7 @@ export function SplitWidgetPanel() {
               transition: "color 0.12s, opacity 0.12s",
             }}
           >
-            铺满
+            {t("split.fill")}
           </button>
           <button
             onClick={() => patchSettings({ splitWidgetPanelCollapsed: true })}
@@ -778,7 +781,7 @@ export function SplitWidgetPanel() {
               transition: "color 0.12s, opacity 0.12s",
             }}
           >
-            收起
+            {t("split.collapse")}
           </button>
         </div>
       </div>
@@ -1112,7 +1115,7 @@ export function SplitWidgetPanel() {
                       padding: 0,
                       flexShrink: 0,
                     }}
-                    aria-label="新建终端标签页"
+                    aria-label={t("split.newTerminalTab")}
                   >
                     +
                   </button>
@@ -1166,8 +1169,8 @@ export function SplitWidgetPanel() {
                       fontSize: 11,
                       padding: 0,
                     }}
-                    aria-label="与 detail 互换"
-                    title="与 detail 互换"
+                    aria-label={t("split.swapWithDetail")}
+                    title={t("split.swapWithDetail")}
                   >
                     ⇄
                   </button>
@@ -1235,8 +1238,8 @@ export function SplitWidgetPanel() {
             lineHeight: 1.7,
           }}>
             {hasHiddenWidgets
-              ? "组件已全部隐藏，可在 设置 > 组件设置 中重新开启。"
-              : "先在中间打开一个会话，右侧会出现可拖拽的 terminal 小组件。"}
+              ? t("split.allWidgetsHidden")
+              : t("split.openSessionToShowTerminal")}
           </div>
         </div>
       )}

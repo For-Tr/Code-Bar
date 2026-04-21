@@ -1,4 +1,5 @@
 import { GitMerge, Check } from "lucide-react";
+import { useAppI18n } from "../../i18n";
 import { resolveConflict } from "../../services/scmCommands";
 import { useScmStore } from "../../store/scmStore";
 import { CodeEditorSurface } from "./CodeEditorSurface";
@@ -11,6 +12,7 @@ export function ConflictDetailSurface({
   sessionId: string;
   path: string;
 }) {
+  const { t } = useAppI18n();
   const payload = useScmStore((s) => s.conflictBySessionId[sessionId] ?? null);
   const busy = useScmStore((s) => s.actionPendingBySessionId[sessionId] ?? false);
   const actionError = useScmStore((s) => s.actionErrorBySessionId[sessionId] ?? null);
@@ -18,7 +20,7 @@ export function ConflictDetailSurface({
   if (!payload || payload.path !== path) {
     return (
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", flex: 1, color: "var(--ci-text-dim)", fontSize: 12 }}>
-        载入冲突详情中…
+        {t("diff.loadingConflictDetail")}
       </div>
     );
   }
@@ -35,13 +37,13 @@ export function ConflictDetailSurface({
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--ci-text-dim)", fontSize: 11 }}>
           <GitMerge size={12} strokeWidth={1.8} />
-          SCM · Conflict
+          {t("diff.conflictHeader")}
         </div>
         <div style={{ minWidth: 0, flex: 1, fontSize: 11, color: "var(--ci-text)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {path}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
-          <WorkbenchTooltip label="Accept Ours">
+          <WorkbenchTooltip label={t("diff.acceptOurs")}>
             <button
               onClick={() => void resolveConflict(sessionId, path, "ours")}
               disabled={busy}
@@ -61,7 +63,7 @@ export function ConflictDetailSurface({
               <Check size={13} strokeWidth={2} />
             </button>
           </WorkbenchTooltip>
-          <WorkbenchTooltip label="Accept Theirs">
+          <WorkbenchTooltip label={t("diff.acceptTheirs")}>
             <button
               onClick={() => void resolveConflict(sessionId, path, "theirs")}
               disabled={busy}
@@ -98,11 +100,11 @@ export function ConflictDetailSurface({
             </div>
             {version.missing ? (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "center", flex: 1, padding: 24, color: "var(--ci-text-dim)", fontSize: 12 }}>
-                当前版本不存在。
+                {t("diff.versionMissing")}
               </div>
             ) : version.isBinary ? (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "center", flex: 1, padding: 24, color: "var(--ci-text-dim)", fontSize: 12 }}>
-                二进制内容暂不支持预览。
+                {t("diff.binaryPreviewUnsupported")}
               </div>
             ) : (
               <CodeEditorSurface path={`${path}:${version.label}`} value={version.content} onChange={() => {}} readOnly />

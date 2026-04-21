@@ -1,4 +1,6 @@
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { useAppI18n } from "../i18n";
 import { SplitDetailHost } from "../components/SplitSwapLayout";
 import { ExploreEditor } from "../components/ExploreMode";
 import { showSessionSurface, showExplorer, showScm } from "../services/workbenchCommands";
@@ -20,10 +22,10 @@ function WelcomeAction({ label, accent = false, onClick }: { label: string; acce
         fontWeight: 600,
         cursor: "pointer",
       }}
-      onMouseEnter={e => {
+      onMouseEnter={(e) => {
         e.currentTarget.style.opacity = "0.8";
       }}
-      onMouseLeave={e => {
+      onMouseLeave={(e) => {
         e.currentTarget.style.opacity = "1";
       }}
     >
@@ -44,9 +46,7 @@ function WelcomeList({
       <div style={{ fontSize: 10, color: "var(--ci-text-dim)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>
         {title}
       </div>
-      <div style={{ marginTop: 10 }}>
-        {children}
-      </div>
+      <div style={{ marginTop: 10 }}>{children}</div>
     </div>
   );
 }
@@ -62,11 +62,19 @@ function WelcomeEntry({
 }) {
   return (
     <div
-      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 18, padding: "10px 8px", borderTop: "1px solid var(--ci-toolbar-border)", transition: "background 0.12s" }}
-      onMouseEnter={e => {
+      style={{
+        display: "grid",
+        gridTemplateColumns: "minmax(0, 1fr) auto",
+        alignItems: "start",
+        gap: 18,
+        padding: "10px 8px",
+        borderTop: "1px solid var(--ci-toolbar-border)",
+        transition: "background 0.12s",
+      }}
+      onMouseEnter={(e) => {
         e.currentTarget.style.background = "var(--ci-list-hover-bg)";
       }}
-      onMouseLeave={e => {
+      onMouseLeave={(e) => {
         e.currentTarget.style.background = "transparent";
       }}
     >
@@ -74,12 +82,15 @@ function WelcomeEntry({
         <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ci-text)" }}>{title}</div>
         {detail && <div style={{ marginTop: 3, fontSize: 11, color: "var(--ci-text-dim)", lineHeight: 1.6 }}>{detail}</div>}
       </div>
-      {action && <div style={{ flexShrink: 0 }}>{action}</div>}
+      {action && <div style={{ flexShrink: 0, alignSelf: "center" }}>{action}</div>}
     </div>
   );
 }
 
 function WorkbenchWelcome({ session }: { session: ClaudeSession | null }) {
+  const { t } = useAppI18n();
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [compactHeader, setCompactHeader] = useState(false);
   const workspaces = useWorkspaceStore((s) => s.workspaces);
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId);
   const addWorkspace = useWorkspaceStore((s) => s.addWorkspace);
@@ -96,6 +107,19 @@ function WorkbenchWelcome({ session }: { session: ClaudeSession | null }) {
     ? sessions.filter((item) => item.workspaceId === activeWorkspace.id).slice(0, 5)
     : [];
   const otherWorkspaces = workspaces.filter((workspace) => workspace.id !== activeWorkspaceId).slice(0, 4);
+
+  useEffect(() => {
+    const element = containerRef.current;
+    if (!element) return;
+
+    const observer = new ResizeObserver(() => {
+      setCompactHeader(element.clientWidth < 560);
+    });
+
+    observer.observe(element);
+    setCompactHeader(element.clientWidth < 560);
+    return () => observer.disconnect();
+  }, []);
 
   const handleAddWorkspace = async () => {
     if (!("__TAURI_INTERNALS__" in window)) return;
@@ -181,61 +205,77 @@ function WorkbenchWelcome({ session }: { session: ClaudeSession | null }) {
 
   return (
     <div style={{ width: "100%", height: "100%", overflowY: "auto" }}>
-      <div style={{ width: "100%", maxWidth: 760, margin: "0 auto", padding: "36px 30px 44px", boxSizing: "border-box" }}>
-        <div style={{ fontSize: 10, color: "var(--ci-text-dim)", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>
-          Get Started
-        </div>
-        <div style={{ marginTop: 8, fontSize: 26, fontWeight: 700, color: "var(--ci-text)", letterSpacing: -0.5, lineHeight: 1.15 }}>
-          {hasWorkspace ? (activeWorkspace ? activeWorkspace.name : "Welcome") : "No workspace"}
-        </div>
-        <div style={{ marginTop: 8, maxWidth: 520, fontSize: 12, color: "var(--ci-text-muted)", lineHeight: 1.7 }}>
-          {hasWorkspace ? "Choose where to continue." : "Add a project folder to begin."}
-        </div>
+      <div ref={containerRef} style={{ width: "100%", maxWidth: 760, margin: "0 auto", padding: compactHeader ? "24px 18px 32px" : "36px 30px 44px", boxSizing: "border-box" }}>
+        {!compactHeader && (
+          <>
+            <div style={{ fontSize: 10, color: "var(--ci-text-dim)", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+              {t("workbench.welcome.getStarted")}
+            </div>
+            <div style={{ marginTop: 8, fontSize: 26, fontWeight: 700, color: "var(--ci-text)", letterSpacing: -0.5, lineHeight: 1.15 }}>
+              {hasWorkspace ? (activeWorkspace ? activeWorkspace.name : t("workbench.welcome.welcome")) : t("workbench.welcome.noWorkspace")}
+            </div>
+            <div style={{ marginTop: 8, maxWidth: 520, fontSize: 12, color: "var(--ci-text-muted)", lineHeight: 1.7 }}>
+              {hasWorkspace ? t("workbench.welcome.chooseWhereToContinue") : t("workbench.welcome.addProjectToBegin")}
+            </div>
+          </>
+        )}
 
-        <div style={{ marginTop: 30, display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 36 }}>
+        <div style={{ marginTop: compactHeader ? 0 : 30, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: compactHeader ? 24 : 36 }}>
           {hasWorkspace ? (
             <>
-              <WelcomeList title="Start">
+              <WelcomeList title={t("workbench.welcome.start")}>
                 {session ? (
                   <>
-                    <WelcomeEntry title="Open current session" detail="Continue the active terminal context." action={<WelcomeAction label="Open" accent onClick={() => showSessionSurface(session.id)} />} />
-                    <WelcomeEntry title="Open Explorer" detail="Browse files and start editing." action={<WelcomeAction label="Explorer" onClick={() => showExplorer(session.id)} />} />
-                    <WelcomeEntry title="Open Source Control" detail="Review current changes and conflicts." action={<WelcomeAction label="SCM" onClick={() => showScm(session.id)} />} />
+                    <WelcomeEntry
+                      title={t("workbench.welcome.openCurrentSession")}
+                      detail={t("workbench.welcome.continueActiveTerminal")}
+                      action={<WelcomeAction label={t("workbench.welcome.open")} accent onClick={() => showSessionSurface(session.id)} />}
+                    />
+                    <WelcomeEntry
+                      title={t("workbench.welcome.openExplorer")}
+                      detail={t("workbench.welcome.browseFiles")}
+                      action={<WelcomeAction label={t("workbench.explorer")} onClick={() => showExplorer(session.id)} />}
+                    />
+                    <WelcomeEntry
+                      title={t("workbench.welcome.openSourceControl")}
+                      detail={t("workbench.welcome.reviewChanges")}
+                      action={<WelcomeAction label={t("workbench.welcome.scm")} onClick={() => showScm(session.id)} />}
+                    />
                   </>
                 ) : (
                   <WelcomeEntry
-                    title="Create or choose a session"
-                    detail="Use the sidebar on the left, or create one now."
-                    action={<WelcomeAction label="New" accent onClick={() => { void handleNewSession(); }} />}
+                    title={t("workbench.welcome.createOrChooseSession")}
+                    detail={t("workbench.welcome.useSidebarOrCreate")}
+                    action={<WelcomeAction label={t("workbench.welcome.new")} accent onClick={() => { void handleNewSession(); }} />}
                   />
                 )}
               </WelcomeList>
-              <WelcomeList title="Recent">
+              <WelcomeList title={t("workbench.welcome.recent")}>
                 {recentSessions.length > 0 ? recentSessions.map((recent) => (
                   <WelcomeEntry
                     key={recent.id}
                     title={recent.name}
                     detail={recent.currentTask || undefined}
-                    action={<WelcomeAction label="Open" onClick={() => showSessionSurface(recent.id)} />}
+                    action={<WelcomeAction label={t("workbench.welcome.open")} onClick={() => showSessionSurface(recent.id)} />}
                   />
                 )) : (
-                  <WelcomeEntry title="No recent sessions" detail="New sessions will appear here." />
+                  <WelcomeEntry title={t("workbench.welcome.noRecentSessions")} detail={t("workbench.welcome.recentWillAppear")} />
                 )}
               </WelcomeList>
             </>
           ) : (
             <>
-              <WelcomeList title="Start">
+              <WelcomeList title={t("workbench.welcome.start")}>
                 <WelcomeEntry
-                  title="Add workspace"
-                  detail="Choose a project folder and make it the current workspace."
-                  action={<WelcomeAction label="Add" accent onClick={() => { void handleAddWorkspace(); }} />}
+                  title={t("workbench.welcome.addWorkspace")}
+                  detail={t("workbench.welcome.chooseProjectFolder")}
+                  action={<WelcomeAction label={t("workbench.welcome.add")} accent onClick={() => { void handleAddWorkspace(); }} />}
                 />
-                <WelcomeEntry title="Create a session" detail="Available after a workspace is added." />
+                <WelcomeEntry title={t("workbench.welcome.createSession")} detail={t("workbench.welcome.availableAfterWorkspace")} />
               </WelcomeList>
-              <WelcomeList title="Overview">
-                <WelcomeEntry title="Explorer and SCM" detail="Appear after a workspace is available." />
-                <WelcomeEntry title="Split workbench" detail="Sidebar, center editor/detail, and widgets." />
+              <WelcomeList title={t("workbench.welcome.overview")}>
+                <WelcomeEntry title={t("workbench.welcome.explorerAndScm")} detail={t("workbench.welcome.appearAfterWorkspace")} />
+                <WelcomeEntry title={t("workbench.welcome.splitWorkbench")} detail={t("workbench.welcome.splitWorkbenchDetail")} />
               </WelcomeList>
             </>
           )}
@@ -244,7 +284,7 @@ function WorkbenchWelcome({ session }: { session: ClaudeSession | null }) {
         {hasWorkspace && otherWorkspaces.length > 0 && (
           <div style={{ marginTop: 34, maxWidth: 520 }}>
             <div style={{ fontSize: 10, color: "var(--ci-text-dim)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-              Other Workspaces
+              {t("workbench.welcome.otherWorkspaces")}
             </div>
             <div style={{ marginTop: 10 }}>
               {otherWorkspaces.map((workspace) => {
@@ -254,10 +294,10 @@ function WorkbenchWelcome({ session }: { session: ClaudeSession | null }) {
                   <div
                     key={workspace.id}
                     style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, padding: "8px 8px", borderTop: "1px solid var(--ci-toolbar-border)", transition: "background 0.12s" }}
-                    onMouseEnter={e => {
+                    onMouseEnter={(e) => {
                       e.currentTarget.style.background = "var(--ci-list-hover-bg)";
                     }}
-                    onMouseLeave={e => {
+                    onMouseLeave={(e) => {
                       e.currentTarget.style.background = "transparent";
                     }}
                   >
@@ -271,7 +311,7 @@ function WorkbenchWelcome({ session }: { session: ClaudeSession | null }) {
                         </div>
                       )}
                     </div>
-                    <WelcomeAction label="Switch" onClick={() => useWorkspaceStore.getState().bringToFront(workspace.id)} />
+                    <WelcomeAction label={t("workbench.welcome.switch")} onClick={() => useWorkspaceStore.getState().bringToFront(workspace.id)} />
                   </div>
                 );
               })}

@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { getI18n } from "../i18n";
 import { mirroredPersistStorage } from "./persistStorage";
 import { useSettingsStore, type RunnerConfig } from "./settingsStore";
 
@@ -188,8 +189,11 @@ function hydrateRunnerConfig(runner: RunnerConfig): RunnerConfig {
 function makeSession(
   overrides: Partial<Omit<ClaudeSession, "runner">> & { id: string; workspaceId: string; workdir: string; runner: RunnerConfig }
 ): ClaudeSession {
+  const i18n = getI18n();
   return {
-    name: `会话 ${overrides.id}`,
+    name: i18n.isInitialized
+      ? i18n.t("session.defaultName", { id: overrides.id })
+      : `Session ${overrides.id}`,
     status: "idle",
     currentTask: "",
     createdAt: Date.now(),

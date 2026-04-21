@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight, FileCode2, FilePlus2, FileX2, Minus, Plus } from "lucide-react";
+import { useAppI18n } from "../i18n";
 import { DiffFile, DiffLine } from "../store/sessionStore";
 import { type ScmActionMode } from "../store/scmStore";
 import { WorkbenchTooltip } from "./ui/WorkbenchTooltip";
@@ -49,7 +50,7 @@ function DiffLineRow({ line }: { line: DiffLine }) {
         flexShrink: 0,
         background: c.gutter,
         userSelect: "none",
-        borderRight: "1px solid var(--ci-toolbar-border)",
+        borderInlineEnd: "1px solid var(--ci-toolbar-border)",
       }}>
         {line.oldLineNo ?? ""}
       </span>
@@ -61,7 +62,7 @@ function DiffLineRow({ line }: { line: DiffLine }) {
         flexShrink: 0,
         background: c.gutter,
         userSelect: "none",
-        borderRight: "1px solid var(--ci-toolbar-border)",
+        borderInlineEnd: "1px solid var(--ci-toolbar-border)",
       }}>
         {line.newLineNo ?? ""}
       </span>
@@ -91,7 +92,7 @@ function FileIcon({ type, binary }: { type: DiffFile["type"]; binary?: boolean }
 
 function FileStat({ additions, deletions }: { additions: number; deletions: number }) {
   return (
-    <span style={{ display: "flex", gap: 8, fontSize: 10, marginLeft: "auto", flexShrink: 0 }}>
+    <span style={{ display: "flex", gap: 8, fontSize: 10, marginInlineStart: "auto", flexShrink: 0 }}>
       {additions > 0 && <span style={{ color: "var(--ci-added-text)" }}>+{additions}</span>}
       {deletions > 0 && <span style={{ color: "var(--ci-deleted-text)" }}>−{deletions}</span>}
     </span>
@@ -141,6 +142,7 @@ function DiffFileRow({
   busy?: boolean;
   contentMaxHeight?: number | string;
 }) {
+  const { t } = useAppI18n();
   const [isOpen, setIsOpen] = useState(true);
   const isBinary = !!file.binary;
   const useInnerScroll = contentMaxHeight !== "none";
@@ -172,7 +174,7 @@ function DiffFileRow({
           {file.path}
         </span>
         {isBinary ? (
-          <span style={{ fontSize: 10, color: "var(--ci-purple)" }}>binary</span>
+          <span style={{ fontSize: 10, color: "var(--ci-purple)" }}>{t("diff.binary")}</span>
         ) : (
           <FileStat additions={file.additions} deletions={file.deletions} />
         )}
@@ -182,11 +184,11 @@ function DiffFileRow({
         <div style={{ background: "var(--ci-code-bg)", borderTop: "1px solid var(--ci-toolbar-border)", maxHeight: contentMaxHeight, overflow: useInnerScroll ? "auto" : "visible" }}>
           {isBinary ? (
             <div style={{ padding: "14px 16px", fontSize: 11, color: "var(--ci-text-dim)" }}>
-              二进制文件暂不支持预览
+              {t("diff.binaryPreviewUnsupported")}
             </div>
           ) : file.hunks.length === 0 ? (
             <div style={{ padding: "12px 16px", fontSize: 11, color: "var(--ci-text-muted)", fontFamily: MONO }}>
-              {file.note ?? "无内容差异"}
+              {file.note ?? t("diff.noContentDiff")}
             </div>
           ) : (
             file.hunks.map((hunk, hi) => (
@@ -204,10 +206,10 @@ function DiffFileRow({
                   gap: 8,
                 }}>
                   <span>{hunk.header}</span>
-                  <div style={{ marginLeft: "auto", display: "flex", gap: 2 }}>
-                    {fileMode === "unstaged" && onStageHunk && <HunkActionButton label="Stage hunk" icon={<Plus size={12} strokeWidth={1.8} />} onClick={() => onStageHunk(file.path, hi)} disabled={busy} />}
-                    {fileMode === "unstaged" && onDiscardHunk && <HunkActionButton label="Discard hunk" icon={<Minus size={12} strokeWidth={1.8} />} onClick={() => onDiscardHunk(file.path, hi)} disabled={busy} />}
-                    {fileMode === "staged" && onUnstageHunk && <HunkActionButton label="Unstage hunk" icon={<Minus size={12} strokeWidth={1.8} />} onClick={() => onUnstageHunk(file.path, hi)} disabled={busy} />}
+                  <div style={{ marginInlineStart: "auto", display: "flex", gap: 2 }}>
+                    {fileMode === "unstaged" && onStageHunk && <HunkActionButton label={t("scm.stageHunk")} icon={<Plus size={12} strokeWidth={1.8} />} onClick={() => onStageHunk(file.path, hi)} disabled={busy} />}
+                    {fileMode === "unstaged" && onDiscardHunk && <HunkActionButton label={t("scm.discardHunk")} icon={<Minus size={12} strokeWidth={1.8} />} onClick={() => onDiscardHunk(file.path, hi)} disabled={busy} />}
+                    {fileMode === "staged" && onUnstageHunk && <HunkActionButton label={t("scm.unstageHunk")} icon={<Minus size={12} strokeWidth={1.8} />} onClick={() => onUnstageHunk(file.path, hi)} disabled={busy} />}
                   </div>
                 </div>
                 {hunk.lines.map((line, li) => (
@@ -239,10 +241,12 @@ export function DiffViewer({
   busy?: boolean;
   contentMaxHeight?: number | string;
 }) {
+  const { t } = useAppI18n();
+
   if (files.length === 0) {
     return (
       <div style={{ padding: "20px 0", textAlign: "center", color: "var(--ci-text-muted)", fontSize: 12 }}>
-        暂无代码变更
+        {t("diff.noChanges")}
       </div>
     );
   }
@@ -261,7 +265,7 @@ export function DiffViewer({
         background: "var(--ci-toolbar-bg)",
       }}>
         <span style={{ fontSize: 11, color: "var(--ci-text-muted)" }}>
-          {files.length} files changed
+          {t("diff.filesChanged", { count: files.length })}
         </span>
         <span style={{ display: "flex", gap: 8, fontSize: 11 }}>
           <span style={{ color: "var(--ci-added-text)" }}>+{totalAdditions}</span>

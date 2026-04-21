@@ -140,7 +140,13 @@ pub fn send_notification_with_callback(
             .title(&title)
             .body(&body)
             .show()
-            .map_err(|e| format!("通知发送失败: {e}"))?;
+            .map_err(|e| {
+                crate::i18n::translate(
+                    crate::i18n::current_locale(&app.state::<crate::i18n::LocaleState>()),
+                    "notifications.send_failed",
+                    &[("error", &e.to_string())],
+                )
+            })?;
         eprintln!("[notification] desktop send queued");
         Ok(())
     }

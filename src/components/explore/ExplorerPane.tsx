@@ -6,6 +6,7 @@ import {
   Folder,
   RefreshCw,
 } from "lucide-react";
+import { useAppI18n } from "../../i18n";
 import { openFile, loadDirectory } from "../../services/editorCommands";
 import { showScm, resetWorkbenchMode } from "../../services/workbenchCommands";
 import { useEditorBufferStore } from "../../store/editorBufferStore";
@@ -60,6 +61,7 @@ export function ExplorerPane({
   session: ClaudeSession;
   onRefreshDiff: (sessionId?: string | null, options?: { reloadExplorer?: boolean }) => void;
 }) {
+  const { t } = useAppI18n();
   const theme = useSettingsStore((s) => s.settings.theme);
   const buffersByTabId = useEditorBufferStore((s) => s.buffersByTabId);
   const scmSnapshot = useScmStore((s) => s.snapshotBySessionId[session.id]?.files ?? session.diffFiles);
@@ -144,14 +146,14 @@ export function ExplorerPane({
           <button
             onClick={() => onRefreshDiff(session.id, { reloadExplorer: true })}
             style={{ background: "none", border: "none", color: rootLoading ? "var(--ci-text)" : "var(--ci-text-dim)", cursor: "pointer", padding: 2, width: 18, height: 18, display: "flex", alignItems: "center", justifyContent: "center", opacity: rootLoading ? 1 : 0.85 }}
-            title="刷新变更"
+            title={t("explorer.refreshChanges")}
           >
             <RefreshCw size={13} strokeWidth={1.8} />
           </button>
           <button
             onClick={resetWorkbenchMode}
             style={{ background: "none", border: "none", color: "var(--ci-text-dim)", cursor: "pointer", padding: 2, width: 18, height: 18, display: "flex", alignItems: "center", justifyContent: "center" }}
-            title="返回会话视图"
+            title={t("explorer.backToSession")}
           >
             <ChevronLeftGlyph />
           </button>
@@ -161,7 +163,7 @@ export function ExplorerPane({
       <div style={{ padding: "8px 0 10px", borderBottom: "1px solid var(--ci-toolbar-border)" }}>
         <div style={{ padding: "0 12px 6px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
           <div style={{ fontSize: 10, color: "var(--ci-text-dim)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-            Source Control
+            {t("explorer.sourceControl")}
           </div>
           <button
             onClick={() => showScm(session.id)}
@@ -176,26 +178,26 @@ export function ExplorerPane({
               letterSpacing: "0.04em",
             }}
           >
-            Open
+            {t("explorer.open")}
           </button>
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, padding: "0 12px", fontSize: 10, color: "var(--ci-text-dim)" }}>
-          <span>{workingTreeCount} changes</span>
-          {scmGroups.conflicts.length > 0 && <span style={{ color: "var(--ci-red)", fontWeight: 700 }}>{scmGroups.conflicts.length} conflicts</span>}
-          {scmGroups.staged.length > 0 && <span style={{ color: "var(--ci-green-dark)", fontWeight: 700 }}>{scmGroups.staged.length} staged</span>}
-          {scmGroups.unstaged.length > 0 && <span style={{ color: "var(--ci-yellow-dark)", fontWeight: 700 }}>{scmGroups.unstaged.length} changes</span>}
-          {scmGroups.untracked.length > 0 && <span style={{ color: "var(--ci-green)", fontWeight: 700 }}>{scmGroups.untracked.length} untracked</span>}
+          <span>{t("explorer.changes", { count: workingTreeCount })}</span>
+          {scmGroups.conflicts.length > 0 && <span style={{ color: "var(--ci-red)", fontWeight: 700 }}>{t("explorer.conflicts", { count: scmGroups.conflicts.length })}</span>}
+          {scmGroups.staged.length > 0 && <span style={{ color: "var(--ci-green-dark)", fontWeight: 700 }}>{t("explorer.staged", { count: scmGroups.staged.length })}</span>}
+          {scmGroups.unstaged.length > 0 && <span style={{ color: "var(--ci-yellow-dark)", fontWeight: 700 }}>{t("explorer.unstaged", { count: scmGroups.unstaged.length })}</span>}
+          {scmGroups.untracked.length > 0 && <span style={{ color: "var(--ci-green)", fontWeight: 700 }}>{t("explorer.untracked", { count: scmGroups.untracked.length })}</span>}
         </div>
       </div>
 
       <div style={{ padding: "8px 12px 6px", fontSize: 10, color: "var(--ci-text-dim)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-        Files
+        {t("explorer.files")}
       </div>
 
       <div ref={treeScrollRef} style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0 0 10px" }}>
         {rootLoading && !hasRootSnapshot ? (
           <div style={{ padding: "18px 12px", fontSize: 12, color: "var(--ci-text-dim)", lineHeight: 1.7 }}>
-            正在载入项目文件…
+            {t("explorer.loadingProjectFiles")}
           </div>
         ) : rootError ? (
           <div style={{ padding: "18px 12px", fontSize: 12, color: "var(--ci-deleted-text)", lineHeight: 1.7 }}>
@@ -203,7 +205,7 @@ export function ExplorerPane({
           </div>
         ) : rowCount === 0 ? (
           <div style={{ padding: "18px 12px", fontSize: 12, color: "var(--ci-text-dim)", lineHeight: 1.7 }}>
-            当前目录没有可显示文件。
+            {t("explorer.emptyDirectory")}
           </div>
         ) : visibleRows.map((node) => {
           if (node.type === "dir") {
@@ -224,7 +226,7 @@ export function ExplorerPane({
                   style={{
                     ...rowBaseStyle,
                     padding: "0 10px",
-                    paddingLeft: 8 + node.depth * 14,
+                    paddingInlineStart: 8 + node.depth * 14,
                     background: isHovered ? rowHoverBackground : "transparent",
                     color: isHovered ? "var(--ci-text)" : "var(--ci-text-muted)",
                     cursor: "pointer",
@@ -239,10 +241,10 @@ export function ExplorerPane({
                     <Folder size={12} strokeWidth={1.8} />
                   </span>
                   <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 11 }} data-row-index={node.index}>{node.name}</span>
-                  {node.loading && <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--ci-text-dim)" }}>…</span>}
+                  {node.loading && <span style={{ marginInlineStart: "auto", fontSize: 10, color: "var(--ci-text-dim)" }}>…</span>}
                 </button>
                 {node.error && (
-                  <div style={{ paddingLeft: 34 + node.depth * 14, paddingTop: 2, paddingBottom: 6, fontSize: 10, color: "var(--ci-deleted-text)" }}>
+                  <div style={{ paddingInlineStart: 34 + node.depth * 14, paddingTop: 2, paddingBottom: 6, fontSize: 10, color: "var(--ci-deleted-text)" }}>
                     {node.error}
                   </div>
                 )}
@@ -267,11 +269,11 @@ export function ExplorerPane({
               style={{
                 ...rowBaseStyle,
                 padding: "0 10px",
-                paddingLeft: 24 + node.depth * 14,
+                paddingInlineStart: 24 + node.depth * 14,
                 background: isSelected ? rowActiveBackground : isHovered ? rowHoverBackground : "transparent",
                 color: isSelected || isHovered ? "var(--ci-text)" : "var(--ci-text-muted)",
                 cursor: "pointer",
-                borderLeft: isSelected ? "1px solid var(--ci-accent)" : "1px solid transparent",
+                borderInlineStart: isSelected ? "1px solid var(--ci-accent)" : "1px solid transparent",
                 outline: isTouched ? "1px solid var(--ci-accent-bdr)" : "none",
                 outlineOffset: -1,
               }}
@@ -282,7 +284,7 @@ export function ExplorerPane({
                 <FileCode2 size={11} strokeWidth={1.8} />
               </span>
               <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 11 }} data-row-index={node.index}>{node.name}</span>
-              {buffer?.dirty && <span style={{ color: "var(--ci-accent)", fontSize: 10, marginLeft: "auto" }}>●</span>}
+              {buffer?.dirty && <span style={{ color: "var(--ci-accent)", fontSize: 10, marginInlineStart: "auto" }}>●</span>}
             </button>
           );
         })}

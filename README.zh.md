@@ -16,7 +16,7 @@
   <a href="https://github.com/For-Tr/Code-Bar/actions">全部 Actions</a>
 </p>
 
-[English](./README.md) | 简体中文
+[English](./README.md) | 简体中文 | [العربية](./README.ar.md)
 
 </div>
 

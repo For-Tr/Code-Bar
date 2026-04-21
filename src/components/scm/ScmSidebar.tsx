@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight, Plus, Minus, Trash2 } from "lucide-react";
+import { useAppI18n } from "../../i18n";
 import { type DiffFile, type ClaudeSession } from "../../store/sessionStore";
 import {
   commitScm,
@@ -141,6 +142,7 @@ function GroupSection({
   selectedPath: string | null;
   busy: boolean;
 }) {
+  const { t } = useAppI18n();
   const [hoveredPath, setHoveredPath] = useState<string | null>(null);
 
   return (
@@ -162,7 +164,7 @@ function GroupSection({
               padding: "0 8px 0 24px",
               background: isSelected ? "var(--ci-list-active-bg)" : isHovered ? "var(--ci-list-hover-bg)" : "transparent",
               color: isSelected || isHovered ? "var(--ci-text)" : "var(--ci-text-muted)",
-              borderLeft: isSelected ? "1px solid var(--ci-accent)" : "1px solid transparent",
+              borderInlineStart: isSelected ? "1px solid var(--ci-accent)" : "1px solid transparent",
             }}
           >
             <button
@@ -180,7 +182,9 @@ function GroupSection({
                 textAlign: "left",
                 padding: "3px 0",
               }}
-              title={group === "untracked" ? `打开 ${file.path} 的文件内容` : `打开 ${file.path} 的实际变更 diff`}
+              title={group === "untracked"
+                ? t("scm.openFileContent", { path: file.path })
+                : t("scm.openDiff", { path: file.path })}
             >
               <span style={{ width: 12, textAlign: "center", color: file.kind === "added" ? "var(--ci-green)" : file.kind === "deleted" ? "var(--ci-red)" : file.kind === "conflicted" ? "var(--ci-red)" : "var(--ci-yellow)", fontSize: 10, fontWeight: 700 }}>
                 {file.kind === "added" ? "A" : file.kind === "deleted" ? "D" : file.kind === "conflicted" ? "!" : file.kind === "renamed" ? "R" : "M"}
@@ -191,16 +195,16 @@ function GroupSection({
             </button>
             <div style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0, opacity: isSelected || isHovered ? 1 : 0, pointerEvents: isSelected || isHovered ? "auto" : "none" }}>
               {(group === "unstaged" || group === "untracked") && (
-                <ActionButton label="Stage" icon={<Plus size={12} strokeWidth={1.8} />} onClick={() => stageScmFile(sessionId, file.path)} disabled={busy} />
+                <ActionButton label={t("scm.stage")} icon={<Plus size={12} strokeWidth={1.8} />} onClick={() => stageScmFile(sessionId, file.path)} disabled={busy} />
               )}
               {group === "staged" && (
-                <ActionButton label="Unstage" icon={<Minus size={12} strokeWidth={1.8} />} onClick={() => unstageScmFile(sessionId, file.path)} disabled={busy} />
+                <ActionButton label={t("scm.unstage")} icon={<Minus size={12} strokeWidth={1.8} />} onClick={() => unstageScmFile(sessionId, file.path)} disabled={busy} />
               )}
               {group === "unstaged" && (
-                <ActionButton label="Discard" icon={<Minus size={12} strokeWidth={1.8} />} onClick={() => discardScmFile(sessionId, file.path, "unstaged")} disabled={busy} />
+                <ActionButton label={t("scm.discard")} icon={<Minus size={12} strokeWidth={1.8} />} onClick={() => discardScmFile(sessionId, file.path, "unstaged")} disabled={busy} />
               )}
               {group === "untracked" && (
-                <ActionButton label="Delete" icon={<Trash2 size={12} strokeWidth={1.8} />} onClick={() => discardScmFile(sessionId, file.path, "untracked")} disabled={busy} />
+                <ActionButton label={t("scm.delete")} icon={<Trash2 size={12} strokeWidth={1.8} />} onClick={() => discardScmFile(sessionId, file.path, "untracked")} disabled={busy} />
               )}
             </div>
           </div>
@@ -211,6 +215,7 @@ function GroupSection({
 }
 
 export function ScmSidebar({ session }: { session: ClaudeSession | null }) {
+  const { t, isRtl } = useAppI18n();
   if (!session) {
     return (
       <div style={{
@@ -225,7 +230,7 @@ export function ScmSidebar({ session }: { session: ClaudeSession | null }) {
         lineHeight: 1.7,
         textAlign: "center",
       }}>
-        选择一个会话以查看改动。
+        {t("scm.noSession")}
       </div>
     );
   }
@@ -270,7 +275,7 @@ export function ScmSidebar({ session }: { session: ClaudeSession | null }) {
             padding: 0,
             fontSize: 12,
           }}
-          title="返回会话视图"
+          title={t("scm.backToSession")}
         >
           ←
         </button>
@@ -285,19 +290,20 @@ export function ScmSidebar({ session }: { session: ClaudeSession | null }) {
         fontSize: 10,
         color: "var(--ci-text-dim)",
       }}>
-        <span>{snapshot.length} files</span>
+        <span>{t("scm.filesSummary", { count: snapshot.length })}</span>
         <span style={{ color: "var(--ci-green-dark)", fontWeight: 700 }}>+{totalAdditions}</span>
         <span style={{ color: "var(--ci-deleted-text)", fontWeight: 700 }}>−{totalDeletions}</span>
       </div>
 
       <div style={{ padding: "8px 12px 10px", borderBottom: "1px solid var(--ci-toolbar-border)", display: "flex", flexDirection: "column", gap: 8 }}>
         <div style={{ fontSize: 10, color: "var(--ci-text-dim)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-          Commit
+          {t("scm.commitTitle")}
         </div>
         <textarea
+          dir={isRtl ? "rtl" : "ltr"}
           value={commitMessage}
           onChange={(event) => setCommitMessage(session.id, event.target.value)}
-          placeholder="Message"
+          placeholder={t("scm.commitMessagePlaceholder")}
           rows={3}
           style={{
             width: "100%",
@@ -309,6 +315,7 @@ export function ScmSidebar({ session }: { session: ClaudeSession | null }) {
             fontSize: 11,
             padding: "6px 8px",
             boxSizing: "border-box",
+            textAlign: "start",
           }}
         />
         <button
@@ -338,7 +345,7 @@ export function ScmSidebar({ session }: { session: ClaudeSession | null }) {
           }}
         >
           <Plus size={12} strokeWidth={1.8} />
-          {busy ? "处理中…" : "Commit"}
+          {busy ? t("common.processing") : t("scm.commitAction")}
         </button>
         {actionError && (
           <div style={{ fontSize: 11, color: "var(--ci-deleted-text)", lineHeight: 1.6 }}>
@@ -350,40 +357,40 @@ export function ScmSidebar({ session }: { session: ClaudeSession | null }) {
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "8px 0 12px" }}>
         {!hasGroupedStatus && snapshot.length === 0 ? (
           <div style={{ padding: "12px", color: "var(--ci-text-dim)", fontSize: 12 }}>
-            当前会话暂无代码变更。
+            {t("scm.noChanges")}
           </div>
         ) : (
           <>
-            <Section title="Committed in Session" count={committedEntries.length} defaultExpanded={committedEntries.length > 0}>
+            <Section title={t("scm.committedInSession")} count={committedEntries.length} defaultExpanded={committedEntries.length > 0}>
               <GroupSection group="committed" files={committedEntries} sessionId={session.id} selectedPath={selectedEntry?.group === "committed" ? selectedEntry.path : null} busy={busy} />
             </Section>
             {hasGroupedStatus && (
-              <Section title="Working Tree" count={groups.conflicts.length + groups.staged.length + groups.unstaged.length + groups.untracked.length}>
-                <Section title="Conflicts" count={groups.conflicts.length} defaultExpanded={groups.conflicts.length > 0}>
+              <Section title={t("scm.workingTree")} count={groups.conflicts.length + groups.staged.length + groups.unstaged.length + groups.untracked.length}>
+                <Section title={t("scm.conflicts")} count={groups.conflicts.length} defaultExpanded={groups.conflicts.length > 0}>
                   <GroupSection group="conflicts" files={groups.conflicts} sessionId={session.id} selectedPath={selectedEntry?.group === "conflicts" ? selectedEntry.path : null} busy={busy} />
                 </Section>
                 <Section
-                  title="Staged Changes"
+                  title={t("scm.stagedChanges")}
                   count={groups.staged.length}
                   defaultExpanded={groups.staged.length > 0}
                   actions={groups.staged.length > 0 ? (
-                    <ActionButton label="Unstage All" icon={<Minus size={12} strokeWidth={1.8} />} onClick={() => unstageAllScm(session.id)} disabled={busy} />
+                    <ActionButton label={t("scm.unstageAll")} icon={<Minus size={12} strokeWidth={1.8} />} onClick={() => unstageAllScm(session.id)} disabled={busy} />
                   ) : undefined}
                 >
                   <GroupSection group="staged" files={groups.staged} sessionId={session.id} selectedPath={selectedEntry?.group === "staged" ? selectedEntry.path : null} busy={busy} />
                 </Section>
                 <Section
-                  title="Changes"
+                  title={t("scm.changes")}
                   count={groups.unstaged.length}
                   defaultExpanded={groups.unstaged.length > 0}
                   actions={groups.unstaged.length > 0 ? (
-                    <ActionButton label="Stage All Changes" icon={<Plus size={12} strokeWidth={1.8} />} onClick={() => stageAllScm(session.id, groups.unstaged.map((file) => file.path))} disabled={busy} />
+                    <ActionButton label={t("scm.stageAllChanges")} icon={<Plus size={12} strokeWidth={1.8} />} onClick={() => stageAllScm(session.id, groups.unstaged.map((file) => file.path))} disabled={busy} />
                   ) : undefined}
                 >
                   <GroupSection group="unstaged" files={groups.unstaged} sessionId={session.id} selectedPath={selectedEntry?.group === "unstaged" ? selectedEntry.path : null} busy={busy} />
                 </Section>
                 <Section
-                  title="Untracked"
+                  title={t("scm.untracked")}
                   count={groups.untracked.length}
                   defaultExpanded={groups.untracked.length > 0}
                 >

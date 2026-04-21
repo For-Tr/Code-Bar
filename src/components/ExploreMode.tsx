@@ -1,4 +1,5 @@
 import { Component, type ReactNode } from "react";
+import { useAppI18n } from "../i18n";
 import { type ClaudeSession } from "../store/sessionStore";
 import { ExplorerPane } from "./explore/ExplorerPane";
 import { EditorSplitHost } from "./editor/EditorSplitHost";
@@ -81,6 +82,7 @@ export function ExploreSidebar({
   session: ClaudeSession | null;
   onRefreshDiff: (sessionId?: string | null, options?: { reloadExplorer?: boolean }) => void;
 }) {
+  const { t } = useAppI18n();
   return (
     <ExploreErrorBoundary>
       <div style={{
@@ -88,9 +90,9 @@ export function ExploreSidebar({
         height: "100%",
         minHeight: 0,
         background: "transparent",
-        borderRight: "1px solid var(--ci-toolbar-border)",
+        borderInlineEnd: "1px solid var(--ci-toolbar-border)",
       }}>
-        {session ? <ExplorerPane session={session} onRefreshDiff={onRefreshDiff} /> : <EmptyEditorState message="选择一个会话进入 Explorer。" />}
+        {session ? <ExplorerPane session={session} onRefreshDiff={onRefreshDiff} /> : <EmptyEditorState message={t("explorer.enterExplorer")} />}
       </div>
     </ExploreErrorBoundary>
   );

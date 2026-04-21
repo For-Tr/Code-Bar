@@ -1,3 +1,4 @@
+import { useAppI18n } from "../../i18n";
 import { RUNNER_LABELS, type RunnerType } from "../../store/settingsStore";
 
 export function SessionPromptComposer({
@@ -31,6 +32,7 @@ export function SessionPromptComposer({
   handleSwitchRunner: (type: RunnerType) => void;
   handleInstall: () => void;
 }) {
+  const { t, isRtl } = useAppI18n();
   const overlayTitle = isGlass ? "var(--ci-text)" : "var(--ci-pty-mask-title)";
   const overlayHint = isGlass ? "var(--ci-text-muted)" : "var(--ci-pty-mask-hint)";
   const overlayFooter = isGlass ? "var(--ci-text-dim)" : "var(--ci-pty-mask-footer)";
@@ -81,10 +83,10 @@ export function SessionPromptComposer({
 
         <div style={{ textAlign: "center" }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: overlayTitle, marginBottom: 4 }}>
-            描述你的任务
+            {t("session.promptTitle")}
           </div>
           <div style={{ fontSize: 11, color: overlayHint }}>
-            {`回车后将自动启动当前会话的运行器（${runnerBadge}），并将内容透传给 AI`}
+            {t("session.promptHint", { runner: runnerBadge })}
           </div>
         </div>
 
@@ -100,7 +102,7 @@ export function SessionPromptComposer({
             lineHeight: "1.6",
             textAlign: "center",
           }}>
-            首条指令已排队，正在等待 worktree 和 PTY 准备完成。
+            {t("session.firstInstructionQueued")}
           </div>
         )}
 
@@ -143,10 +145,10 @@ export function SessionPromptComposer({
             lineHeight: "1.6",
           }}>
             <div style={{ fontWeight: 600, marginBottom: 4 }}>
-              ⚠️ 找不到 {cliCommand}
+              ⚠️ {t("session.cliMissing", { command: cliCommand })}
             </div>
             <div style={{ color: overlayHint, marginBottom: 8 }}>
-              安装命令：<code style={{ color: "rgba(255,195,80,0.8)", fontFamily: "'JetBrains Mono', monospace", fontSize: 10 }}>{installCmd}</code>
+              {t("session.installCommand")}<code style={{ color: "rgba(255,195,80,0.8)", fontFamily: "'JetBrains Mono', monospace", fontSize: 10 }}>{installCmd}</code>
             </div>
             {installCmd && (
               <button
@@ -166,7 +168,7 @@ export function SessionPromptComposer({
                 onMouseEnter={e => (e.currentTarget.style.background = runnerChipHoverBackground)}
                 onMouseLeave={e => (e.currentTarget.style.background = "var(--ci-accent-bg)")}
               >
-                一键安装
+                {t("common.installOneClick")}
               </button>
             )}
           </div>
@@ -187,21 +189,22 @@ export function SessionPromptComposer({
           <span style={{ color: "rgba(0,122,255,0.7)", fontSize: 13, marginTop: 1, flexShrink: 0 }}>›</span>
           <textarea
             ref={queryInputRef}
+            dir={isRtl ? "rtl" : "ltr"}
             value={pendingQuery}
             onChange={e => setPendingQuery(e.target.value)}
-            placeholder="例：重构 auth 模块，添加 JWT 支持…"
+            placeholder={t("session.promptPlaceholder")}
             rows={3}
             readOnly={waitingForPtyLaunch}
             style={{
               flex: 1, background: "none", border: "none", outline: "none",
               color: inputText, fontSize: 13, lineHeight: "1.6",
-              resize: "none", fontFamily: "inherit",
+              resize: "none", fontFamily: "inherit", textAlign: "start",
             }}
           />
         </div>
 
         <div style={{ fontSize: 10, color: overlayFooter }}>
-          Enter 发送 · Shift+Enter 换行 · Esc 关闭
+          {t("session.inputFooter")}
         </div>
       </div>
     </div>

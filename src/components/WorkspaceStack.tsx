@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { motion, AnimatePresence } from "framer-motion";
+import { useAppI18n } from "../i18n";
 import {
   useWorkspaceStore,
   useWorkspacesSorted,
@@ -11,6 +12,7 @@ import {
 } from "../store/workspaceStore";
 import { useSessionStore, type ClaudeSession } from "../store/sessionStore";
 import { useSettingsStore, isGlassTheme } from "../store/settingsStore";
+import { useWorkbenchStore } from "../store/workbenchStore";
 
 // ── 常量 ─────────────────────────────────────────────────────
 const SUMMARY_ROW_H = 34;
@@ -18,6 +20,7 @@ const EMPTY_SESSIONS: ClaudeSession[] = [];
 
 // ── 新建 Workspace 内联表单 ───────────────────────────────────
 function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
+  const { t, isRtl } = useAppI18n();
   const { addWorkspace } = useWorkspaceStore();
   const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
   const textShadow = isGlass ? "var(--ci-glass-text-shadow)" : "none";
@@ -34,7 +37,7 @@ function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
       const picked = await invoke<string>("pick_folder");
       if (picked) setPath(picked);
     } catch {
-      setError("无法打开文件夹选择器");
+      setError(t("workspace.openFolderPickerFailed"));
     } finally {
       setPicking(false);
     }
@@ -42,7 +45,7 @@ function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
 
   const handleCreate = async () => {
     const trimmed = path.trim();
-    if (!trimmed) { setError("请选择工作目录"); return; }
+    if (!trimmed) { setError(t("common.pathRequired")); return; }
     const workspaceId = addWorkspace(trimmed, name.trim() || undefined, color);
     if ("__TAURI_INTERNALS__" in window) {
       await invoke("clear_deleted_items", {
@@ -89,25 +92,27 @@ function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
           fontSize: 11.5, fontWeight: 600,
           color: "var(--ci-text)", letterSpacing: -0.1,
         }}>
-          添加 Workspace
+          {t("workspace.addWorkspace")}
         </div>
 
         {/* 名称（可选） */}
         <div>
-          <div style={{ fontSize: 11, color: "var(--ci-text-muted)", marginBottom: 4, fontWeight: 500 }}>名称（可选）</div>
+          <div style={{ fontSize: 11, color: "var(--ci-text-muted)", marginBottom: 4, fontWeight: 500 }}>{t("workspace.optionalName")}</div>
           <input value={name} onChange={e => setName(e.target.value)}
-            placeholder="默认使用文件夹名" style={inputStyle}
+            dir={isRtl ? "rtl" : "ltr"}
+            placeholder={t("workspace.defaultFolderName")} style={{ ...inputStyle, textAlign: "start" }}
             onKeyDown={e => e.key === "Enter" && handleCreate()} />
         </div>
 
         {/* 路径 */}
         <div>
           <div style={{ fontSize: 11, color: "var(--ci-text-muted)", marginBottom: 4, fontWeight: 500 }}>
-            目录 <span style={{ color: "var(--ci-red)" }}>*</span>
+            {t("workspace.directory")} <span style={{ color: "var(--ci-red)" }}>*</span>
           </div>
           <div style={{ display: "flex", gap: 6 }}>
             <input value={path} onChange={e => { setPath(e.target.value); setError(""); }}
-              placeholder="/Users/你/项目"
+              dir="ltr"
+              placeholder="/Users/you/project"
               style={{
                 ...inputStyle, flex: 1,
                 borderColor: error ? "rgba(255,59,48,0.5)" : undefined,
@@ -136,14 +141,14 @@ function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
                 e.currentTarget.style.color = picking ? "var(--ci-text-dim)" : "var(--ci-text-muted)";
                 e.currentTarget.style.opacity = "1";
               }}
-            >{picking ? "选择中" : "选择目录"}</button>
+            >{picking ? t("workspace.choosingDirectory") : t("workspace.chooseDirectory")}</button>
           </div>
           {error && <div style={{ marginTop: 4, fontSize: 11, color: "var(--ci-red)" }}>{error}</div>}
         </div>
 
         {/* 颜色选择 */}
         <div>
-          <div style={{ fontSize: 11, color: "var(--ci-text-muted)", marginBottom: 6, fontWeight: 500 }}>标签颜色</div>
+          <div style={{ fontSize: 11, color: "var(--ci-text-muted)", marginBottom: 6, fontWeight: 500 }}>{t("workspace.colorLabel")}</div>
           <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
             {WORKSPACE_COLORS.map((c) => (
               <button key={c.id} onClick={() => setColor(c.id as WorkspaceColorId)}
@@ -180,7 +185,7 @@ function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
               e.currentTarget.style.color = "var(--ci-text-muted)";
               e.currentTarget.style.opacity = "1";
             }}
-          >取消</button>
+          >{t("common.cancel")}</button>
           <button onClick={handleCreate}
             style={{
               background: "none",
@@ -197,7 +202,7 @@ function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
               e.currentTarget.style.color = "var(--ci-accent)";
               e.currentTarget.style.opacity = "1";
             }}
-          >创建</button>
+          >{t("common.create")}</button>
         </div>
       </div>
     </motion.div>
@@ -213,6 +218,7 @@ function WorkspaceCardExpanded({
   onClick: () => void;
   onRemove: () => void;
 }) {
+  const { t } = useAppI18n();
   const [hovered, setHovered] = useState(false);
   const color = getWorkspaceColor(ws.color);
   const sessions = useSessionStore((s) => (Array.isArray(s.sessions) ? s.sessions : EMPTY_SESSIONS));
@@ -231,9 +237,9 @@ function WorkspaceCardExpanded({
   }, [sessions, ws.id]);
   const showActions = hovered || isActive;
   const summaryParts = [
-    waitingCount > 0 ? `${waitingCount} 待操作` : null,
-    runningCount > 0 ? `${runningCount} 运行` : null,
-    sessionCount > 0 ? `${sessionCount} 会话` : null,
+    waitingCount > 0 ? `${waitingCount} ${t("workspace.summaryWaiting")}` : null,
+    runningCount > 0 ? `${runningCount} ${t("workspace.summaryRunning")}` : null,
+    sessionCount > 0 ? `${sessionCount} ${t("workspace.summarySessions")}` : null,
   ].filter(Boolean);
 
   return (
@@ -340,7 +346,7 @@ function WorkspaceCardExpanded({
       }}>
         <button
           onClick={(e) => { e.stopPropagation(); onRemove(); }}
-          title="删除 workspace"
+          title={t("workspace.removeWorkspace")}
           style={{
             background: "transparent",
             border: "none",
@@ -460,6 +466,7 @@ function WorkspaceStackCollapsed({
 
 // ── 主组件：WorkspaceStack ────────────────────────────────────
 export function WorkspaceStack() {
+  const { t } = useAppI18n();
   const { workspaces, activeWorkspaceId, bringToFront, removeWorkspace } = useWorkspaceStore();
   const { removeSessionsByWorkspace } = useSessionStore();
   const sorted = useWorkspacesSorted();
@@ -538,7 +545,7 @@ export function WorkspaceStack() {
               }}
             >
               <span style={{ fontSize: 13, lineHeight: 1, color: "var(--ci-accent)" }}>+</span>
-              添加 Workspace
+              {t("workspace.addWorkspace")}
             </motion.button>
           )}
         </AnimatePresence>
@@ -569,6 +576,10 @@ export function WorkspaceStack() {
 
     removeSessionsByWorkspace(id);
     removeWorkspace(id);
+
+    if (workspaces.length === 1) {
+      useWorkbenchStore.getState().resetWorkbenchMode();
+    }
 
     if (!("__TAURI_INTERNALS__" in window) || !workspace?.path) {
       return;
@@ -621,7 +632,7 @@ export function WorkspaceStack() {
                 e.currentTarget.style.color = "var(--ci-text-muted)";
               }}
             >
-              {expanded ? "收起" : "展开"}
+              {expanded ? t("session.collapse") : t("common.expand")}
             </button>
           )}
           <button
@@ -651,7 +662,7 @@ export function WorkspaceStack() {
             }}
           >
             <span style={{ fontSize: 13 }}>+</span>
-            <span>添加</span>
+            <span>{t("common.add")}</span>
           </button>
         </div>
       </div>
