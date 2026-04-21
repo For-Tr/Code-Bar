@@ -32,7 +32,7 @@ export function SessionPromptComposer({
   handleSwitchRunner: (type: RunnerType) => void;
   handleInstall: () => void;
 }) {
-  const { t } = useAppI18n();
+  const { t, isRtl } = useAppI18n();
   const overlayTitle = isGlass ? "var(--ci-text)" : "var(--ci-pty-mask-title)";
   const overlayHint = isGlass ? "var(--ci-text-muted)" : "var(--ci-pty-mask-hint)";
   const overlayFooter = isGlass ? "var(--ci-text-dim)" : "var(--ci-pty-mask-footer)";
@@ -189,6 +189,7 @@ export function SessionPromptComposer({
           <span style={{ color: "rgba(0,122,255,0.7)", fontSize: 13, marginTop: 1, flexShrink: 0 }}>›</span>
           <textarea
             ref={queryInputRef}
+            dir={isRtl ? "rtl" : "ltr"}
             value={pendingQuery}
             onChange={e => setPendingQuery(e.target.value)}
             placeholder={t("session.promptPlaceholder")}
@@ -197,7 +198,7 @@ export function SessionPromptComposer({
             style={{
               flex: 1, background: "none", border: "none", outline: "none",
               color: inputText, fontSize: 13, lineHeight: "1.6",
-              resize: "none", fontFamily: "inherit",
+              resize: "none", fontFamily: "inherit", textAlign: "start",
             }}
           />
         </div>

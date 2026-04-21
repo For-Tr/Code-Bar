@@ -215,7 +215,7 @@ function GroupSection({
 }
 
 export function ScmSidebar({ session }: { session: ClaudeSession | null }) {
-  const { t } = useAppI18n();
+  const { t, isRtl } = useAppI18n();
   if (!session) {
     return (
       <div style={{
@@ -300,6 +300,7 @@ export function ScmSidebar({ session }: { session: ClaudeSession | null }) {
           {t("scm.commitTitle")}
         </div>
         <textarea
+          dir={isRtl ? "rtl" : "ltr"}
           value={commitMessage}
           onChange={(event) => setCommitMessage(session.id, event.target.value)}
           placeholder={t("scm.commitMessagePlaceholder")}
@@ -314,6 +315,7 @@ export function ScmSidebar({ session }: { session: ClaudeSession | null }) {
             fontSize: 11,
             padding: "6px 8px",
             boxSizing: "border-box",
+            textAlign: "start",
           }}
         />
         <button

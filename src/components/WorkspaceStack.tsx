@@ -19,7 +19,7 @@ const EMPTY_SESSIONS: ClaudeSession[] = [];
 
 // ── 新建 Workspace 内联表单 ───────────────────────────────────
 function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
-  const { t } = useAppI18n();
+  const { t, isRtl } = useAppI18n();
   const { addWorkspace } = useWorkspaceStore();
   const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
   const textShadow = isGlass ? "var(--ci-glass-text-shadow)" : "none";
@@ -98,7 +98,8 @@ function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
         <div>
           <div style={{ fontSize: 11, color: "var(--ci-text-muted)", marginBottom: 4, fontWeight: 500 }}>{t("workspace.optionalName")}</div>
           <input value={name} onChange={e => setName(e.target.value)}
-            placeholder={t("workspace.defaultFolderName")} style={inputStyle}
+            dir={isRtl ? "rtl" : "ltr"}
+            placeholder={t("workspace.defaultFolderName")} style={{ ...inputStyle, textAlign: "start" }}
             onKeyDown={e => e.key === "Enter" && handleCreate()} />
         </div>
 
@@ -109,6 +110,7 @@ function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
           </div>
           <div style={{ display: "flex", gap: 6 }}>
             <input value={path} onChange={e => { setPath(e.target.value); setError(""); }}
+              dir="ltr"
               placeholder="/Users/you/project"
               style={{
                 ...inputStyle, flex: 1,
