@@ -433,7 +433,6 @@ export function SessionList() {
   const runner = sanitizeRunnerConfig(useSettingsStore((s) => s.settings.runner));
   const settings = useSettingsStore((s) => s.settings);
   const isGlass = isGlassTheme(settings.theme);
-  const isSplitLayout = settings.layoutMode === "split";
   const [pendingDeleteSessionId, setPendingDeleteSessionId] = useState<string | null>(null);
   const textShadow = isGlass ? "var(--ci-glass-text-shadow)" : "none";
 
@@ -641,15 +640,11 @@ export function SessionList() {
                       isOpened={session.id === expandedSessionId}
                       accentColor={accentColor}
                       isGlass={isGlass}
-                      showExpandButton={!isSplitLayout}
+                      showExpandButton={false}
                       isDeleteConfirming={pendingDeleteSessionId === session.id}
                       onClick={() => {
                         setPendingDeleteSessionId(null);
-                        if (isSplitLayout) {
-                          showSessionSurface(session.id);
-                          return;
-                        }
-                        setActiveSession(session.id);
+                        showSessionSurface(session.id);
                       }}
                       onCancelDelete={() => {
                         setPendingDeleteSessionId(null);

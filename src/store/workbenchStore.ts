@@ -19,7 +19,7 @@ interface WorkbenchStore {
 
 export const useWorkbenchStore = create<WorkbenchStore>()((set) => ({
   sidebarSection: "sessions",
-  centerSurface: "session",
+  centerSurface: "welcome",
   focusedSessionId: null,
 
   setSidebarSection: (section) => set({ sidebarSection: section }),
@@ -42,7 +42,7 @@ export const useWorkbenchStore = create<WorkbenchStore>()((set) => ({
   }),
   resetWorkbenchMode: () => set({
     sidebarSection: "sessions",
-    centerSurface: "session",
+    centerSurface: "welcome",
     focusedSessionId: null,
   }),
 }));
