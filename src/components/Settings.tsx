@@ -31,7 +31,6 @@ function Toggle({
   showDivider?: boolean;
   labelStyle?: React.CSSProperties;
 }) {
-  const { isRtl } = useAppI18n();
   return (
     <div
       onClick={() => {
@@ -62,7 +61,8 @@ function Toggle({
           background: value ? C.accent : "rgba(120,120,128,0.2)",
           display: "flex",
           alignItems: "center",
-          justifyContent: isRtl ? "flex-end" : "flex-start",
+          justifyContent: "flex-start",
+          direction: "ltr",
           padding: "0 2px",
           transition: "background 0.22s",
           boxShadow: "inset 0 0 0 0.5px rgba(0,0,0,0.06)",
@@ -75,7 +75,7 @@ function Toggle({
             borderRadius: "50%",
             background: "#fff",
             boxShadow: "0 1px 4px rgba(0,0,0,0.25), 0 0.5px 1px rgba(0,0,0,0.12)",
-            transform: value ? (isRtl ? "translateX(-16px)" : "translateX(16px)") : "translateX(0)",
+            transform: value ? "translateX(16px)" : "translateX(0)",
             transition: "transform 0.22s",
           }}
         />
