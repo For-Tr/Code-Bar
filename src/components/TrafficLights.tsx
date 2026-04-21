@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useAppI18n } from "../i18n";
 
 const isWindows = navigator.userAgent.toLowerCase().includes("windows");
 
@@ -38,6 +39,7 @@ interface TrafficLightsProps {
 }
 
 export function TrafficLights({ onClose, size = 13, gap = 7 }: TrafficLightsProps) {
+  const { t } = useAppI18n();
   const [hoverClose, setHoverClose] = useState(false);
   const [hoverMin,   setHoverMin]   = useState(false);
   const [hoverMax,   setHoverMax]   = useState(false);
@@ -89,21 +91,21 @@ export function TrafficLights({ onClose, size = 13, gap = 7 }: TrafficLightsProp
         "#ff5f57", "rgba(0,0,0,0.12)",
         hoverClose,
         () => setHoverClose(true), () => setHoverClose(false),
-        handleClose, "关闭",
+        handleClose, t("trafficLights.close"),
         <IconClose />,
       )}
       {dot(
         "#febc2e", "rgba(0,0,0,0.10)",
         hoverMin,
         () => setHoverMin(true), () => setHoverMin(false),
-        handleMinimize, "最小化",
+        handleMinimize, t("trafficLights.minimize"),
         <IconMinimize />,
       )}
       {dot(
         "#28c840", "rgba(0,0,0,0.10)",
         hoverMax,
         () => setHoverMax(true), () => setHoverMax(false),
-        handleMaximize, "全屏 / 还原",
+        handleMaximize, t("trafficLights.maximize"),
         <IconMaximize />,
       )}
     </div>

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { formatDate, formatTime, useAppI18n } from "../i18n";
 import { RUNNER_LABELS, type RunnerType } from "../store/settingsStore";
 import { useSessionStore } from "../store/sessionStore";
 
@@ -32,8 +33,8 @@ function formatResetText(raw: string) {
   const date = new Date(value * 1000);
   if (Number.isNaN(date.getTime())) return { top: raw, bottom: "" };
   return {
-    top: date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-    bottom: date.toLocaleDateString(),
+    top: formatTime(date),
+    bottom: formatDate(date),
   };
 }
 
@@ -58,6 +59,7 @@ function FlatProgress({ label, leftPercent, reset }: { label: string; leftPercen
 }
 
 export function UsageWidgetCard() {
+  const { t } = useAppI18n();
   const sessions = useSessionStore((s) => s.sessions);
   const expandedSessionId = useSessionStore((s) => s.expandedSessionId);
   const [loading, setLoading] = useState(false);
@@ -148,7 +150,7 @@ export function UsageWidgetCard() {
             cursor: loading ? "default" : "pointer",
           }}
         >
-          {loading ? "刷新中" : "刷新"}
+          {loading ? t("usage.refreshing") : t("usage.refresh")}
         </button>
       </div>
 
@@ -169,7 +171,7 @@ export function UsageWidgetCard() {
 
         {!snapshot && !loading && (
           <div style={{ fontSize: 12, color: "var(--ci-text-dim)", lineHeight: 1.6, padding: "8px 9px", borderRadius: 10, background: "var(--ci-surface)", border: "1px solid var(--ci-toolbar-border)" }}>
-            点击刷新，查询当前限额状态。
+            {t("usage.empty")}
           </div>
         )}
       </div>

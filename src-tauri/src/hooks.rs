@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use serde_json::{Map, Value};
 use serde::Serialize;
+use tauri::Manager;
 
 use crate::provider_sessions::emit_provider_session_bound;
 use crate::session_lifecycle::{
@@ -929,13 +930,14 @@ pub fn setup_all_hooks() -> Result<String, String> {
 }
 
 pub fn reconcile_integrations_on_startup(app: &tauri::AppHandle) -> Result<String, String> {
+    let locale = crate::i18n::current_locale(&app.state::<crate::i18n::LocaleState>());
     if crate::integration_control::notifications_and_hooks_enabled(app) {
         let configured = setup_all_hooks()?;
-        return Ok(format!("通知与 Hooks 已启用\n{configured}"));
+        return Ok(crate::i18n::translate(locale, "notifications.hook_enabled", &[("detail", &configured)]));
     }
 
     let disabled = disable_all_hooks()?;
-    Ok(format!("通知与 Hooks 已关闭\n{disabled}"))
+    Ok(crate::i18n::translate(locale, "notifications.hook_disabled", &[("detail", &disabled)]))
 }
 
 #[tauri::command]
@@ -957,6 +959,7 @@ pub fn set_notifications_and_hooks_enabled(
 pub fn get_notifications_and_hooks_status(
     app: tauri::AppHandle,
 ) -> Result<NotificationHookStatus, String> {
+    let locale = crate::i18n::current_locale(&app.state::<crate::i18n::LocaleState>());
     let enabled = crate::integration_control::notifications_and_hooks_enabled(&app);
     let claude_hooks_configured = claude_hooks_configured()?;
     let codex_hooks_configured = codex_hooks_configured()?;
@@ -966,19 +969,19 @@ pub fn get_notifications_and_hooks_status(
 
     let mut issues = Vec::new();
     if enabled && !claude_hooks_configured {
-        issues.push("Claude Code hooks 未配置完成".to_string());
+        issues.push(crate::i18n::translate(locale, "notifications.claude_hooks_not_configured", &[]));
     }
     if enabled && !codex_hooks_configured {
-        issues.push("Codex hooks 未配置完成".to_string());
+        issues.push(crate::i18n::translate(locale, "notifications.codex_hooks_not_configured", &[]));
     }
     if enabled && !codex_feature_enabled {
-        issues.push("Codex hooks feature 未启用".to_string());
+        issues.push(crate::i18n::translate(locale, "notifications.codex_feature_disabled", &[]));
     }
     if enabled && !claude_listener_ready {
-        issues.push("Claude Code hook listener 未就绪".to_string());
+        issues.push(crate::i18n::translate(locale, "notifications.claude_listener_not_ready", &[]));
     }
     if enabled && !codex_listener_ready {
-        issues.push("Codex hook listener 未就绪".to_string());
+        issues.push(crate::i18n::translate(locale, "notifications.codex_listener_not_ready", &[]));
     }
 
     let healthy = if enabled {
@@ -1034,7 +1037,7 @@ pub fn trust_workspace(path: String) -> Result<(), String> {
     Ok(())
 }
 
-fn codex_notify_message(json: &Value) -> Option<(String, String, String)> {
+fn codex_notify_message(locale: crate::i18n::AppLocale, json: &Value) -> Option<(String, String, String)> {
     let notification_type = json
         .get("type")
         .or_else(|| json.get("event"))
@@ -1065,14 +1068,15 @@ fn codex_notify_message(json: &Value) -> Option<(String, String, String)> {
     .find(|s| !s.is_empty())
     .map(ToString::to_string)
     .unwrap_or_else(|| match notification_type.as_str() {
-        "agent-turn-complete" => "Codex 已完成当前回合".to_string(),
-        other => format!("Codex 通知: {other}"),
+        "agent-turn-complete" => crate::i18n::translate(locale, "notifications.codex_turn_complete", &[]),
+        other => crate::i18n::translate(locale, "notifications.codex_generic", &[("type", other)]),
     });
 
     Some((title, message, notification_type))
 }
 
 fn dispatch_hook_event(app: &tauri::AppHandle, source: HookSource, json: &Value) {
+    let locale = crate::i18n::current_locale(&app.state::<crate::i18n::LocaleState>());
     if !crate::integration_control::notifications_and_hooks_enabled(app) {
         eprintln!(
             "[hooks:{}] ignored because notifications and hooks are disabled",
@@ -1115,10 +1119,11 @@ fn dispatch_hook_event(app: &tauri::AppHandle, source: HookSource, json: &Value)
                 emit_session_lifecycle(app, routing, SessionLifecycleSignal::Waiting);
             }
             "StopFailure" => {
+                let translated_unknown_error = crate::i18n::translate(locale, "notifications.unknown_error", &[]);
                 let error = json
                     .get("error")
                     .and_then(|v| v.as_str())
-                    .unwrap_or("未知错误");
+                    .unwrap_or(translated_unknown_error.as_str());
                 emit_session_lifecycle(
                     app,
                     routing,
@@ -1151,7 +1156,7 @@ fn dispatch_hook_event(app: &tauri::AppHandle, source: HookSource, json: &Value)
         },
         HookSource::Codex => match event_name {
             "" => {
-                if let Some((title, message, notification_type)) = codex_notify_message(json) {
+                if let Some((title, message, notification_type)) = codex_notify_message(locale, json) {
                     emit_session_lifecycle(
                         app,
                         routing,

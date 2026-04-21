@@ -165,9 +165,11 @@ pub fn emit_session_lifecycle(
 ) {
     let session_ids = resolve_session_ids(app, &routing);
     if session_ids.is_empty() {
+        let locale = crate::i18n::current_locale(&app.state::<crate::i18n::LocaleState>());
         eprintln!(
-            "[hooks:{}] 未找到匹配的 Code Bar session: session_id={:?} cwd={:?}",
+            "[hooks:{}] {}: session_id={:?} cwd={:?}",
             routing.source.label(),
+            crate::i18n::translate(locale, "notifications.session_not_found", &[]),
             routing.code_bar_session_id,
             routing.cwd
         );

@@ -4,6 +4,7 @@ import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { useAppI18n } from "../i18n";
 import { ClaudeSession, SessionStatus, orderWorkspaceSessions, useSessionStore } from "../store/sessionStore";
 import { useWorkspaceStore, getWorkspaceColor } from "../store/workspaceStore";
 import { useSettingsStore, RUNNER_LABELS, sanitizeRunnerConfig, isGlassTheme } from "../store/settingsStore";
@@ -14,47 +15,47 @@ import { showExplorer, showSessionSurface } from "../services/workbenchCommands"
 const STATUS_CONFIG: Record<SessionStatus, {
   dotColor: string;
   pulse: boolean;
-  label: string;
+  labelKey: string;
   badgeBg: string;
   badgeBorder: string;
   badgeText: string;
   leftAccent?: string;
 }> = {
   running: {
-    dotColor: "#34C759", pulse: true, label: "运行中",
+    dotColor: "#34C759", pulse: true, labelKey: "status.running",
     badgeBg: "var(--ci-green-bg)",
     badgeBorder: "var(--ci-green-bdr)",
     badgeText: "var(--ci-green-dark)",
     leftAccent: "#34C759",
   },
   waiting: {
-    dotColor: "#FF9F0A", pulse: true, label: "需要操作",
+    dotColor: "#FF9F0A", pulse: true, labelKey: "status.waiting",
     badgeBg: "var(--ci-yellow-bg)",
     badgeBorder: "var(--ci-yellow-bdr)",
     badgeText: "var(--ci-yellow-dark)",
     leftAccent: "#FF9F0A",
   },
   suspended: {
-    dotColor: "#6B7280", pulse: false, label: "已挂起",
+    dotColor: "#6B7280", pulse: false, labelKey: "status.suspended",
     badgeBg: "var(--ci-btn-ghost-bg)",
     badgeBorder: "var(--ci-border-med)",
     badgeText: "var(--ci-text-dim)",
     leftAccent: "#6B7280",
   },
   idle: {
-    dotColor: "rgba(120,120,128,0.3)", pulse: false, label: "空闲",
+    dotColor: "rgba(120,120,128,0.3)", pulse: false, labelKey: "status.idle",
     badgeBg: "var(--ci-btn-ghost-bg)",
     badgeBorder: "var(--ci-border)",
     badgeText: "var(--ci-text-dim)",
   },
   done: {
-    dotColor: "#007AFF", pulse: false, label: "已完成",
+    dotColor: "#007AFF", pulse: false, labelKey: "status.done",
     badgeBg: "var(--ci-accent-bg)",
     badgeBorder: "var(--ci-accent-bdr)",
     badgeText: "var(--ci-accent)",
   },
   error: {
-    dotColor: "#FF3B30", pulse: false, label: "出错",
+    dotColor: "#FF3B30", pulse: false, labelKey: "status.error",
     badgeBg: "var(--ci-deleted-bg)",
     badgeBorder: "var(--ci-border-med)",
     badgeText: "var(--ci-deleted-text)",
@@ -93,6 +94,7 @@ function SessionCard({
   onRemove: () => void;
   onRotateSuspend: () => void;
 }) {
+  const { t } = useAppI18n();
   const [hovered, setHovered] = useState(false);
   const runnerLabel = RUNNER_LABELS[session.runner.type];
   const cfg = STATUS_CONFIG[session.status];
@@ -155,7 +157,7 @@ function SessionCard({
       {isOpened && (
         <div style={{
           position: "absolute",
-          left: 0,
+          insetInlineStart: 0,
           top: 4,
           bottom: 4,
           width: 2,
@@ -202,7 +204,7 @@ function SessionCard({
               flexShrink: 0,
               fontWeight: 600,
             }}>
-              {cfg.label}
+              {t(cfg.labelKey)}
             </span>
           )}
         </div>
@@ -266,7 +268,7 @@ function SessionCard({
               transition: "opacity 0.12s",
             }}
           >
-            确认删除
+            {t("session.confirmDelete")}
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); setHovered(false); onCancelDelete(); }}
@@ -293,7 +295,7 @@ function SessionCard({
               e.currentTarget.style.opacity = "1";
             }}
           >
-            取消
+            {t("common.cancel")}
           </button>
         </div>
       ) : (
@@ -321,7 +323,7 @@ function SessionCard({
                 e.currentTarget.style.color = isSuspended ? "#6B7280" : "var(--ci-text-dim)";
                 e.currentTarget.style.opacity = "1";
               }}
-              title={isWaiting ? "挂起" : "恢复为需要操作"}
+              title={isWaiting ? t("session.suspend") : t("session.resumeToWaiting")}
               style={{
                 background: "none",
                 border: "none",
@@ -333,7 +335,7 @@ function SessionCard({
                 transition: "color 0.12s, opacity 0.12s",
               }}
             >
-              {isWaiting ? "挂起" : "恢复"}
+              {isWaiting ? t("session.suspend") : t("session.resume")}
             </button>
           )}
 
@@ -344,7 +346,7 @@ function SessionCard({
                 e.preventDefault();
                 e.stopPropagation();
               }}
-              title="打开文件树"
+              title={t("session.openFileTree")}
               style={iconButtonStyle}
             >
               <svg width="12" height="12" viewBox="0 0 16 16" fill="none" style={{ display: "block" }}>
@@ -360,7 +362,7 @@ function SessionCard({
                 e.preventDefault();
                 e.stopPropagation();
               }}
-              title="展开终端"
+              title={t("session.expandTerminal")}
               style={{
                 ...iconButtonStyle,
                 background: isWaiting ? "var(--ci-yellow-bg)" : "var(--ci-btn-ghost-bg)",
@@ -378,7 +380,7 @@ function SessionCard({
               e.preventDefault();
               e.stopPropagation();
             }}
-            title="删除会话"
+            title={t("session.removeSession")}
             style={{
               ...iconButtonStyle,
               background: "transparent",
@@ -411,6 +413,7 @@ function SortableSessionCard({ id, children }: { id: string; children: ReactNode
 
 // ── 主组件：SessionList ───────────────────────────────────────
 export function SessionList() {
+  const { t } = useAppI18n();
   const {
     sessions,
     activeSessionId,
@@ -595,7 +598,7 @@ export function SessionList() {
             letterSpacing: "0.08em",
             textTransform: "uppercase",
           }}>
-            会话
+            {t("session.listTitle")}
           </span>
         </div>
 
@@ -625,7 +628,7 @@ export function SessionList() {
           }}
         >
           <span style={{ fontSize: 13, lineHeight: 1 }}>+</span>
-          <span>新建</span>
+          <span>{t("session.createNew")}</span>
         </button>
       </div>
 
@@ -689,7 +692,7 @@ export function SessionList() {
           color: "var(--ci-text-dim)", fontSize: 12,
           textShadow,
         }}>
-          点击「+ 新建」开始新会话
+          {t("session.emptyList")}
         </div>
       )}
     </div>

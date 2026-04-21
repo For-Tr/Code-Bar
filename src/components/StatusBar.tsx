@@ -1,13 +1,14 @@
+import { useAppI18n } from "../i18n";
 import { ClaudeSession, SessionStatus } from "../store/sessionStore";
 import { useSettingsStore, isGlassTheme } from "../store/settingsStore";
 
-const STATUS_LABEL: Record<SessionStatus, string> = {
-  idle: "空闲",
-  running: "运行中",
-  waiting: "等待确认",
-  suspended: "已挂起",
-  done: "完成",
-  error: "出错",
+const STATUS_LABEL_KEY: Record<SessionStatus, string> = {
+  idle: "status.idle",
+  running: "status.running",
+  waiting: "status.waiting",
+  suspended: "status.suspended",
+  done: "status.done",
+  error: "status.error",
 };
 
 const STATUS_COLOR: Record<SessionStatus, string> = {
@@ -20,6 +21,7 @@ const STATUS_COLOR: Record<SessionStatus, string> = {
 };
 
 export function StatusBar({ session }: { session?: ClaudeSession }) {
+  const { t } = useAppI18n();
   const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
   const textShadow = isGlass ? "var(--ci-glass-text-shadow)" : "none";
 
@@ -49,7 +51,7 @@ export function StatusBar({ session }: { session?: ClaudeSession }) {
               }}
             />
             <span style={{ fontSize: 10, color: STATUS_COLOR[session.status], flexShrink: 0, fontWeight: 600 }}>
-              {STATUS_LABEL[session.status]}
+              {t(STATUS_LABEL_KEY[session.status])}
             </span>
             <span style={{ fontSize: 10, color: "var(--ci-text-dim)", flexShrink: 0, opacity: 0.45 }}>·</span>
             <span
@@ -67,7 +69,7 @@ export function StatusBar({ session }: { session?: ClaudeSession }) {
             </span>
           </>
         ) : (
-          <span style={{ fontSize: 10, color: "var(--ci-text-dim)" }}>无活跃会话</span>
+          <span style={{ fontSize: 10, color: "var(--ci-text-dim)" }}>{t("status.noActiveSession")}</span>
         )}
       </div>
       <span
@@ -81,7 +83,7 @@ export function StatusBar({ session }: { session?: ClaudeSession }) {
           textTransform: "uppercase",
         }}
       >
-        esc 关闭
+        {t("status.escToClose")}
       </span>
     </div>
   );

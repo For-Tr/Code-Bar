@@ -16,7 +16,7 @@ A macOS / Windows desktop app built with Tauri + React, with menu bar / tray ent
   <a href="https://github.com/For-Tr/Code-Bar/actions">All Actions</a>
 </p>
 
-English | [简体中文](./README.zh.md)
+English | [简体中文](./README.zh.md) | [العربية](./README.ar.md)
 
 </div>
 

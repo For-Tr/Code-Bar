@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
+import { useAppI18n } from "../i18n";
 import { PtyTerminal } from "./PtyTerminal";
 import { SessionDetail } from "./SessionDetail";
 import { UsageWidgetCard } from "./UsageWidgetCard";
@@ -157,6 +158,7 @@ function SessionDetailBody({
 }
 
 function TerminalWidgetBody({ itemId }: { itemId: string }) {
+  const { t } = useAppI18n();
   const widget = useSettingsStore((s) => {
     const match = s.settings.splitWidgetCanvas.items.find((item) => item.id === itemId);
     return match?.type === "terminal" ? match : null;
@@ -189,7 +191,7 @@ function TerminalWidgetBody({ itemId }: { itemId: string }) {
         textAlign: "center",
         lineHeight: 1.7,
       }}>
-        先在中间打开一个会话，terminal 组件才可用。
+        {t("split.terminalUnavailable")}
       </div>
     );
   }
@@ -258,6 +260,7 @@ export function SplitSwapProvider({
   children: ReactNode;
   sessionDetailEmptyState?: ReactNode;
 }) {
+  const { t } = useAppI18n();
   const splitDetailItemId = useSessionStore((s) => s.splitDetailItemId);
   const splitCardItemIdsBySlot = useSessionStore((s) => s.splitCardItemIdsBySlot);
   const swapSplitDetailWithCard = useSessionStore((s) => s.swapSplitDetailWithCard);
@@ -272,14 +275,14 @@ export function SplitSwapProvider({
     [expandedSessionId, sessions]
   );
   const detailSessionId = expandedSession?.workspaceId === activeWorkspaceId ? expandedSession.id : null;
-  const terminalTitle = expandedSession?.worktreePath ?? expandedSession?.workdir ?? "Terminal";
+  const terminalTitle = expandedSession?.worktreePath ?? expandedSession?.workdir ?? t("split.terminal");
 
   const itemsById = useMemo(() => {
     const next = new Map<string, SplitDisplayItem>();
     next.set(SESSION_DETAIL_ITEM_ID, {
       id: SESSION_DETAIL_ITEM_ID,
       kind: "session-detail",
-      title: detailSessionId ? (expandedSession?.name ?? "Session Detail") : "Session Detail",
+      title: detailSessionId ? (expandedSession?.name ?? t("split.sessionDetail")) : t("split.sessionDetail"),
     });
 
     widgetItems.forEach((item) => {
@@ -287,7 +290,7 @@ export function SplitSwapProvider({
         next.set(item.id, {
           id: item.id,
           kind: "terminal",
-          title: terminalTitle || "Terminal",
+          title: terminalTitle || t("split.terminal"),
           widget: item,
         });
         return;
@@ -295,7 +298,7 @@ export function SplitSwapProvider({
       next.set(item.id, {
         id: item.id,
         kind: "usage",
-        title: "Usage",
+        title: t("split.usage"),
         widget: item,
       });
     });
@@ -380,6 +383,7 @@ export function SplitDockOutlet({ itemId }: { itemId: string }) {
 }
 
 export function SplitStaticTerminalTabs({ itemId }: { itemId: string }) {
+  const { t } = useAppI18n();
   const { patchSettings, settings } = useSettingsStore();
   const widget = useSettingsStore((s) => {
     const match = s.settings.splitWidgetCanvas.items.find((item) => item.id === itemId);
@@ -477,7 +481,7 @@ export function SplitStaticTerminalTabs({ itemId }: { itemId: string }) {
                     lineHeight: 1,
                     flexShrink: 0,
                   }}
-                  aria-label={`关闭 ${tab.title}`}
+                  aria-label={t("editor.closeTab", { title: tab.title })}
                 >
                   ×
                 </button>
@@ -513,7 +517,7 @@ export function SplitStaticTerminalTabs({ itemId }: { itemId: string }) {
           padding: 0,
           flexShrink: 0,
         }}
-        aria-label="新建终端标签页"
+        aria-label={t("split.newTerminalTab")}
       >
         +
       </button>
@@ -522,6 +526,7 @@ export function SplitStaticTerminalTabs({ itemId }: { itemId: string }) {
 }
 
 export function SplitDetailHost() {
+  const { t } = useAppI18n();
   const { detailItemId, itemsById } = useSplitSwapContext();
   const setExpandedSession = useSessionStore((s) => s.setExpandedSession);
   const expandedSessionId = useSessionStore((s) => s.expandedSessionId);
@@ -548,7 +553,7 @@ export function SplitDetailHost() {
       }}>
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ fontSize: 10, color: "var(--ci-text-dim)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-            {item.kind === "session-detail" ? "Session" : item.kind === "terminal" ? "Terminal" : "Widget"}
+            {item.kind === "session-detail" ? t("split.detailTitleSession") : item.kind === "terminal" ? t("split.detailTitleTerminal") : t("split.detailTitleWidget")}
           </div>
           <div style={{
             marginTop: 2,
@@ -577,7 +582,7 @@ export function SplitDetailHost() {
               flexShrink: 0,
             }}
           >
-            收起
+            {t("split.collapse")}
           </button>
         )}
       </div>

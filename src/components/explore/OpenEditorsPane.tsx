@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { FileCode2, GitCommitHorizontal, X } from "lucide-react";
+import { useAppI18n } from "../../i18n";
 import { closeTab } from "../../services/editorCommands";
 import { useEditorBufferStore } from "../../store/editorBufferStore";
 import { findEditorGroupIdByTabId, getSessionEditorTabIds, useEditorStore } from "../../store/editorStore";
 import { type ClaudeSession } from "../../store/sessionStore";
 
 export function OpenEditorsPane({ session }: { session: ClaudeSession }) {
+  const { t } = useAppI18n();
   const tabsById = useEditorStore((s) => s.tabsById);
   const groupsById = useEditorStore((s) => s.groupsById);
   const groupOrderBySessionId = useEditorStore((s) => s.groupOrderBySessionId);
@@ -24,7 +26,7 @@ export function OpenEditorsPane({ session }: { session: ClaudeSession }) {
   return (
     <div style={{ padding: "6px 0 8px", borderBottom: "1px solid var(--ci-toolbar-border)" }}>
       <div style={{ fontSize: 10, color: "var(--ci-text-dim)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", padding: "0 12px 6px" }}>
-        Open Editors
+        {t("editor.openEditors")}
       </div>
       {tabIds.map((tabId) => {
         const tab = tabsById[tabId];
@@ -46,7 +48,7 @@ export function OpenEditorsPane({ session }: { session: ClaudeSession }) {
               minHeight: 22,
               background: isActive ? "var(--ci-list-active-bg)" : isHovered ? "var(--ci-list-hover-bg)" : "transparent",
               color: isActive || isHovered ? "var(--ci-text)" : "var(--ci-text-muted)",
-              borderLeft: isActive ? "1px solid var(--ci-accent)" : "1px solid transparent",
+              borderInlineStart: isActive ? "1px solid var(--ci-accent)" : "1px solid transparent",
             }}
           >
             <button
@@ -96,7 +98,7 @@ export function OpenEditorsPane({ session }: { session: ClaudeSession }) {
                 opacity: isActive || isHovered ? 0.9 : 0,
                 pointerEvents: isActive || isHovered ? "auto" : "none",
               }}
-              title={`关闭 ${tab.title}`}
+              title={t("editor.closeTab", { title: tab.title })}
             >
               <X size={12} strokeWidth={1.8} />
             </button>

@@ -4,6 +4,7 @@ import { TitleBar } from "../components/TitleBar";
 import { StatusBar } from "../components/StatusBar";
 import { ExploreSidebar } from "../components/ExploreMode";
 import { ScmSidebar } from "../components/scm/ScmSidebar";
+import { useAppI18n } from "../i18n";
 import { useWorkbenchStore } from "../store/workbenchStore";
 import { type ClaudeSession } from "../store/sessionStore";
 import { showExplorer, showScm, showSessionSurface } from "../services/workbenchCommands";
@@ -32,7 +33,7 @@ function ActivityButton({
           justifyContent: "center",
           background: active ? "var(--ci-accent-bg)" : "transparent",
           border: "none",
-          borderLeft: active ? "2px solid var(--ci-accent)" : "2px solid transparent",
+          borderInlineStart: active ? "2px solid var(--ci-accent)" : "2px solid transparent",
           color: active ? "var(--ci-text)" : "var(--ci-text-dim)",
           cursor: "pointer",
           padding: 0,
@@ -53,6 +54,7 @@ export function WorkbenchSidebar({
   menuContent: ReactNode;
   onRefreshDiff: (sessionId?: string | null, options?: { reloadExplorer?: boolean }) => void;
 }) {
+  const { t } = useAppI18n();
   const sidebarSection = useWorkbenchStore((s) => s.sidebarSection);
 
   return (
@@ -60,10 +62,10 @@ export function WorkbenchSidebar({
       <TitleBar />
       <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
         {session && sidebarSection !== "sessions" && (
-          <div style={{ width: 48, display: "flex", flexDirection: "column", alignItems: "stretch", borderRight: "1px solid var(--ci-toolbar-border)", background: "transparent" }}>
-            <ActivityButton label="Sessions" active={false} onClick={() => showSessionSurface(session.id)} icon={<MessageSquareCode size={20} strokeWidth={1.9} />} />
-            <ActivityButton label="Explorer" active={sidebarSection === "explorer"} onClick={() => showExplorer(session.id)} icon={<Files size={20} strokeWidth={1.9} />} />
-            <ActivityButton label="Source Control" active={sidebarSection === "scm"} onClick={() => showScm(session.id)} icon={<GitBranchPlus size={20} strokeWidth={1.9} />} />
+          <div style={{ width: 48, display: "flex", flexDirection: "column", alignItems: "stretch", borderInlineEnd: "1px solid var(--ci-toolbar-border)", background: "transparent" }}>
+            <ActivityButton label={t("workbench.sessions")} active={false} onClick={() => showSessionSurface(session.id)} icon={<MessageSquareCode size={20} strokeWidth={1.9} />} />
+            <ActivityButton label={t("workbench.explorer")} active={sidebarSection === "explorer"} onClick={() => showExplorer(session.id)} icon={<Files size={20} strokeWidth={1.9} />} />
+            <ActivityButton label={t("workbench.sourceControl")} active={sidebarSection === "scm"} onClick={() => showScm(session.id)} icon={<GitBranchPlus size={20} strokeWidth={1.9} />} />
           </div>
         )}
         <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }}>
@@ -80,7 +82,7 @@ export function WorkbenchSidebar({
             }}>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 10, color: "var(--ci-text-dim)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-                  {sidebarSection === "explorer" ? "Explorer" : "Source Control"}
+                  {sidebarSection === "explorer" ? t("workbench.explorer") : t("workbench.sourceControl")}
                 </div>
                 <div style={{ marginTop: 3, display: "flex", alignItems: "center", gap: 8, minWidth: 0, color: "var(--ci-text)", fontSize: 11, fontWeight: 600 }}>
                   <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{session.name}</span>

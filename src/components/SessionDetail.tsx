@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
+import { useAppI18n } from "../i18n";
 import { useSessionStore } from "../store/sessionStore";
 import { useSettingsStore, isGlassTheme } from "../store/settingsStore";
 import { TrafficLights } from "./TrafficLights";
@@ -51,6 +52,7 @@ interface InstallTerminalProps {
 }
 
 function InstallTerminal({ installId, installCmd, onFinished }: InstallTerminalProps) {
+  const { t } = useAppI18n();
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<import("@xterm/xterm").Terminal | null>(null);
   const fitRef = useRef<import("@xterm/addon-fit").FitAddon | null>(null);
@@ -97,7 +99,7 @@ function InstallTerminal({ installId, installCmd, onFinished }: InstallTerminalP
         rows,
         env: null,
       }).catch((e) => {
-        term.writeln(`\x1b[31m启动失败: ${e}\x1b[0m`);
+        term.writeln(`\x1b[31m${t("session.installFailed", { error: String(e) })}\x1b[0m`);
       });
 
       const u1 = listen<{ session_id: string; data: string }>("pty-data", ({ payload }) => {
@@ -111,7 +113,7 @@ function InstallTerminal({ installId, installCmd, onFinished }: InstallTerminalP
 
       const u2 = listen<{ session_id: string }>("pty-exit", ({ payload }) => {
         if (payload.session_id !== installId) return;
-        termRef.current?.writeln("\r\n\x1b[90m─── 安装完成，正在重新检测 CLI ───\x1b[0m");
+        termRef.current?.writeln(`\r\n\x1b[90m${t("session.installDoneRerun")}\x1b[0m`);
         setTimeout(onFinished, 800);
       });
 
@@ -151,6 +153,7 @@ interface PanelProps {
 }
 
 function SessionPanel({ sessionId, isOpen, onClose, presentation, showHeader }: PanelProps) {
+  const { t } = useAppI18n();
   const isGlass = isGlassTheme(useSettingsStore((s) => s.settings.theme));
   const textShadow = isGlass ? "var(--ci-glass-text-shadow)" : "none";
   const [hidden, setHidden] = useState(!isOpen);
@@ -283,7 +286,7 @@ function SessionPanel({ sessionId, isOpen, onClose, presentation, showHeader }: 
             cursor: isOverlay ? "grab" : "default",
             letterSpacing: -0.2,
           }}>
-            {installing ? `正在安装 ${runnerBadge}…` : session.name}
+            {installing ? t("session.installingRunner", { runner: runnerBadge }) : session.name}
           </span>
 
           <span
@@ -323,7 +326,7 @@ function SessionPanel({ sessionId, isOpen, onClose, presentation, showHeader }: 
                 e.currentTarget.style.opacity = "1";
               }}
             >
-              取消
+              {t("common.cancel")}
             </button>
           )}
 
@@ -351,7 +354,7 @@ function SessionPanel({ sessionId, isOpen, onClose, presentation, showHeader }: 
                 e.currentTarget.style.opacity = "1";
               }}
             >
-              收起
+              {t("session.collapse")}
             </button>
           )}
         </div>
@@ -422,6 +425,7 @@ export function SessionDetail({
   openSessionId?: string | null;
   showPanelHeader?: boolean;
 }) {
+  const { t } = useAppI18n();
   const { expandedSessionId, setExpandedSession, sessions } = useSessionStore();
   const visibleSessionId = openSessionId === undefined ? expandedSessionId : openSessionId;
 
@@ -462,7 +466,7 @@ export function SessionDetail({
           />
         ))}
         {!visibleSessionId && (
-          emptyState ? <>{emptyState}</> : <SessionDetailEmptyState message="选择一个会话以在右侧打开终端。" />
+          emptyState ? <>{emptyState}</> : <SessionDetailEmptyState message={t("session.emptyRightPanel")} />
         )}
       </div>
     );

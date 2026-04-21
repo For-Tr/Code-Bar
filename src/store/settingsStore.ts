@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { type LocaleSetting, normalizeLocaleSetting } from "../i18n/locale";
 import { mirroredPersistStorage } from "./persistStorage";
 
 export type RunnerType =
@@ -207,6 +208,7 @@ export interface Settings {
   runner: RunnerConfig;
   runnerProfiles: RunnerProfiles;
   apiKeys: ApiKeys;
+  locale: LocaleSetting;
   theme: ThemeMode;
   layoutMode: LayoutMode;
   splitPaneSidebarWidth: number;
@@ -267,6 +269,7 @@ const DEFAULT_SETTINGS: Settings = {
     anthropic: "",
     openai: "",
   },
+  locale: "system",
   theme: "light",
   layoutMode: "original",
   splitPaneSidebarWidth: 420,
@@ -363,6 +366,7 @@ export const useSettingsStore = create<SettingsStore>()(
       merge: (persisted: unknown, current) => {
         const p = persisted as Partial<typeof current>;
         const persistedSettings = (p.settings ?? {}) as Partial<Settings> & {
+          locale?: string;
           theme?: string;
           layoutMode?: string;
           splitPaneSidebarWidth?: unknown;
@@ -380,6 +384,7 @@ export const useSettingsStore = create<SettingsStore>()(
           settings: {
             ...DEFAULT_SETTINGS,
             ...persistedSettings,
+            locale: normalizeLocaleSetting(persistedSettings.locale),
             theme: normalizeThemeMode(persistedSettings.theme),
             layoutMode: normalizeLayoutMode(persistedSettings.layoutMode),
             splitPaneSidebarWidth: normalizeSplitPaneSidebarWidth(persistedSettings.splitPaneSidebarWidth),

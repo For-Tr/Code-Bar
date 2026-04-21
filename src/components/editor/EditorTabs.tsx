@@ -3,6 +3,7 @@ import { FileCode2, GitCommitHorizontal, X } from "lucide-react";
 import { SortableContext, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { useDroppable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
+import { useAppI18n } from "../../i18n";
 import { closeTab } from "../../services/editorCommands";
 import { useEditorBufferStore } from "../../store/editorBufferStore";
 import { useEditorStore, type EditorGroup, type EditorViewMode } from "../../store/editorStore";
@@ -38,6 +39,7 @@ function EditorTabPreview({
   dirty?: boolean;
   preview?: boolean;
 }) {
+  const { t } = useAppI18n();
   return (
     <div
       style={{
@@ -61,7 +63,7 @@ function EditorTabPreview({
       </span>
       <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 11 }}>{title}</span>
       {dirty && <span style={{ color: "var(--ci-accent)", fontSize: 10, flexShrink: 0 }}>●</span>}
-      {preview && <span style={{ color: "var(--ci-text-dim)", fontSize: 9, flexShrink: 0 }}>preview</span>}
+      {preview && <span style={{ color: "var(--ci-text-dim)", fontSize: 9, flexShrink: 0 }}>{t("editor.preview")}</span>}
     </div>
   );
 }
@@ -77,6 +79,7 @@ function SortableEditorTab({
   tabId: string;
   isActive: boolean;
 }) {
+  const { t } = useAppI18n();
   const tab = useEditorStore((s) => s.tabsById[tabId]);
   const setActiveTab = useEditorStore((s) => s.setActiveTab);
   const pinTab = useEditorStore((s) => s.pinTab);
@@ -149,9 +152,9 @@ function SortableEditorTab({
         </span>
         <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{tab.title}</span>
         {dirty && <span style={{ color: "var(--ci-accent)", fontSize: 10, flexShrink: 0 }}>●</span>}
-        {tab.preview && <span style={{ color: "var(--ci-text-dim)", fontSize: 9, flexShrink: 0 }}>preview</span>}
+        {tab.preview && <span style={{ color: "var(--ci-text-dim)", fontSize: 9, flexShrink: 0 }}>{t("editor.preview")}</span>}
       </button>
-      <WorkbenchTooltip label={`关闭 ${tab.title}`}>
+      <WorkbenchTooltip label={t("editor.closeTab", { title: tab.title })}>
         <button
           onPointerDown={(event) => {
             event.stopPropagation();
@@ -174,7 +177,7 @@ function SortableEditorTab({
             justifyContent: "center",
             opacity: isActive ? 0.9 : 0.5,
           }}
-          title={`关闭 ${tab.title}`}
+          title={t("editor.closeTab", { title: tab.title })}
         >
           <X size={12} strokeWidth={1.8} />
         </button>
@@ -190,6 +193,7 @@ export function EditorTabs({
   session: ClaudeSession | null;
   groupId: string;
 }) {
+  const { t } = useAppI18n();
   const group = useEditorStore((s) => s.groupsById[groupId]);
   const tabsById = useEditorStore((s) => s.tabsById);
   const { setNodeRef, isOver } = useDroppable({
@@ -228,7 +232,7 @@ export function EditorTabs({
         <SortableContext items={openTabs} strategy={horizontalListSortingStrategy}>
           {openTabs.length === 0 ? (
             <div style={{ display: "flex", alignItems: "center", padding: "0 14px", fontSize: 11, color: isOver ? "var(--ci-accent)" : "var(--ci-text-dim)" }}>
-              {isOver ? "释放到此组" : "未打开文件"}
+              {isOver ? t("editor.releaseToGroup") : t("editor.noOpenFiles")}
             </div>
           ) : openTabs.map((tabId) => (
             <SortableEditorTab
@@ -242,7 +246,7 @@ export function EditorTabs({
         </SortableContext>
       ) : (
         <div style={{ display: "flex", alignItems: "center", padding: "0 14px", fontSize: 11, color: "var(--ci-text-dim)" }}>
-          未打开文件
+          {t("editor.noOpenFiles")}
         </div>
       )}
     </div>

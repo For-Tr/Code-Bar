@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
+import { useAppI18n } from "../i18n";
 import { useSettingsStore, isGlassTheme, type ThemeMode } from "../store/settingsStore";
 
 interface Props {
@@ -134,6 +135,7 @@ export function PtyTerminal({
   onNotification,
   env,
 }: Props) {
+  const { t } = useAppI18n();
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -291,7 +293,7 @@ export function PtyTerminal({
       ({ payload }) => {
         if (payload.session_id !== sessionId) return;
         termRef.current?.writeln("\r\n\x1b[90m─────────────────────────────────────\x1b[0m");
-        termRef.current?.writeln("\x1b[90m[进程已退出]\x1b[0m");
+        termRef.current?.writeln(`\x1b[90m${t("pty.processExited")}\x1b[0m`);
         setExited(true);
         startedRef.current = false; // 允许重启
         startingRef.current = false;
@@ -411,7 +413,7 @@ export function PtyTerminal({
           if (launchTokenRef.current !== launchToken) return;
           startingRef.current = false;
           startedRef.current = false;
-          termRef.current?.writeln(`\x1b[31m启动失败: ${e}\x1b[0m`);
+          termRef.current?.writeln(`\x1b[31m${t("session.installFailed", { error: String(e) })}\x1b[0m`);
         });
     }, 250);
 
@@ -462,7 +464,7 @@ export function PtyTerminal({
         if (launchTokenRef.current !== launchToken) return;
         startedRef.current = false;
         startingRef.current = false;
-        termRef.current?.writeln(`\x1b[31m启动失败: ${e}\x1b[0m`);
+        termRef.current?.writeln(`\x1b[31m${t("session.installFailed", { error: String(e) })}\x1b[0m`);
       });
   };
 
@@ -535,7 +537,7 @@ export function PtyTerminal({
             color: isGlass ? "var(--ci-text-dim)" : "rgba(255,255,255,0.35)",
             fontFamily: "monospace",
           }}>
-            会话已结束
+            {t("pty.sessionEnded")}
           </span>
           <button
             onClick={handleRestart}
@@ -560,7 +562,7 @@ export function PtyTerminal({
               <polyline points="23 4 23 10 17 10" />
               <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
             </svg>
-            重新启动
+            {t("common.restart")}
           </button>
         </div>
       )}

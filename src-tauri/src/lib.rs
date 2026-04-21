@@ -2,6 +2,7 @@
 mod cli_detect;
 mod git;
 mod hooks;
+mod i18n;
 mod integration_control;
 mod keystore;
 mod notification;
@@ -89,6 +90,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_liquid_glass::init())
         .plugin(tauri_plugin_notification::init())
+        .manage(i18n::LocaleState::default())
         .manage(ProcessMap::default())
         .manage(PtyWriterMap::default())
         .manage(PtyKillerMap::default())
@@ -261,6 +263,7 @@ pub fn run() {
             pty::send_pty_query,
             // 通知 & Hooks
             hooks::send_notification,
+            i18n::set_app_locale,
             hooks::setup_all_hooks,
             hooks::setup_claude_hooks,
             hooks::setup_codex_hooks,

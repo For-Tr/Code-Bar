@@ -62,6 +62,9 @@ importers:
       framer-motion:
         specifier: ^12.38.0
         version: 12.38.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      i18next:
+        specifier: ^25.6.0
+        version: 25.10.10(typescript@5.8.3)
       lucide-react:
         specifier: ^1.8.0
         version: 1.8.0(react@19.2.4)
@@ -71,6 +74,9 @@ importers:
       react-dom:
         specifier: ^19.1.0
         version: 19.2.4(react@19.2.4)
+      react-i18next:
+        specifier: ^16.2.4
+        version: 16.6.6(i18next@25.10.10(typescript@5.8.3))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.8.3)
       tauri-plugin-liquid-glass-api:
         specifier: ^0.1.6
         version: 0.1.6(@tauri-apps/api@2.10.1)
@@ -79,7 +85,7 @@ importers:
         version: 5.3.0
       zustand:
         specifier: ^5.0.12
-        version: 5.0.12(@types/react@19.2.14)(react@19.2.4)
+        version: 5.0.12(@types/react@19.2.14)(react@19.2.4)(use-sync-external-store@1.6.0(react@19.2.4))
     devDependencies:
       '@tailwindcss/vite':
         specifier: ^4.2.2
@@ -1164,6 +1170,17 @@ packages:
     resolution: {integrity: sha512-Xwwo44whKBVCYoliBQwaPvtd/2tYFkRQtXDWj1nackaV2JPXx3L0+Jvd8/qCJ2p+ML0/XVkJ2q+Mr+UVdpJK5w==}
     engines: {node: '>=12.0.0'}
 
+  html-parse-stringify@3.0.1:
+    resolution: {integrity: sha512-KknJ50kTInJ7qIScF3jeaFRpMpE8/lfiTdzf/twXyPBLAGrLRTmkz3AdTnKeh40X8k9L2fdYwEp/42WGXIRGcg==}
+
+  i18next@25.10.10:
+    resolution: {integrity: sha512-cqUW2Z3EkRx7NqSyywjkgCLK7KLCL6IFVFcONG7nVYIJ3ekZ1/N5jUsihHV6Bq37NfhgtczxJcxduELtjTwkuQ==}
+    peerDependencies:
+      typescript: ^5 || ^6
+    peerDependenciesMeta:
+      typescript:
+        optional: true
+
   jiti@2.6.1:
     resolution: {integrity: sha1-F47y/JoaWUJIwgYnzYIBh6TXjZI=}
     hasBin: true
@@ -1303,6 +1320,22 @@ packages:
     peerDependencies:
       react: ^19.2.4
 
+  react-i18next@16.6.6:
+    resolution: {integrity: sha512-ZgL2HUoW34UKUkOV7uSQFE1CDnRPD+tCR3ywSuWH7u2iapnz86U8Bi3Vrs620qNDzCf1F47NxglCEkchCTDOHw==}
+    peerDependencies:
+      i18next: '>= 25.10.9'
+      react: '>= 16.8.0'
+      react-dom: '*'
+      react-native: '*'
+      typescript: ^5 || ^6
+    peerDependenciesMeta:
+      react-dom:
+        optional: true
+      react-native:
+        optional: true
+      typescript:
+        optional: true
+
   react-refresh@0.17.0:
     resolution: {integrity: sha1-t+V5w2V/I9BOzL5K0uWKjtUeflM=}
     engines: {node: '>=0.10.0'}
@@ -1360,6 +1393,11 @@ packages:
     peerDependencies:
       browserslist: '>= 4.21.0'
 
+  use-sync-external-store@1.6.0:
+    resolution: {integrity: sha512-Pp6GSwGP/NrPIrxVFAIkOQeyw8lFenOHijQWkUTrDvrF4ALqylP2C/KCkeS9dpUM3KvYRQhna5vt7IL95+ZQ9w==}
+    peerDependencies:
+      react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+
   vite@7.3.1:
     resolution: {integrity: sha1-f2z+j7kHQThgXoIqddnTC4FNZQc=}
     engines: {node: ^20.19.0 || >=22.12.0}
@@ -1399,6 +1437,10 @@ packages:
         optional: true
       yaml:
         optional: true
+
+  void-elements@3.1.0:
+    resolution: {integrity: sha512-Dhxzh5HZuiHQhbvTW9AMetFfBHDMYpo23Uo9btPXgdYP+3T5S+p+jgNy7spra+veYhBP2dCSgxR/i2Y02h5/6w==}
+    engines: {node: '>=0.10.0'}
 
   w3c-keyname@2.2.8:
     resolution: {integrity: sha512-dpojBhNsCNN7T82Tm7k26A6G9ML3NkhDsnw9n/eoxSRlVBB4CEtIQ/KTCLI2Fwf3ataSXRhYFkQi3SlnFwPvPQ==}
@@ -2382,6 +2424,16 @@ snapshots:
   highlight.js@11.11.1:
     optional: true
 
+  html-parse-stringify@3.0.1:
+    dependencies:
+      void-elements: 3.1.0
+
+  i18next@25.10.10(typescript@5.8.3):
+    dependencies:
+      '@babel/runtime': 7.29.2
+    optionalDependencies:
+      typescript: 5.8.3
+
   jiti@2.6.1: {}
 
   js-tokens@4.0.0: {}
@@ -2482,6 +2534,17 @@ snapshots:
       react: 19.2.4
       scheduler: 0.27.0
 
+  react-i18next@16.6.6(i18next@25.10.10(typescript@5.8.3))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.8.3):
+    dependencies:
+      '@babel/runtime': 7.29.2
+      html-parse-stringify: 3.0.1
+      i18next: 25.10.10(typescript@5.8.3)
+      react: 19.2.4
+      use-sync-external-store: 1.6.0(react@19.2.4)
+    optionalDependencies:
+      react-dom: 19.2.4(react@19.2.4)
+      typescript: 5.8.3
+
   react-refresh@0.17.0: {}
 
   react@19.2.4: {}
@@ -2548,6 +2611,10 @@ snapshots:
       escalade: 3.2.0
       picocolors: 1.1.1
 
+  use-sync-external-store@1.6.0(react@19.2.4):
+    dependencies:
+      react: 19.2.4
+
   vite@7.3.1(jiti@2.6.1)(lightningcss@1.32.0):
     dependencies:
       esbuild: 0.27.7
@@ -2561,13 +2628,16 @@ snapshots:
       jiti: 2.6.1
       lightningcss: 1.32.0
 
+  void-elements@3.1.0: {}
+
   w3c-keyname@2.2.8: {}
 
   xterm@5.3.0: {}
 
   yallist@3.1.1: {}
 
-  zustand@5.0.12(@types/react@19.2.14)(react@19.2.4):
+  zustand@5.0.12(@types/react@19.2.14)(react@19.2.4)(use-sync-external-store@1.6.0(react@19.2.4)):
     optionalDependencies:
       '@types/react': 19.2.14
       react: 19.2.4
+      use-sync-external-store: 1.6.0(react@19.2.4)

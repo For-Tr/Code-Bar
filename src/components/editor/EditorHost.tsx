@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useAppI18n } from "../../i18n";
 import { loadFile, saveTab } from "../../services/editorCommands";
 import { useEditorBufferStore, type EditorBufferState } from "../../store/editorBufferStore";
 import { useEditorStore } from "../../store/editorStore";
@@ -41,10 +42,12 @@ function EmptyEditorState({ message }: { message: string }) {
 }
 
 function BinaryEditorState({ path }: { path: string }) {
-  return <EmptyEditorState message={`二进制文件暂不支持编辑：${path}`} />;
+  const { t } = useAppI18n();
+  return <EmptyEditorState message={t("session.binaryReadonly", { path })} />;
 }
 function DeletedEditorState({ path }: { path: string }) {
-  return <EmptyEditorState message={`该文件已被删除，当前仅提供只读占位：${path}`} />;
+  const { t } = useAppI18n();
+  return <EmptyEditorState message={t("session.deletedReadonly", { path })} />;
 }
 
 export function EditorHost({
@@ -56,6 +59,7 @@ export function EditorHost({
   groupId: string;
   onRefreshDiff: (sessionId?: string | null, options?: { reloadExplorer?: boolean }) => void;
 }) {
+  const { t } = useAppI18n();
   const group = useEditorStore((s) => s.groupsById[groupId]);
   const tabsById = useEditorStore((s) => s.tabsById);
   const setActiveTab = useEditorStore((s) => s.setActiveTab);
@@ -110,7 +114,7 @@ export function EditorHost({
   }, [activeBuffer, activeFile?.type, activeTab, group, isFocusedGroup, onRefreshDiff, session]);
 
   if (!session || !group || !activeTab || activeTab.sessionId !== session.id) {
-    return <EmptyEditorState message={session ? "从左侧选择一个文件开始查看或编辑。" : "选择一个会话进入工作台。"} />;
+    return <EmptyEditorState message={session ? t("session.emptyOpenFileOrSession") : t("session.emptyChooseSessionWorkbench")} />;
   }
 
   if (activeTab.viewMode === "diff") {
@@ -127,7 +131,7 @@ export function EditorHost({
   if (!activeBuffer || activeBuffer.loading) {
     return (
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%", height: "100%", minHeight: 0, overflow: "hidden", color: "var(--ci-text-dim)", fontSize: 12 }}>
-        载入文件中…
+        {t("session.loadingFile")}
       </div>
     );
   }
@@ -160,8 +164,8 @@ export function EditorHost({
             {activeTab.path}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 3, fontSize: 10, color: "var(--ci-text-dim)" }}>
-            {activeBuffer.dirty ? <span style={{ color: "var(--ci-accent)" }}>未保存</span> : <span>已同步</span>}
-            <span>⌘/Ctrl + S 保存</span>
+            {activeBuffer.dirty ? <span style={{ color: "var(--ci-accent)" }}>{t("session.unsaved")}</span> : <span>{t("session.synced")}</span>}
+            <span>{t("session.saveShortcut")}</span>
           </div>
         </div>
         <button
@@ -191,7 +195,7 @@ export function EditorHost({
             transition: "opacity 0.12s",
           }}
         >
-          {activeBuffer.saving ? "保存中…" : "保存"}
+          {activeBuffer.saving ? t("common.saving") : t("common.save")}
         </button>
       </div>
 

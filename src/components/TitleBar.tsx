@@ -1,9 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
+import { useAppI18n } from "../i18n";
 import { useSessionStore } from "../store/sessionStore";
 import { useSettingsStore, isGlassTheme } from "../store/settingsStore";
 import { TrafficLights } from "./TrafficLights";
 
 export function TitleBar() {
+  const { t } = useAppI18n();
   const sessions = useSessionStore((s) => s.sessions);
   const { openSettings } = useSettingsStore();
   const isGlass = useSettingsStore((s) => isGlassTheme(s.settings.theme));
@@ -32,8 +34,8 @@ export function TitleBar() {
       <div
         style={{
           position: "absolute",
-          left: 0,
-          right: 0,
+          insetInlineStart: 0,
+          insetInlineEnd: 0,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -82,7 +84,7 @@ export function TitleBar() {
 
       <button
         onClick={() => openSettings()}
-        title="设置"
+        title={t("titleBar.settings")}
         style={{
           width: 28,
           height: 28,

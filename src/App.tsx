@@ -15,6 +15,7 @@ import { SplitSwapProvider } from "./components/SplitSwapLayout";
 import { WorkbenchSidebar } from "./workbench/WorkbenchSidebar";
 import { WorkbenchCenter } from "./workbench/WorkbenchCenter";
 import Settings from "./components/Settings";
+import { ensureI18n, getLocaleDirection, resolveEffectiveLocale, useAppI18n } from "./i18n";
 import { useSessionStore, type DiffFile, type ClaudeSession } from "./store/sessionStore";
 import {
   useSettingsStore,
@@ -57,6 +58,7 @@ interface BackfilledSessionBinding {
 }
 
 export default function App() {
+  const { t } = useAppI18n();
   const {
     sessions,
     activeSessionId,
@@ -72,6 +74,8 @@ export default function App() {
   const setScmDiffOverride = useScmStore((s) => s.setDiffOverride);
 
   const { settings, patchSettings } = useSettingsStore();
+  const effectiveLocale = resolveEffectiveLocale(settings.locale);
+  const direction = getLocaleDirection(effectiveLocale);
   const settingsOpen = useSettingsStore((s) => s.settingsOpen);
   const closeSettings = useSettingsStore((s) => s.closeSettings);
   const { activeWorkspaceId } = useWorkspaceStore();
@@ -135,7 +139,7 @@ export default function App() {
       const customEvent = nativeEvent as CustomEvent<{ message: string; stack?: string | null }>;
       pushFrontendErrorLog({
         source: "explore-boundary",
-        message: customEvent.detail?.message ?? "Unknown explore error",
+        message: customEvent.detail?.message ?? t("notifications.unknownError"),
         stack: customEvent.detail?.stack ?? null,
         detail: null,
       });
@@ -154,6 +158,15 @@ export default function App() {
   }, [pushFrontendErrorLog]);
 
   // ── 主题注入：根据 settings.theme 向 :root 写入 CSS 变量 ──────
+  useEffect(() => {
+    void ensureI18n(effectiveLocale);
+    document.documentElement.lang = effectiveLocale;
+    document.documentElement.dir = direction;
+    if ("__TAURI_INTERNALS__" in window) {
+      invoke("set_app_locale", { locale: effectiveLocale }).catch(() => {});
+    }
+  }, [direction, effectiveLocale]);
+
   useEffect(() => {
     const applyTheme = (mode: Exclude<ThemeMode, "system">) => {
       const root = document.documentElement;
@@ -1028,7 +1041,7 @@ export default function App() {
             boxShadow: "0 12px 30px rgba(0,0,0,0.28)",
           }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px", borderBottom: "1px solid var(--ci-toolbar-border)", position: "sticky", top: 0, background: "rgba(20,20,24,0.98)" }}>
-              <span style={{ fontWeight: 700, color: "var(--ci-deleted-text)" }}>Frontend errors</span>
+              <span style={{ fontWeight: 700, color: "var(--ci-deleted-text)" }}>{t("app.frontendErrors")}</span>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <button
                   onClick={() => {
@@ -1041,13 +1054,13 @@ export default function App() {
                   }}
                   style={{ background: "none", border: "none", color: "var(--ci-text-dim)", cursor: "pointer", fontSize: 11 }}
                 >
-                  Copy all
+                  {t("app.copyAll")}
                 </button>
                 <button
                   onClick={() => setFrontendErrorLogs([])}
                   style={{ background: "none", border: "none", color: "var(--ci-text-dim)", cursor: "pointer", fontSize: 11 }}
                 >
-                  Clear
+                  {t("common.clear")}
                 </button>
               </div>
             </div>
@@ -1067,7 +1080,7 @@ export default function App() {
                       }}
                       style={{ background: "none", border: "none", color: "var(--ci-text-dim)", cursor: "pointer", fontSize: 10, padding: 0 }}
                     >
-                      Copy
+                      {t("common.copy")}
                     </button>
                   </div>
                   <div style={{ marginTop: 4, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{log.message}</div>
@@ -1133,8 +1146,8 @@ export default function App() {
                       lineHeight: 1.7,
                     }}>
                       {expandedSessionId && !visibleSplitSessionId
-                        ? "当前打开的终端不属于这个 workspace。切换回对应 workspace，或重新在左侧展开一个会话。"
-                        : "从左侧会话列表中展开一个终端，中间会显示 PTY 详情。"}
+                        ? t("app.split.emptyOtherWorkspace")
+                        : t("app.split.emptyPickSession")}
                     </div>
                   </div>
                 }
@@ -1157,11 +1170,11 @@ export default function App() {
 
                   <div
                     onPointerDown={handleSplitPanePointerDown}
-                    title="拖拽调整分栏宽度"
+                    title={t("app.split.resizeSidebar")}
                     style={{
                       width: 10,
-                      marginLeft: -5,
-                      marginRight: -5,
+                      marginInlineStart: -5,
+                      marginInlineEnd: -5,
                       cursor: "col-resize",
                       zIndex: 3,
                       touchAction: "none",
@@ -1179,7 +1192,7 @@ export default function App() {
                     }} />
                   </div>
 
-                  <div style={{ flex: 1, minWidth: 0, minHeight: 0, position: "relative", display: "flex", borderLeft: "1px solid var(--ci-toolbar-border)" }}>
+                  <div style={{ flex: 1, minWidth: 0, minHeight: 0, position: "relative", display: "flex", borderInlineStart: "1px solid var(--ci-toolbar-border)" }}>
                     <div style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
                       <WorkbenchCenter session={workbenchSession} onRefreshDiff={refreshSessionDiff} />
                     </div>
@@ -1188,11 +1201,11 @@ export default function App() {
                   {!splitWidgetPanelCollapsed && (
                     <div
                       onPointerDown={handleWidgetPanePointerDown}
-                      title="拖拽调整组件区宽度"
+                      title={t("app.split.resizeWidgets")}
                       style={{
                         width: 10,
-                        marginLeft: -5,
-                        marginRight: -5,
+                        marginInlineStart: -5,
+                        marginInlineEnd: -5,
                         cursor: "col-resize",
                         zIndex: 3,
                         touchAction: "none",
@@ -1216,7 +1229,7 @@ export default function App() {
                     <div style={{
                       width: 42,
                       flexShrink: 0,
-                      borderLeft: "1px solid var(--ci-toolbar-border)",
+                      borderInlineStart: "1px solid var(--ci-toolbar-border)",
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
@@ -1224,7 +1237,7 @@ export default function App() {
                     }}>
                       <button
                         onClick={() => patchSettings({ splitWidgetPanelCollapsed: false })}
-                        title="展开组件区"
+                        title={t("app.split.expandWidgets")}
                         style={{
                           background: "var(--ci-btn-ghost-bg)",
                           border: "1px solid var(--ci-toolbar-border)",
@@ -1236,7 +1249,7 @@ export default function App() {
                           borderRadius: 8,
                         }}
                       >
-                        组件
+                        {t("app.split.widgets")}
                       </button>
                     </div>
                   ) : (
