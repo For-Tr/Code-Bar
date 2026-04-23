@@ -7,24 +7,29 @@ import { ScmSidebar } from "../components/scm/ScmSidebar";
 import { useAppI18n } from "../i18n";
 import { useWorkbenchStore } from "../store/workbenchStore";
 import { type ClaudeSession } from "../store/sessionStore";
-import { showExplorer, showScm, showSessionSurface } from "../services/workbenchCommands";
+import { useWorkspaceStore } from "../store/workspaceStore";
+import { resetWorkbenchMode, showExplorer, showScm, showSessionSurface } from "../services/workbenchCommands";
 import { WorkbenchTooltip } from "../components/ui/WorkbenchTooltip";
 
 function ActivityButton({
   label,
   active,
+  disabled = false,
   onClick,
   icon,
 }: {
   label: string;
   active: boolean;
+  disabled?: boolean;
   onClick: () => void;
   icon: React.ReactNode;
 }) {
   return (
     <WorkbenchTooltip label={label}>
       <button
-        onClick={onClick}
+        onClick={disabled ? undefined : onClick}
+        disabled={disabled}
+        aria-disabled={disabled}
         style={{
           width: 40,
           height: 40,
@@ -34,8 +39,9 @@ function ActivityButton({
           background: active ? "var(--ci-accent-bg)" : "transparent",
           border: "none",
           borderInlineStart: active ? "2px solid var(--ci-accent)" : "2px solid transparent",
-          color: active ? "var(--ci-text)" : "var(--ci-text-dim)",
-          cursor: "pointer",
+          color: active ? "var(--ci-text)" : disabled ? "var(--ci-text-dim)" : "var(--ci-text-dim)",
+          opacity: disabled ? 0.45 : 1,
+          cursor: disabled ? "not-allowed" : "pointer",
           padding: 0,
         }}
       >
@@ -56,20 +62,46 @@ export function WorkbenchSidebar({
 }) {
   const { t } = useAppI18n();
   const sidebarSection = useWorkbenchStore((s) => s.sidebarSection);
+  const hasWorkspace = useWorkspaceStore((s) => s.workspaces.length > 0);
+  const hasSessionContext = !!session;
+  const inWorkbenchSection = sidebarSection !== "sessions";
 
   return (
     <>
       <TitleBar />
       <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
-        {session && sidebarSection !== "sessions" && (
+        {hasWorkspace && (
           <div style={{ width: 48, display: "flex", flexDirection: "column", alignItems: "stretch", borderInlineEnd: "1px solid var(--ci-toolbar-border)", background: "transparent" }}>
-            <ActivityButton label={t("workbench.sessions")} active={false} onClick={() => showSessionSurface(session.id)} icon={<MessageSquareCode size={20} strokeWidth={1.9} />} />
-            <ActivityButton label={t("workbench.explorer")} active={sidebarSection === "explorer"} onClick={() => showExplorer(session.id)} icon={<Files size={20} strokeWidth={1.9} />} />
-            <ActivityButton label={t("workbench.sourceControl")} active={sidebarSection === "scm"} onClick={() => showScm(session.id)} icon={<GitBranchPlus size={20} strokeWidth={1.9} />} />
+            <ActivityButton
+              label={t("workbench.sessions")}
+              active={sidebarSection === "sessions"}
+              onClick={() => hasSessionContext ? showSessionSurface(session.id) : resetWorkbenchMode()}
+              icon={<MessageSquareCode size={20} strokeWidth={1.9} />}
+            />
+            <ActivityButton
+              label={hasSessionContext ? t("workbench.explorer") : t("workbench.explorerDisabled")}
+              active={sidebarSection === "explorer"}
+              disabled={!hasSessionContext}
+              onClick={() => {
+                if (!session) return;
+                showExplorer(session.id);
+              }}
+              icon={<Files size={20} strokeWidth={1.9} />}
+            />
+            <ActivityButton
+              label={hasSessionContext ? t("workbench.sourceControl") : t("workbench.sourceControlDisabled")}
+              active={sidebarSection === "scm"}
+              disabled={!hasSessionContext}
+              onClick={() => {
+                if (!session) return;
+                showScm(session.id);
+              }}
+              icon={<GitBranchPlus size={20} strokeWidth={1.9} />}
+            />
           </div>
         )}
         <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }}>
-          {session && sidebarSection !== "sessions" && (
+          {session && inWorkbenchSection && (
             <div style={{
               display: "flex",
               alignItems: "center",
