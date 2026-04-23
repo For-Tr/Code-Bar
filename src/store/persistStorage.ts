@@ -4,6 +4,7 @@ const PERSIST_KEYS = [
   "code-bar-sessions",
   "code-bar-workspaces",
   "code-bar-settings",
+  "code-bar-ptys",
 ] as const;
 
 type PersistKey = typeof PERSIST_KEYS[number];
@@ -324,6 +325,7 @@ function mergePersistedValue(
     case "code-bar-workspaces":
       return mergeWorkspaceValue(fileValue, localValue, deletedState);
     case "code-bar-settings":
+    case "code-bar-ptys":
       return localValue ?? fileValue ?? null;
     default:
       return localValue ?? fileValue ?? null;

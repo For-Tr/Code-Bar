@@ -4,7 +4,7 @@ use tauri::{Emitter, Manager};
 
 use crate::{
     cli_detect::resolve_command_path,
-    state::{PtyKillerMap, PtyMasterMap, PtySessionMeta, PtySessionMetaMap, PtyWriterMap},
+    state::{now_ms, PtyKillerMap, PtyMasterMap, PtySessionInfo, PtySessionMeta, PtySessionMetaMap, PtyWriterMap},
     util::{expand_path, home_dir, resolve_windows_pty_command},
 };
 
@@ -85,7 +85,8 @@ impl AnsiStripper {
 #[tauri::command]
 pub async fn start_pty_session(
     app: tauri::AppHandle,
-    session_id: String,
+    pty_id: String,
+    session_id: Option<String>,
     workdir: String,
     command: String,
     args: Vec<String>,
@@ -97,6 +98,16 @@ pub async fn start_pty_session(
     use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 
     let expanded = expand_path(&workdir);
+    let normalized_session_id = session_id
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let kind = if pty_id.starts_with("runner:") {
+        "runner"
+    } else if pty_id.starts_with("terminal:") {
+        "terminal"
+    } else {
+        "ephemeral"
+    };
     let runner_type = env
         .as_ref()
         .and_then(|pairs| {
@@ -118,12 +129,11 @@ pub async fn start_pty_session(
                 .to_string()
         });
 
-    // 先停掉同 session 的旧 PTY
     {
         let km = pty_killer_map(&app);
-        let mut km = km.lock().unwrap();
-        if let Some(mut old) = km.remove(&session_id) {
-            let _ = old.kill();
+        let km = km.lock().unwrap();
+        if km.contains_key(&pty_id) {
+            return Ok(());
         }
     }
 
@@ -226,33 +236,39 @@ pub async fn start_pty_session(
     {
         let wm = pty_writer_map(&app);
         let mut wm = wm.lock().unwrap();
-        wm.insert(session_id.clone(), master_writer);
+        wm.insert(pty_id.clone(), master_writer);
     }
     {
         let km = pty_killer_map(&app);
         let mut km = km.lock().unwrap();
-        km.insert(session_id.clone(), child);
+        km.insert(pty_id.clone(), child);
     }
     {
         let mm = pty_master_map(&app);
         let mut mm = mm.lock().unwrap();
-        mm.insert(session_id.clone(), pair.master);
+        mm.insert(pty_id.clone(), pair.master);
     }
     {
         let meta_map = pty_session_meta_map(&app);
         let mut meta_map = meta_map.lock().unwrap();
+        let now = now_ms();
         meta_map.insert(
-            session_id.clone(),
+            pty_id.clone(),
             PtySessionMeta {
+                session_id: normalized_session_id.clone(),
+                kind: kind.to_string(),
                 runner_type,
                 workdir: expanded.clone(),
+                created_at_ms: now,
+                last_active_at_ms: now,
+                status: "starting".to_string(),
             },
         );
     }
 
     // 读取线程：转发 PTY 输出并检测状态特征
     let app_r = app.clone();
-    let sid_r = session_id.clone();
+    let sid_r = pty_id.clone();
     let killer_map_r = pty_killer_map(&app);
     let session_meta_map_r = pty_session_meta_map(&app);
     std::thread::spawn(move || {
@@ -267,9 +283,14 @@ pub async fn start_pty_session(
                 Ok(n) => {
                     // 转发原始数据（base64 编码）
                     let b64 = base64::engine::general_purpose::STANDARD.encode(&buf[..n]);
+                    let legacy_session_id = sid_r.strip_prefix("runner:").unwrap_or(&sid_r);
                     let _ = app_r.emit(
                         "pty-data",
-                        serde_json::json!({ "session_id": sid_r, "data": b64 }),
+                        serde_json::json!({
+                            "pty_id": sid_r,
+                            "session_id": legacy_session_id,
+                            "data": b64,
+                        }),
                     );
 
                     // 检测 CLI 状态特征
@@ -291,7 +312,21 @@ pub async fn start_pty_session(
                         } else {
                             "pty-running"
                         };
-                        let _ = app_r.emit(event, serde_json::json!({ "session_id": sid_r }));
+                        {
+                            let mut meta_map = session_meta_map_r.lock().unwrap();
+                            if let Some(meta) = meta_map.get_mut(&sid_r) {
+                                meta.status = if new_status == 2 { "waiting" } else { "running" }.to_string();
+                                meta.last_active_at_ms = now_ms();
+                            }
+                        }
+                        let legacy_session_id = sid_r.strip_prefix("runner:").unwrap_or(&sid_r);
+                        let _ = app_r.emit(
+                            event,
+                            serde_json::json!({
+                                "pty_id": sid_r,
+                                "session_id": legacy_session_id,
+                            }),
+                        );
                     }
                 }
             }
@@ -309,7 +344,14 @@ pub async fn start_pty_session(
             meta_map.remove(&sid_r);
         }
 
-        let _ = app_r.emit("pty-exit", serde_json::json!({ "session_id": sid_r }));
+        let legacy_session_id = sid_r.strip_prefix("runner:").unwrap_or(&sid_r);
+        let _ = app_r.emit(
+            "pty-exit",
+            serde_json::json!({
+                "pty_id": sid_r,
+                "session_id": legacy_session_id,
+            }),
+        );
     });
 
     Ok(())
@@ -317,11 +359,11 @@ pub async fn start_pty_session(
 
 /// 向 PTY 写入数据（键盘输入，base64 编码）
 #[tauri::command]
-pub fn write_pty(app: tauri::AppHandle, session_id: String, data: String) -> Result<(), String> {
+pub fn write_pty(app: tauri::AppHandle, pty_id: String, data: String) -> Result<(), String> {
     use base64::Engine;
     let wm = pty_writer_map(&app);
     let mut wm = wm.lock().unwrap();
-    if let Some(writer) = wm.get_mut(&session_id) {
+    if let Some(writer) = wm.get_mut(&pty_id) {
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(&data)
             .map_err(|e| format!("base64 decode 失败: {e}"))?;
@@ -336,12 +378,12 @@ pub fn write_pty(app: tauri::AppHandle, session_id: String, data: String) -> Res
 #[tauri::command]
 pub fn send_pty_query(
     app: tauri::AppHandle,
-    session_id: String,
+    pty_id: String,
     query: String,
 ) -> Result<(), String> {
     let wm = pty_writer_map(&app);
     let mut wm = wm.lock().unwrap();
-    if let Some(writer) = wm.get_mut(&session_id) {
+    if let Some(writer) = wm.get_mut(&pty_id) {
         let mut data = query.into_bytes();
         data.push(if cfg!(windows) { b'\r' } else { b'\n' });
         writer
@@ -352,7 +394,7 @@ pub fn send_pty_query(
             .map_err(|e| format!("send_pty_query flush 失败: {e}"))?;
         Ok(())
     } else {
-        Err(format!("PTY session '{session_id}' 不存在或尚未就绪"))
+        Err(format!("PTY session '{pty_id}' 不存在或尚未就绪"))
     }
 }
 
@@ -360,7 +402,7 @@ pub fn send_pty_query(
 #[tauri::command]
 pub fn resize_pty(
     app: tauri::AppHandle,
-    session_id: String,
+    pty_id: String,
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
@@ -369,7 +411,7 @@ pub fn resize_pty(
     let rows = rows.max(5);
     let mm = pty_master_map(&app);
     let mm = mm.lock().unwrap();
-    if let Some(master) = mm.get(&session_id) {
+    if let Some(master) = mm.get(&pty_id) {
         master
             .resize(PtySize {
                 rows,
@@ -379,17 +421,24 @@ pub fn resize_pty(
             })
             .map_err(|e| format!("resize_pty 失败: {e}"))?;
     }
+    {
+        let meta_map = pty_session_meta_map(&app);
+        let mut meta_map = meta_map.lock().unwrap();
+        if let Some(meta) = meta_map.get_mut(&pty_id) {
+            meta.last_active_at_ms = now_ms();
+        }
+    }
     Ok(())
 }
 
 /// 停止 PTY 会话
 #[tauri::command]
-pub fn stop_pty_session(app: tauri::AppHandle, session_id: String) -> Result<(), String> {
+pub fn stop_pty_session(app: tauri::AppHandle, pty_id: String) -> Result<(), String> {
     let mut had_session = false;
     {
         let km = pty_killer_map(&app);
         let mut km = km.lock().unwrap();
-        if let Some(mut child) = km.remove(&session_id) {
+        if let Some(mut child) = km.remove(&pty_id) {
             had_session = true;
             let _ = child.kill();
         }
@@ -397,26 +446,58 @@ pub fn stop_pty_session(app: tauri::AppHandle, session_id: String) -> Result<(),
     {
         let wm = pty_writer_map(&app);
         let mut wm = wm.lock().unwrap();
-        if wm.remove(&session_id).is_some() {
+        if wm.remove(&pty_id).is_some() {
             had_session = true;
         }
     }
     {
         let mm = pty_master_map(&app);
         let mut mm = mm.lock().unwrap();
-        if mm.remove(&session_id).is_some() {
+        if mm.remove(&pty_id).is_some() {
             had_session = true;
         }
     }
     {
         let meta_map = pty_session_meta_map(&app);
         let mut meta_map = meta_map.lock().unwrap();
-        if meta_map.remove(&session_id).is_some() {
+        if let Some(meta) = meta_map.get_mut(&pty_id) {
+            meta.status = "exited".to_string();
+            meta.last_active_at_ms = now_ms();
+        }
+        if meta_map.remove(&pty_id).is_some() {
             had_session = true;
         }
     }
     if had_session {
-        let _ = app.emit("pty-exit", serde_json::json!({ "session_id": session_id }));
+        let legacy_session_id = pty_id.strip_prefix("runner:").unwrap_or(&pty_id);
+        let _ = app.emit(
+            "pty-exit",
+            serde_json::json!({
+                "pty_id": pty_id,
+                "session_id": legacy_session_id,
+            }),
+        );
     }
     Ok(())
+}
+
+#[tauri::command]
+pub fn list_pty_sessions(app: tauri::AppHandle) -> Result<Vec<PtySessionInfo>, String> {
+    let meta_map = pty_session_meta_map(&app);
+    let meta_map = meta_map.lock().unwrap();
+    let mut entries: Vec<PtySessionInfo> = meta_map
+        .iter()
+        .map(|(pty_id, meta)| PtySessionInfo {
+            pty_id: pty_id.clone(),
+            session_id: meta.session_id.clone(),
+            kind: meta.kind.clone(),
+            runner_type: meta.runner_type.clone(),
+            workdir: meta.workdir.clone(),
+            created_at_ms: meta.created_at_ms,
+            last_active_at_ms: meta.last_active_at_ms,
+            status: meta.status.clone(),
+        })
+        .collect();
+    entries.sort_by(|a, b| a.pty_id.cmp(&b.pty_id));
+    Ok(entries)
 }

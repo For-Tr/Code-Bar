@@ -9,6 +9,7 @@ import { ClaudeSession, SessionStatus, orderWorkspaceSessions, useSessionStore }
 import { useWorkspaceStore, getWorkspaceColor } from "../store/workspaceStore";
 import { useSettingsStore, RUNNER_LABELS, sanitizeRunnerConfig, isGlassTheme } from "../store/settingsStore";
 import { useWorkbenchStore } from "../store/workbenchStore";
+import { stopSessionPtys } from "../services/ptyCommands";
 import { showExplorer, showSessionSurface } from "../services/workbenchCommands";
 
 // ── 状态配置（使用 CSS 变量）────────────────────────────────
@@ -543,6 +544,7 @@ export function SessionList() {
 
   const handleRemoveSession = async (session: ClaudeSession) => {
     setPendingDeleteSessionId(null);
+    await stopSessionPtys(session.id);
 
     if ("__TAURI_INTERNALS__" in window) {
       await invoke("mark_deleted_items", {

@@ -1,4 +1,5 @@
 import { AnimatePresence, motion } from "framer-motion";
+import { buildRunnerPtyId } from "../../services/ptyIdentity";
 import { PtyTerminal } from "../PtyTerminal";
 
 interface InstallTerminalProps {
@@ -52,6 +53,7 @@ export function SessionRunnerSurface({
   contextEnv,
   InstallTerminal,
 }: SessionRunnerSurfaceProps) {
+  const runnerPtyId = buildRunnerPtyId(sessionId);
   const installOverlayBackground = isGlass ? "transparent" : "var(--ci-pty-panel-bg)";
   const installStripBackground = isGlass ? "var(--ci-toolbar-bg)" : "transparent";
   const installPromptColor = isGlass ? "var(--ci-text-dim)" : "var(--ci-pty-mask-footer)";
@@ -108,7 +110,7 @@ export function SessionRunnerSurface({
         pointerEvents: querySent && ptyEverActive ? "auto" : "none",
       }}>
         <PtyTerminal
-          sessionId={sessionId}
+          ptyId={runnerPtyId}
           command={cliCommand}
           args={cliBaseArgs}
           workdir={workdir}

@@ -93,7 +93,9 @@ fn normalize_workdir(path: &str) -> String {
 fn active_session_ids(app: &AppHandle) -> Vec<String> {
     let km_arc = app.state::<PtyKillerMap>().inner().clone();
     let km = km_arc.lock().unwrap();
-    km.keys().cloned().collect()
+    km.keys()
+        .filter_map(|pty_id| pty_id.strip_prefix("runner:").map(ToString::to_string))
+        .collect()
 }
 
 pub(crate) fn resolve_session_ids(app: &AppHandle, routing: &SessionRoutingHint) -> Vec<String> {
@@ -119,7 +121,8 @@ pub(crate) fn resolve_session_ids(app: &AppHandle, routing: &SessionRoutingHint)
         if !active_ids.iter().any(|sid| sid == session_id) {
             return Vec::new();
         }
-        let Some(info) = meta.get(session_id) else {
+        let runner_pty_id = format!("runner:{session_id}");
+        let Some(info) = meta.get(&runner_pty_id) else {
             return Vec::new();
         };
         if info.runner_type != routing.source.runner_type() {
@@ -136,7 +139,8 @@ pub(crate) fn resolve_session_ids(app: &AppHandle, routing: &SessionRoutingHint)
     let mut cwd_matches: Vec<String> = active_ids
         .into_iter()
         .filter(|sid| {
-            let Some(info) = meta.get(sid) else {
+            let runner_pty_id = format!("runner:{sid}");
+            let Some(info) = meta.get(&runner_pty_id) else {
                 return false;
             };
             if info.runner_type != routing.source.runner_type() {
@@ -179,19 +183,35 @@ pub fn emit_session_lifecycle(
     match signal {
         SessionLifecycleSignal::Running => {
             for sid in session_ids {
-                let _ = app.emit("pty-running", serde_json::json!({ "session_id": sid }));
+                let _ = app.emit(
+                    "pty-running",
+                    serde_json::json!({
+                        "pty_id": format!("runner:{sid}"),
+                        "session_id": sid,
+                    }),
+                );
             }
         }
         SessionLifecycleSignal::Waiting => {
             for sid in session_ids {
-                let _ = app.emit("pty-waiting", serde_json::json!({ "session_id": sid }));
+                let _ = app.emit(
+                    "pty-waiting",
+                    serde_json::json!({
+                        "pty_id": format!("runner:{sid}"),
+                        "session_id": sid,
+                    }),
+                );
             }
         }
         SessionLifecycleSignal::Error { message } => {
             for sid in session_ids {
                 let _ = app.emit(
                     "pty-error",
-                    serde_json::json!({ "session_id": sid, "error": message.clone() }),
+                    serde_json::json!({
+                        "pty_id": format!("runner:{sid}"),
+                        "session_id": sid,
+                        "error": message.clone(),
+                    }),
                 );
             }
         }
@@ -214,6 +234,7 @@ pub fn emit_session_lifecycle(
                 let _ = app.emit(
                     "pty-notification",
                     serde_json::json!({
+                        "pty_id": format!("runner:{sid}"),
                         "session_id": sid,
                         "title": title.clone(),
                         "message": message.clone(),

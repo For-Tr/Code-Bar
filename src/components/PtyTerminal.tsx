@@ -5,10 +5,11 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { useAppI18n } from "../i18n";
+import { usePtyStore } from "../store/ptyStore";
 import { useSettingsStore, isGlassTheme, type ThemeMode } from "../store/settingsStore";
 
 interface Props {
-  sessionId: string;
+  ptyId: string;
   command: string;     // e.g. "claude"
   args?: string[];     // e.g. ["--dangerously-skip-permissions"]
   workdir: string;
@@ -120,8 +121,12 @@ function wheelDeltaToLines(event: WheelEvent, rows: number): number {
   return Math.min(-1, Math.round(lines));
 }
 
+function buildPtyViewId(ptyId: string) {
+  return `view:${ptyId}`;
+}
+
 export function PtyTerminal({
-  sessionId,
+  ptyId,
   command,
   args = [],
   workdir,
@@ -137,15 +142,37 @@ export function PtyTerminal({
 }: Props) {
   const { t } = useAppI18n();
   const containerRef = useRef<HTMLDivElement>(null);
+  const attachPtyView = usePtyStore((s) => s.attachView);
+  const detachPtyView = usePtyStore((s) => s.detachView);
+  const setPtyViewVisible = usePtyStore((s) => s.setViewVisible);
+  const touchPtyRuntime = usePtyStore((s) => s.touchRuntime);
+  const setPtyRuntimeStatus = usePtyStore((s) => s.setRuntimeStatus);
+  const markPtyExited = usePtyStore((s) => s.markRuntimeExited);
+  const setPtyRuntimeSize = usePtyStore((s) => s.setRuntimeSize);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const startedRef = useRef(false);
   const startingRef = useRef(false);
   const launchTokenRef = useRef(0);
   const [exited, setExited] = useState(false);
+  const ptyViewIdRef = useRef(buildPtyViewId(ptyId));
+  const lastTouchAtRef = useRef(0);
+  const lastSizeRef = useRef<{ cols: number; rows: number } | null>(null);
+  ptyViewIdRef.current = buildPtyViewId(ptyId);
 
   // 读取当前主题
   const theme = useSettingsStore((s) => s.settings.theme);
+
+  useEffect(() => {
+    attachPtyView(ptyId, ptyViewIdRef.current);
+    return () => {
+      detachPtyView(ptyId, ptyViewIdRef.current);
+    };
+  }, [attachPtyView, detachPtyView, ptyId]);
+
+  useEffect(() => {
+    setPtyViewVisible(ptyId, ptyViewIdRef.current, active);
+  }, [active, ptyId, setPtyViewVisible]);
 
   // ── 初始化 xterm ──────────────────────────────────────────
   useEffect(() => {
@@ -197,7 +224,7 @@ export function PtyTerminal({
     term.onData((data: string) => {
       const bytes = new TextEncoder().encode(data);
       const b64 = btoa(String.fromCharCode(...bytes));
-      invoke("write_pty", { sessionId, data: b64 }).catch(() => {});
+      invoke("write_pty", { ptyId, data: b64 }).catch(() => {});
     });
 
     return () => {
@@ -207,19 +234,15 @@ export function PtyTerminal({
       fitRef.current = null;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId]);
+  }, [ptyId]);
 
-  // runner/workdir 切换会通过 key 触发卸载；这里顺手停掉旧 PTY，避免旧 CLI 抢到下一条输入。
+  // 卸载时只让当前视图失效，不主动结束 PTY；PTY 生命周期由 owner 显式管理。
   useEffect(() => {
     return () => {
-      if (!startedRef.current && !startingRef.current) return;
       startingRef.current = false;
       launchTokenRef.current += 1;
-      if (startedRef.current) {
-        invoke("stop_pty_session", { sessionId }).catch(() => {});
-      }
     };
-  }, [sessionId]);
+  }, [ptyId]);
 
   // ── 主题切换时动态更新 xterm 颜色 ────────────────────────
   useEffect(() => {
@@ -274,27 +297,33 @@ export function PtyTerminal({
 
   // ── 监听 PTY 数据事件 ─────────────────────────────────────
   useEffect(() => {
-    const u1 = listen<{ session_id: string; data: string }>(
+    const u1 = listen<{ pty_id: string; data: string }>(
       "pty-data",
       ({ payload }) => {
-        if (payload.session_id !== sessionId) return;
+        if (payload.pty_id !== ptyId) return;
         const term = termRef.current;
         if (!term) return;
         try {
           const bin = atob(payload.data);
           const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
           term.write(bytes);
+          const now = Date.now();
+          if (now - lastTouchAtRef.current >= 1000) {
+            lastTouchAtRef.current = now;
+            touchPtyRuntime(ptyId, { lastActiveAt: now });
+          }
         } catch {}
       }
     );
 
-    const u2 = listen<{ session_id: string }>(
+    const u2 = listen<{ pty_id: string; session_id?: string }>(
       "pty-exit",
       ({ payload }) => {
-        if (payload.session_id !== sessionId) return;
+        if (payload.pty_id !== ptyId) return;
         termRef.current?.writeln("\r\n\x1b[90m─────────────────────────────────────\x1b[0m");
         termRef.current?.writeln(`\x1b[90m${t("pty.processExited")}\x1b[0m`);
         setExited(true);
+        markPtyExited(ptyId);
         startedRef.current = false; // 允许重启
         startingRef.current = false;
         launchTokenRef.current += 1;
@@ -302,37 +331,40 @@ export function PtyTerminal({
     );
 
     // CLI 完成任务，等待下一条 query（检测到 "? for shortcuts"）
-    const u3 = listen<{ session_id: string }>(
+    const u3 = listen<{ pty_id: string; session_id?: string }>(
       "pty-waiting",
       ({ payload }) => {
-        if (payload.session_id !== sessionId) return;
+        if (payload.pty_id !== ptyId) return;
+        setPtyRuntimeStatus(ptyId, "waiting", { live: true });
         onWaitingRef.current?.();
       }
     );
 
     // CLI 开始处理 query（检测到 "esc to interrupt"）
-    const u4 = listen<{ session_id: string }>(
+    const u4 = listen<{ pty_id: string; session_id?: string }>(
       "pty-running",
       ({ payload }) => {
-        if (payload.session_id !== sessionId) return;
+        if (payload.pty_id !== ptyId) return;
+        setPtyRuntimeStatus(ptyId, "running", { live: true });
         onRunningRef.current?.();
       }
     );
 
     // API 错误中断（如 Claude StopFailure hook）
-    const u5 = listen<{ session_id: string; error: string }>(
+    const u5 = listen<{ pty_id: string; error: string }>(
       "pty-error",
       ({ payload }) => {
-        if (payload.session_id !== sessionId) return;
+        if (payload.pty_id !== ptyId) return;
+        setPtyRuntimeStatus(ptyId, "error", { live: false, error: payload.error });
         onErrorRef.current?.(payload.error);
       }
     );
 
     // CLI hook: Notification（当前主要来自 Claude，需要用户确认/输入）
-    const u6 = listen<{ session_id: string; title: string; message: string; notification_type: string }>(
+    const u6 = listen<{ pty_id: string; session_id?: string; title: string; message: string; notification_type: string }>(
       "pty-notification",
       ({ payload }) => {
-        if (payload.session_id !== sessionId) return;
+        if (payload.pty_id !== ptyId) return;
         onNotificationRef.current?.(payload.title, payload.message, payload.notification_type);
       }
     );
@@ -345,7 +377,7 @@ export function PtyTerminal({
       u5.then((f) => f()).catch(() => {});
       u6.then((f) => f()).catch(() => {});
     };
-  }, [sessionId]);
+  }, [markPtyExited, ptyId, setPtyRuntimeStatus, t, touchPtyRuntime]);
 
   // ── 启动 PTY 进程（仅第一次，之后常驻直到 exit）────────
   // 用 ref 保存最新的 args/onReady/env，避免加入依赖导致每次渲染重启
@@ -393,8 +425,9 @@ export function PtyTerminal({
         : [command, ...launchArgs].join(" ");
       term?.writeln(`\x1b[90m$ ${displayCmd}\x1b[0m`);
 
+      setPtyRuntimeStatus(ptyId, "starting", { live: true });
       invoke("start_pty_session", {
-        sessionId,
+        ptyId,
         workdir,
         command,
         args: launchArgs,
@@ -406,6 +439,7 @@ export function PtyTerminal({
           if (launchTokenRef.current !== launchToken) return;
           startedRef.current = true;
           startingRef.current = false;
+          setPtyRuntimeStatus(ptyId, "running", { live: true });
           // spawn 返回 = CLI 进程已启动（resolve_command_path 保证是完整路径直接 spawn）
           onReadyRef.current?.();
         })
@@ -413,6 +447,7 @@ export function PtyTerminal({
           if (launchTokenRef.current !== launchToken) return;
           startingRef.current = false;
           startedRef.current = false;
+          setPtyRuntimeStatus(ptyId, "error", { live: false, error: String(e) });
           termRef.current?.writeln(`\x1b[31m${t("session.installFailed", { error: String(e) })}\x1b[0m`);
         });
     }, 250);
@@ -423,7 +458,7 @@ export function PtyTerminal({
         startingRef.current = false;
       }
     };
-  }, [active, sessionId, workdir, command]);
+  }, [active, command, ptyId, setPtyRuntimeStatus, workdir]);
 
   // ── 重新启动（退出后用户点击重启）───────────────────────
   const handleRestart = () => {
@@ -445,8 +480,9 @@ export function PtyTerminal({
     const displayCmd = [command, ...argsRef.current].join(" ");
     term?.writeln(`\x1b[90m$ ${displayCmd}\x1b[0m`);
 
+    setPtyRuntimeStatus(ptyId, "starting", { live: true });
     invoke("start_pty_session", {
-      sessionId,
+      ptyId,
       workdir,
       command,
       args: argsRef.current,
@@ -458,12 +494,14 @@ export function PtyTerminal({
         if (launchTokenRef.current !== launchToken) return;
         startedRef.current = true;
         startingRef.current = false;
+        setPtyRuntimeStatus(ptyId, "running", { live: true });
         onReadyRef.current?.();
       })
       .catch((e) => {
         if (launchTokenRef.current !== launchToken) return;
         startedRef.current = false;
         startingRef.current = false;
+        setPtyRuntimeStatus(ptyId, "error", { live: false, error: String(e) });
         termRef.current?.writeln(`\x1b[31m${t("session.installFailed", { error: String(e) })}\x1b[0m`);
       });
   };
@@ -476,10 +514,13 @@ export function PtyTerminal({
       const term = termRef.current;
       term?.focus();
       if (!term) return;
-      invoke("resize_pty", { sessionId, ...getClampedTerminalSize(term) }).catch(() => {});
+      const size = getClampedTerminalSize(term);
+      lastSizeRef.current = size;
+      setPtyRuntimeSize(ptyId, size.cols, size.rows);
+      invoke("resize_pty", { ptyId, ...size }).catch(() => {});
     }, 80);
     return () => clearTimeout(t);
-  }, [active, sessionId]);
+  }, [active, ptyId, setPtyRuntimeSize]);
 
   // active ref：供 ResizeObserver 回调访问（避免闭包过时）
   const activeRef = useRef(active);
@@ -498,11 +539,15 @@ export function PtyTerminal({
       fit.fit();
       // 仅在面板可见时同步给 Rust，防止收起时 cols/rows 为 0 导致进程崩溃
       if (!activeRef.current) return;
-      invoke("resize_pty", { sessionId, ...getClampedTerminalSize(term) }).catch(() => {});
+      const size = getClampedTerminalSize(term);
+      if (lastSizeRef.current?.cols === size.cols && lastSizeRef.current?.rows === size.rows) return;
+      lastSizeRef.current = size;
+      setPtyRuntimeSize(ptyId, size.cols, size.rows);
+      invoke("resize_pty", { ptyId, ...size }).catch(() => {});
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, [sessionId]);
+  }, [ptyId, setPtyRuntimeSize]);
 
   const isGlass = isGlassTheme(theme);
   const { termBg } = getTerminalLook(theme);

@@ -12,6 +12,7 @@ import {
 } from "../store/workspaceStore";
 import { useSessionStore, type ClaudeSession } from "../store/sessionStore";
 import { useSettingsStore, isGlassTheme } from "../store/settingsStore";
+import { stopSessionPtys } from "../services/ptyCommands";
 import { useWorkbenchStore } from "../store/workbenchStore";
 
 // ── 常量 ─────────────────────────────────────────────────────
@@ -558,6 +559,7 @@ export function WorkspaceStack() {
       .getState()
       .sessions
       .filter((session) => session.workspaceId === id);
+    await Promise.allSettled(sessionsToRemove.map((session) => stopSessionPtys(session.id)));
     const workspace = workspaces.find((item) => item.id === id);
 
     if ("__TAURI_INTERNALS__" in window) {
