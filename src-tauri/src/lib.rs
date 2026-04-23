@@ -23,6 +23,7 @@ use state::{
     PtySessionMetaMap, PtyWriterMap, RestoringLock,
 };
 use tauri::{
+    image::Image,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Manager, WebviewUrl, WebviewWindowBuilder,
@@ -126,10 +127,11 @@ pub fn run() {
             // 系统托盘
             let quit_item = MenuItem::with_id(app, "quit", "退出 Code Bar", true, None::<&str>)?;
             let tray_menu = Menu::with_items(app, &[&quit_item])?;
+            let tray_icon = Image::from_bytes(include_bytes!("../icons/tray-icon.png"))?;
 
             let tray = TrayIconBuilder::new()
-                .icon(app.default_window_icon().unwrap().clone())
-                .icon_as_template(true)
+                .icon(tray_icon)
+                .icon_as_template(false)
                 .tooltip("Code Bar")
                 .menu(&tray_menu)
                 .show_menu_on_left_click(false)

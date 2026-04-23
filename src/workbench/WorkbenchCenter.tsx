@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useAppI18n } from "../i18n";
 import { SplitDetailHost } from "../components/SplitSwapLayout";
 import { ExploreEditor } from "../components/ExploreMode";
@@ -12,7 +13,13 @@ import { useSessionStore, type ClaudeSession } from "../store/sessionStore";
 function WelcomeAction({ label, accent = false, onClick }: { label: string; accent?: boolean; onClick: () => void }) {
   return (
     <button
-      onClick={onClick}
+      onPointerDown={(event) => {
+        event.stopPropagation();
+      }}
+      onClick={(event) => {
+        event.stopPropagation();
+        onClick();
+      }}
       style={{
         background: "none",
         border: "none",
@@ -55,13 +62,16 @@ function WelcomeEntry({
   title,
   detail,
   action,
+  onClick,
 }: {
   title: string;
   detail?: string;
   action?: React.ReactNode;
+  onClick?: () => void;
 }) {
   return (
     <div
+      onClick={onClick}
       style={{
         display: "grid",
         gridTemplateColumns: "minmax(0, 1fr) auto",
@@ -70,6 +80,7 @@ function WelcomeEntry({
         padding: "10px 8px",
         borderTop: "1px solid var(--ci-toolbar-border)",
         transition: "background 0.12s",
+        cursor: onClick ? "pointer" : "default",
       }}
       onMouseEnter={(e) => {
         e.currentTarget.style.background = "var(--ci-list-hover-bg)";
@@ -82,9 +93,18 @@ function WelcomeEntry({
         <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ci-text)" }}>{title}</div>
         {detail && <div style={{ marginTop: 3, fontSize: 11, color: "var(--ci-text-dim)", lineHeight: 1.6 }}>{detail}</div>}
       </div>
-      {action && <div style={{ flexShrink: 0, alignSelf: "center" }}>{action}</div>}
+      {action && <div data-no-window-drag="true" style={{ flexShrink: 0, alignSelf: "center" }}>{action}</div>}
     </div>
   );
+}
+
+function handleWindowDragPointerDown(event: ReactPointerEvent<HTMLElement>) {
+  if (!("__TAURI_INTERNALS__" in window) || event.button !== 0) return;
+  const target = event.target;
+  if (target instanceof Element && target.closest("button, input, textarea, select, option, label, a[href], [role='button'], [contenteditable='true'], [data-no-window-drag='true']")) {
+    return;
+  }
+  void getCurrentWindow().startDragging().catch(() => {});
 }
 
 function WorkbenchWelcome({ session }: { session: ClaudeSession | null }) {
@@ -207,7 +227,11 @@ function WorkbenchWelcome({ session }: { session: ClaudeSession | null }) {
     <div style={{ width: "100%", height: "100%", overflowY: "auto" }}>
       <div ref={containerRef} style={{ width: "100%", maxWidth: 760, margin: "0 auto", padding: compactHeader ? "24px 18px 32px" : "36px 30px 44px", boxSizing: "border-box" }}>
         {!compactHeader && (
-          <>
+          <div
+            data-tauri-drag-region
+            onPointerDown={handleWindowDragPointerDown}
+            style={{ cursor: "grab", userSelect: "none", WebkitUserSelect: "none" }}
+          >
             <div style={{ fontSize: 10, color: "var(--ci-text-dim)", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>
               {t("workbench.welcome.getStarted")}
             </div>
@@ -217,7 +241,7 @@ function WorkbenchWelcome({ session }: { session: ClaudeSession | null }) {
             <div style={{ marginTop: 8, maxWidth: 520, fontSize: 12, color: "var(--ci-text-muted)", lineHeight: 1.7 }}>
               {hasWorkspace ? t("workbench.welcome.chooseWhereToContinue") : t("workbench.welcome.addProjectToBegin")}
             </div>
-          </>
+          </div>
         )}
 
         <div style={{ marginTop: compactHeader ? 0 : 30, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: compactHeader ? 24 : 36 }}>
@@ -229,16 +253,19 @@ function WorkbenchWelcome({ session }: { session: ClaudeSession | null }) {
                     <WelcomeEntry
                       title={t("workbench.welcome.openCurrentSession")}
                       detail={t("workbench.welcome.continueActiveTerminal")}
+                      onClick={() => showSessionSurface(session.id)}
                       action={<WelcomeAction label={t("workbench.welcome.open")} accent onClick={() => showSessionSurface(session.id)} />}
                     />
                     <WelcomeEntry
                       title={t("workbench.welcome.openExplorer")}
                       detail={t("workbench.welcome.browseFiles")}
+                      onClick={() => showExplorer(session.id)}
                       action={<WelcomeAction label={t("workbench.explorer")} onClick={() => showExplorer(session.id)} />}
                     />
                     <WelcomeEntry
                       title={t("workbench.welcome.openSourceControl")}
                       detail={t("workbench.welcome.reviewChanges")}
+                      onClick={() => showScm(session.id)}
                       action={<WelcomeAction label={t("workbench.welcome.scm")} onClick={() => showScm(session.id)} />}
                     />
                   </>
@@ -246,6 +273,7 @@ function WorkbenchWelcome({ session }: { session: ClaudeSession | null }) {
                   <WelcomeEntry
                     title={t("workbench.welcome.createOrChooseSession")}
                     detail={t("workbench.welcome.useSidebarOrCreate")}
+                    onClick={() => { void handleNewSession(); }}
                     action={<WelcomeAction label={t("workbench.welcome.new")} accent onClick={() => { void handleNewSession(); }} />}
                   />
                 )}
@@ -256,6 +284,7 @@ function WorkbenchWelcome({ session }: { session: ClaudeSession | null }) {
                     key={recent.id}
                     title={recent.name}
                     detail={recent.currentTask || undefined}
+                    onClick={() => showSessionSurface(recent.id)}
                     action={<WelcomeAction label={t("workbench.welcome.open")} onClick={() => showSessionSurface(recent.id)} />}
                   />
                 )) : (
@@ -269,6 +298,7 @@ function WorkbenchWelcome({ session }: { session: ClaudeSession | null }) {
                 <WelcomeEntry
                   title={t("workbench.welcome.addWorkspace")}
                   detail={t("workbench.welcome.chooseProjectFolder")}
+                  onClick={() => { void handleAddWorkspace(); }}
                   action={<WelcomeAction label={t("workbench.welcome.add")} accent onClick={() => { void handleAddWorkspace(); }} />}
                 />
                 <WelcomeEntry title={t("workbench.welcome.createSession")} detail={t("workbench.welcome.availableAfterWorkspace")} />
@@ -293,7 +323,8 @@ function WorkbenchWelcome({ session }: { session: ClaudeSession | null }) {
                 return (
                   <div
                     key={workspace.id}
-                    style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, padding: "8px 8px", borderTop: "1px solid var(--ci-toolbar-border)", transition: "background 0.12s" }}
+                    onClick={() => useWorkspaceStore.getState().bringToFront(workspace.id)}
+                    style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, padding: "8px 8px", borderTop: "1px solid var(--ci-toolbar-border)", transition: "background 0.12s", cursor: "pointer" }}
                     onMouseEnter={(e) => {
                       e.currentTarget.style.background = "var(--ci-list-hover-bg)";
                     }}

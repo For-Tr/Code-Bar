@@ -130,6 +130,8 @@ const messages = {
       sessions: "会话",
       explorer: "Explorer",
       sourceControl: "Source Control",
+      explorerDisabled: "先选择会话再打开 Explorer",
+      sourceControlDisabled: "先选择会话再打开 Source Control",
       welcome: {
         getStarted: "开始使用",
         welcome: "欢迎",
@@ -466,6 +468,8 @@ const messages = {
       sessions: "Sessions",
       explorer: "Explorer",
       sourceControl: "Source Control",
+      explorerDisabled: "Select a session to open Explorer",
+      sourceControlDisabled: "Select a session to open Source Control",
       welcome: {
         getStarted: "Get Started",
         welcome: "Welcome",
@@ -802,6 +806,8 @@ const messages = {
       sessions: "الجلسات",
       explorer: "المستكشف",
       sourceControl: "التحكم بالمصدر",
+      explorerDisabled: "اختر جلسة لفتح المستكشف",
+      sourceControlDisabled: "اختر جلسة لفتح التحكم بالمصدر",
       welcome: {
         getStarted: "ابدأ الآن",
         welcome: "مرحبًا",

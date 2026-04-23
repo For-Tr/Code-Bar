@@ -128,6 +128,7 @@ pub fn send_notification_with_callback(
     // 非 macOS 平台降级到 tauri-plugin-notification
     #[cfg(not(target_os = "macos"))]
     {
+        use tauri::Manager;
         use tauri_plugin_notification::NotificationExt;
         let _ = subtitle; // 避免 unused warning
         let _ = play_sound;

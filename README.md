@@ -1,253 +1,211 @@
-# Code Bar
+<p align="center">
+  <img src="src-tauri/icons/128x128.png" alt="Code Bar" width="104" height="104">
+</p>
 
-<div align="center">
+<h1 align="center">Code Bar</h1>
 
-A macOS / Windows desktop app built with Tauri + React, with menu bar / tray entry points. Unified management of multiple AI coding tools (Claude Code, Codex, custom CLI, built-in Harness) with Git worktree isolation, PTY terminal integration, and persistent session state.
+<p align="center">
+  <strong>Parallel AI coding, without repo chaos.</strong>
+  <br>
+  A desktop workbench for Claude Code and Codex.
+  <br>
+  Run multiple coding sessions across repos, isolate each one in its own git worktree, and work with terminal, editor, SCM, and diffs in one place.
+  <br><br>
+  <strong>English</strong> | <a href="./README.zh.md">简体中文</a>
+</p>
 
-<p>
-  <a href="https://github.com/For-Tr/Code-Bar/releases/latest/download/code-bar-windows-x64.msi">Windows x64 MSI</a> |
-  <a href="https://github.com/For-Tr/Code-Bar/releases/latest/download/code-bar-macos-apple-silicon.dmg">macOS Apple Silicon</a> |
+<p align="center">
+  <a href="https://github.com/For-Tr/Code-Bar/releases/latest"><img src="https://img.shields.io/github/v/release/For-Tr/Code-Bar?style=flat-square&label=release&color=blue" alt="Latest Release"></a>
+  <a href="https://github.com/For-Tr/Code-Bar/stargazers"><img src="https://img.shields.io/github/stars/For-Tr/Code-Bar?style=flat-square&color=yellow" alt="Stars"></a>
+  <a href="https://github.com/For-Tr/Code-Bar/releases"><img src="https://img.shields.io/github/downloads/For-Tr/Code-Bar/total?style=flat-square&label=downloads" alt="Downloads"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/For-Tr/Code-Bar?style=flat-square" alt="License"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/For-Tr/Code-Bar/releases/latest/download/code-bar-windows-x64.msi">Windows</a> ·
+  <a href="https://github.com/For-Tr/Code-Bar/releases/latest/download/code-bar-macos-apple-silicon.dmg">macOS Apple Silicon</a> ·
   <a href="https://github.com/For-Tr/Code-Bar/releases/latest/download/code-bar-macos-intel.dmg">macOS Intel</a>
 </p>
 
-<p>
-  <a href="https://github.com/For-Tr/Code-Bar/releases/latest">Latest Release</a> |
-  <a href="https://github.com/For-Tr/Code-Bar/actions/workflows/release.yml">Release Action</a> |
-  <a href="https://github.com/For-Tr/Code-Bar/actions">All Actions</a>
+<p align="center">
+  <a href="https://github.com/For-Tr/Code-Bar/releases/latest">Download</a> ·
+  <a href="#quick-start">Quick Start</a> ·
+  <a href="#features">Features</a> ·
+  <a href="#build-from-source">Build from Source</a> ·
+  <a href="https://github.com/For-Tr/Code-Bar/stargazers">Star</a>
 </p>
-
-English | [简体中文](./README.zh.md) | [العربية](./README.ar.md)
-
-</div>
-
-## 👀 Screenshots
 
 <p align="center">
-  <img src="https://i.meee.com.tw/LQHF9Yg.png" alt="Home" width="31%" />
-  <img src="https://i.meee.com.tw/PIGq5LH.png" alt="Session Creation" width="31%" />
-  <img src="https://i.meee.com.tw/Bee0jnq.png" alt="CLI Settings" width="31%" />
+  <img src="https://github.com/user-attachments/assets/483c38de-69ed-4c90-9cb5-8548aa37fec2" alt="Code Bar demo" width="960" />
 </p>
-<p align="center"><em>Home · Session Creation · CLI Settings</em></p>
+
+## Why Code Bar
+
+AI coding gets messy fast: too many terminal tabs, mixed branches, and no clear place to review what changed.
+
+Code Bar gives each task its own session and git worktree so you can run parallel AI work without losing control.
+
+- Run multiple Claude Code or Codex sessions in parallel
+- Auto-isolate every session in its own git worktree
+- Work with terminal, file explorer, editor, SCM, and diffs in one app
+- Resume bound Claude Code / Codex sessions across restarts
+- Get notifications and hook integration for supported runners
+
+## Best for
+
+- Claude Code and Codex power users
+- Full-stack developers working across multiple repos
+- Developers who want safer parallel AI-assisted coding workflows
+- Anyone who wants a desktop workflow around terminal-native AI tools
+
 <p align="center">
-  <img src="https://i.meee.com.tw/pXlTrIe.png" alt="Strictly isolated worktree workspace and clear code diff" width="94%" />
+  <img src="https://github.com/user-attachments/assets/c030fa66-e6ea-4274-a15d-0e2fb499a58b" alt="Code Bar screenshot" width="960" />
 </p>
-<p align="center"><em>Strictly isolated worktree workspace and clear code diff</em></p>
 
-## ✨ Features
+## How it works
 
-- **🎯 Universal Runner** - Claude Code, OpenAI Codex, custom CLI, and built-in Native Harness — all in one place
-- **🤖 Multi-Provider** - Anthropic Claude, OpenAI GPT, DeepSeek, and any OpenAI-compatible API (default: Zhipu GLM-4-Flash)
-- **🌿 Git Worktree Isolation** - Each session automatically gets its own `ci/session-N` worktree branch, eliminating multi-session code conflicts
-- **🖥️ PTY Terminal** - Full xterm.js PTY terminal per session; interact with AI CLIs directly in the app
-- **🪟 Windows Compatibility** - Windows CLI path detection, `.cmd` / `.bat` shim handling, PowerShell hook bridge, and native folder picker
-- **📊 Git Diff Viewer** - Live diff display with diff2html rendering, auto-refresh at configurable intervals
-- **🔧 Native Harness** - Direct LLM API calls without any external CLI dependency
-- **🎨 Adaptive Theme** - Light / Dark / System themes with Framer Motion animations and menu bar / tray entry points
-- **📍 Position Memory** - Window position and size are remembered across restarts
-- **🔔 Notification Callback** - Native click-to-focus notifications on macOS, desktop notification fallback on Windows
-- **⚙️ Rich Settings** - Runner, model, API keys, tool permissions, and appearance — all configurable
+1. Add one or more workspaces.
+2. Create a session and choose Claude Code or Codex.
+3. Code Bar creates an isolated git worktree for that session when the repo supports it.
+4. Launch the runner, watch terminal output, and review files and diffs without leaving the app.
 
-## 🚀 Quick Start
+## Quick Start
 
-### Supported Platforms
+### Step 1: Download the app
 
-- **macOS** - standard app activation with a menu bar icon, native notification click callback
-- **Windows** - tray mode, PowerShell / loopback TCP bridge for hooks and notifications
+- [Windows x64 MSI](https://github.com/For-Tr/Code-Bar/releases/latest/download/code-bar-windows-x64.msi)
+- [macOS Apple Silicon DMG](https://github.com/For-Tr/Code-Bar/releases/latest/download/code-bar-macos-apple-silicon.dmg)
+- [macOS Intel DMG](https://github.com/For-Tr/Code-Bar/releases/latest/download/code-bar-macos-intel.dmg)
+
+### Step 2: Install Claude Code or Codex
+
+Code Bar currently supports these runners:
+
+- **Claude Code** (`@anthropic-ai/claude-code`)
+- **OpenAI Codex** (`@openai/codex`)
+
+If the CLI is missing, Code Bar can open a one-click install terminal for the selected runner.
+
+### Step 3: Add a workspace and start a session
+
+Open a repo, create a session, and let Code Bar keep that task isolated in its own worktree.
+
+## Features
+
+### Parallel session workflow
+
+- Create and manage multiple AI coding sessions
+- Track session status: `idle` / `running` / `waiting` / `suspended` / `done` / `error`
+- Persist and recover sessions across restarts
+- Resume sessions using bound Claude Code / Codex provider session IDs when available
+
+### Git worktree isolation
+
+- Automatically create a dedicated git worktree for each session in git repos
+- Keep parallel AI changes separated to avoid branch conflicts
+- Track each session's branch, base branch, and worktree path
+- Clean up worktrees when sessions are removed
+
+### In-app terminal and review workflow
+
+- Full PTY terminal surface for each session
+- Runner switching between Claude Code and Codex before launch
+- Native notifications when a session finishes or waits for the next step
+- Hook setup and integration toggles for Claude Code and Codex
+
+### Explorer, editor, and SCM
+
+- File explorer rooted to the current session worktree
+- Built-in code editor with save support for session files
+- Diff viewer with per-file and per-hunk review
+- SCM sidebar with staged, unstaged, untracked, conflict, and committed-in-session sections
+- Stage, unstage, discard, commit, and conflict resolution actions inside the app
+
+### Customizable workspace UI
+
+- Themes: light, dark, glass, and system
+- Locale switching: system, English, Simplified Chinese, Arabic
+- Configurable right-side widgets for terminal and usage panels
+- Split editor groups and draggable widget layout
+
+### Usage widgets
+
+- Runner usage card for the selected session
+- Claude usage snapshot from Anthropic API headers when API key env is available
+- Codex usage snapshot from local auth + remote usage API
+- 5-hour and 7-day usage windows shown in the UI
+
+## Supported Runners
+
+| Runner | Description |
+| --- | --- |
+| **Claude Code** | Official Anthropic Claude Code CLI (`@anthropic-ai/claude-code`) |
+| **OpenAI Codex** | OpenAI Codex CLI (`@openai/codex`) |
+
+## Platforms
+
+- **macOS**: regular app activation, menu bar integration, native notifications, and Unix-socket-based hook flow
+- **Windows**: tray-style behavior, PowerShell/notify compatibility for Codex integrations, and `.cmd` / `.bat` PTY handling
+
+## Build from Source
 
 ### Prerequisites
 
 - Node.js 18+
 - pnpm
-- Rust (for Tauri backend)
+- Rust
 - System dependencies:
   - **macOS**: Xcode Command Line Tools
-  - **Windows**: Microsoft C++ Build Tools and WebView2 for local development/builds (see [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/))
+  - **Windows**: Microsoft C++ Build Tools and WebView2 (see [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/))
 
-### Installation
+### Install
 
 ```bash
-# Clone the repository
 git clone https://github.com/For-Tr/code-bar.git
 cd code-bar
-
-# Install dependencies
 pnpm install
 ```
 
 ### Development
 
 ```bash
-# Run the full Tauri app in development
 pnpm tauri dev
+```
 
-# Frontend-only development server
+For frontend-only development:
+
+```bash
 pnpm dev
 ```
 
-When multiple worktrees run `pnpm tauri dev` at the same time, Code Bar automatically picks a free Vite/HMR port pair and updates Tauri `devUrl` to match.
-
-### Build
+### Production build
 
 ```bash
-# Build for production
 pnpm build
-
-# Bundle the application
 pnpm tauri build
 ```
 
-## 📖 Features
+<details>
+<summary>Development notes</summary>
 
-### Runner System
+When multiple worktrees run `pnpm tauri dev` at the same time, Code Bar automatically picks a free Vite/HMR port pair and updates Tauri `devUrl` to match.
 
-| Runner | Description |
-|--------|-------------|
-| **Claude Code** | Official Anthropic Claude Code CLI (`@anthropic-ai/claude-code`) |
-| **OpenAI Codex** | OpenAI Codex CLI (`@openai/codex`) |
-| **Custom CLI** | Bring your own AI CLI tool |
-| **Native Harness** | Built-in LLM integration — no CLI required |
+</details>
 
-Each CLI runner supports:
-- Custom binary path (auto-detects from PATH via nvm/mise/pyenv)
-- Extra CLI arguments
-- Custom API base URL override (e.g. for proxies or OpenRouter)
-- Per-runner API key override
-- In-app install terminal (one-click `npm install -g` for Claude Code / Codex)
+## Contributing
 
-### Multi-Provider Support
-
-| Provider | Models |
-|----------|--------|
-| **Anthropic** | claude-opus-4-5, claude-sonnet-4-5, claude-haiku-3-5 |
-| **OpenAI** | o3, o4-mini, gpt-4o, gpt-4.1 |
-| **DeepSeek** | deepseek-chat, deepseek-reasoner |
-| **OpenAI-Compatible** | Any model (default: glm-4-flash via Zhipu AI) |
-
-API keys are stored locally via the Tauri Rust backend (currently app-data files with lightweight obfuscation).
-
-### Session Management
-- Create and delete sessions, grouped by workspace
-- Session status tracking: idle / running / waiting / suspended / done / error
-- Persistent session state across restarts
-- Real-time PTY output streaming
-- System notification on task completion (click to focus)
-
-### Workspace Management
-- Add and manage multiple code workspaces
-- Automatic workspace directory trust (writes to `~/.claude/settings.json`)
-- Quick workspace switching with color-coded cards
-- **Git Worktree Auto-Isolation**: creates a `ci/session-N` branch worktree per session; cleans up on session delete; prunes orphan worktrees on startup
-
-### PTY Terminal
-- Full xterm.js PTY per session
-- Pre-warm launch — terminal is ready before you type
-- Injects `CODE_BAR_*` context environment variables for AI awareness
-- Resizable panel with size memory
-- OS-aware shell startup, including `.cmd` / `.bat` shim handling on Windows
-
-### Git Integration
-- Visual Git diff with diff2html rendering
-- Branch-aware diff (`base...session` branch)
-- Per-file change viewing with syntax highlighting
-- Inline diff display
-- Auto-refresh at configurable intervals (default: 5s)
-
-## 🛠️ Tech Stack
-
-### Frontend
-- **Framework**: React 19.1 + TypeScript
-- **Build Tool**: Vite 7
-- **Styling**: Tailwind CSS v4
-- **Animation**: Framer Motion
-- **State Management**: Zustand with persistence
-- **Terminal**: xterm.js with PTY support
-- **Diff Rendering**: diff2html
-
-### Backend
-- **Framework**: Tauri 2 (Rust)
-- **PTY**: portable-pty
-- **Key Storage**: Local app-data persistence handled by Tauri Rust commands
-- **Notifications**: `mac-notification-sys` on macOS, `tauri-plugin-notification` fallback on Windows
-- **Git**: libgit2-style Rust commands (branch, worktree, diff)
-- **Hook Server**: Unix Domain Socket / loopback TCP bridge for Claude Code and Codex events
-
-### Development Tools
-- **Package Manager**: pnpm
-- **Type Checking**: TypeScript 5.8
-- **Linting**: rust-analyzer
-
-## 📁 Project Structure
-
-```
-code-bar/
-├── src/                    # Frontend source code
-│   ├── components/         # React components
-│   ├── harness/            # LLM Native Harness (direct LLM API calls)
-│   ├── store/              # Zustand state management
-│   ├── assets/             # Static assets
-│   └── App.tsx             # Main application component
-├── src-tauri/              # Tauri backend (Rust)
-│   ├── src/
-│   │   ├── cli_detect.rs   # CLI path resolution (nvm/mise/pyenv aware)
-│   │   ├── git/            # Git branch, worktree, diff commands
-│   │   ├── hooks.rs        # Claude / Codex hook installers and Unix Socket / TCP bridge
-│   │   ├── notification.rs # Cross-platform notifications; macOS click callback
-│   │   ├── pty.rs          # PTY session management
-│   │   ├── session_lifecycle.rs # CLI lifecycle domain events and routing
-│   │   ├── window.rs       # Popup window control & bounds persistence
-│   │   └── lib.rs          # App entry, tray, setup
-│   └── tauri.conf.json     # Tauri configuration
-├── public/                 # Public assets
-└── package.json            # Project configuration
-```
-
-## 🎯 Keyboard Shortcuts
-
-- `Esc` - Close popup
-- `Ctrl/Cmd + ,` - Open settings
-
-## ⚙️ Configuration
-
-Application configuration is located at `src-tauri/tauri.conf.json`:
-
-- **Window**: Initial 360×220 px, transparent background, standard window stacking, hidden from the Windows taskbar
-- **Expansion**: Auto-expands to ~700×600 when PTY terminal is open
-- **Position Memory**: Last window position/size restored on next launch
-- **Behavior**: macOS uses `Regular` activation policy with a menu bar icon and standard app switching, Windows remains tray-resident
-- **Bundle ID**: `com.xiangbingzhou.code-bar`
-
-## 🪟 Platform Notes
-
-- **macOS**: uses a menu bar icon plus standard app activation, Unix Domain Socket hook bridge, and click-to-focus notification callbacks
-- **Windows**: uses tray mode, PowerShell hook bridge assets under `~/.codebar/hooks`, loopback TCP event routing, and `.cmd` / `.bat` PTY compatibility
-- **Codex on Windows**: upstream Codex hooks are currently disabled on Windows, so Code Bar configures `~/.codex/config.toml` `notify` instead of `~/.codex/hooks.json`
-
-## 🤝 Contributing
-
-Issues and Pull Requests are welcome!
+Issues and pull requests are welcome.
 
 1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push the branch (`git push origin feature/amazing-feature`)
+5. Open a pull request
 
-## 📄 License
+## License
 
-This project is licensed under the Apache License 2.0 - see [LICENSE](LICENSE) for details
+This project is licensed under the [Apache License 2.0](LICENSE).
 
-## 👤 Author
+## Author
 
 [@For-Tr](https://github.com/For-Tr)
-
-## 🙏 Acknowledgments
-
-- [Tauri](https://tauri.app/) - Cross-platform desktop application framework
-- [React](https://react.dev/) - UI library
-- [Anthropic Claude](https://www.anthropic.com/claude) - AI models
-- [OpenAI](https://openai.com/) - GPT models
-- [DeepSeek](https://www.deepseek.com/) - DeepSeek models
-- [Zhipu AI](https://open.bigmodel.cn/) - GLM models
-- [xterm.js](https://xtermjs.org/) - Terminal emulator
-- [diff2html](https://diff2html.xyz/) - Git diff visualization
-- [mac-notification-sys](https://github.com/h4llow3En/mac-notification-sys) - Native macOS notifications

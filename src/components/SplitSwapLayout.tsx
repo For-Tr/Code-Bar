@@ -7,9 +7,11 @@ import {
   useMemo,
   useRef,
   useState,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useAppI18n } from "../i18n";
 import { PtyTerminal } from "./PtyTerminal";
 import { SessionDetail } from "./SessionDetail";
@@ -42,6 +44,15 @@ function createTerminalTab(tabs: SplitWidgetTerminalItem["tabs"]) {
     title: `Terminal ${nextNumber}`,
     ptySessionKey: `terminal-pty-${uniqueId}`,
   };
+}
+
+function handleWindowDragPointerDown(event: ReactPointerEvent<HTMLElement>) {
+  if (!("__TAURI_INTERNALS__" in window) || event.button !== 0) return;
+  const target = event.target;
+  if (target instanceof Element && target.closest("button, input, textarea, select, option, label, a[href], [role='button'], [contenteditable='true'], [data-no-window-drag='true']")) {
+    return;
+  }
+  void getCurrentWindow().startDragging().catch(() => {});
 }
 
 function getFallbackActiveTabId(tabs: SplitWidgetTerminalItem["tabs"], removedIndex: number) {
@@ -554,14 +565,21 @@ export function SplitDetailHost() {
       flexDirection: "column",
       background: "transparent",
     }}>
-      <div style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        padding: "8px 10px 6px",
-        background: "transparent",
-        flexShrink: 0,
-      }}>
+      <div
+        data-tauri-drag-region
+        onPointerDown={handleWindowDragPointerDown}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "8px 10px 6px",
+          background: "transparent",
+          flexShrink: 0,
+          cursor: "grab",
+          userSelect: "none",
+          WebkitUserSelect: "none",
+        }}
+      >
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ fontSize: 10, color: "var(--ci-text-dim)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>
             {item.kind === "session-detail" ? t("split.detailTitleSession") : item.kind === "terminal" ? t("split.detailTitleTerminal") : t("split.detailTitleWidget")}
@@ -578,7 +596,11 @@ export function SplitDetailHost() {
             {item.title}
           </div>
         </div>
-        {item.kind === "terminal" && <SplitStaticTerminalTabs itemId={item.id} />}
+        {item.kind === "terminal" && (
+          <div data-no-window-drag="true">
+            <SplitStaticTerminalTabs itemId={item.id} />
+          </div>
+        )}
         {item.kind === "session-detail" && expandedSessionId && (
           <button
             onClick={() => {
