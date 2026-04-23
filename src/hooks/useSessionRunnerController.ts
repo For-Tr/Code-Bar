@@ -13,6 +13,8 @@ import {
   hasNativeResumeBinding,
   switchRunnerForSession,
 } from "../services/runnerCommands";
+import { buildRunnerPtyId } from "../services/ptyIdentity";
+import { stopPty } from "../services/ptyCommands";
 
 export function useSessionRunnerController({
   sessionId,
@@ -27,6 +29,8 @@ export function useSessionRunnerController({
   const worktreeReady = useSessionStore((s) => s.worktreeReadyIds.has(sessionId));
   const { updateSession } = useSessionStore();
   const { settings } = useSettingsStore();
+
+  const runnerPtyId = buildRunnerPtyId(sessionId);
 
   const [pendingQuery, setPendingQuery] = useState("");
   const [querySent, setQuerySent] = useState(() => {
@@ -79,7 +83,7 @@ export function useSessionRunnerController({
       const query = pendingQueryRef.current?.trim();
       if (!query || !ptyReadyRef.current) return;
       invoke("send_pty_query", {
-        sessionId: sessionIdRef.current,
+        ptyId: runnerPtyId,
         query,
       })
         .then(() => {
@@ -106,7 +110,7 @@ export function useSessionRunnerController({
 
     send();
     return true;
-  }, [clearPendingQueryTimer, isWindows]);
+  }, [clearPendingQueryTimer, isWindows, runnerPtyId]);
 
   const handlePtyReady = useCallback(() => {
     ptyReadyRef.current = true;
@@ -192,9 +196,9 @@ export function useSessionRunnerController({
     clearPendingQueryTimer();
     ptyReadyRef.current = false;
     pendingQueryRef.current = null;
-    invoke("stop_pty_session", { sessionId }).catch(() => {});
+    stopPty(runnerPtyId).catch(() => {});
     switchRunnerForSession(sessionId, type);
-  }, [clearPendingQueryTimer, sessionId]);
+  }, [clearPendingQueryTimer, runnerPtyId, sessionId]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -247,15 +251,15 @@ export function useSessionRunnerController({
   }, [recheckCli]);
 
   useEffect(() => {
-    const u = listen<{ session_id: string }>("pty-exit", ({ payload }) => {
-      if (payload.session_id !== sessionIdRef.current) return;
+    const u = listen<{ pty_id?: string; session_id?: string }>("pty-exit", ({ payload }) => {
+      if (payload.pty_id !== runnerPtyId) return;
       setTimeout(() => {
         updateSession(sessionIdRef.current, { status: "done" });
         setQuerySent(false);
       }, 1200);
     });
     return () => { void u.then((f) => f()).catch(() => {}); };
-  }, [updateSession]);
+  }, [runnerPtyId, updateSession]);
 
   useEffect(() => {
     pendingQueryForInputRef.current = pendingQuery;

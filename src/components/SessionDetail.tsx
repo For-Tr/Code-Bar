@@ -95,7 +95,7 @@ function InstallTerminal({ installId, installCmd, onFinished }: InstallTerminalP
       const rows = Math.max(term.rows, 10);
 
       invoke("start_pty_session", {
-        sessionId: installId,
+        ptyId: installId,
         workdir: "~",
         command: isWindows ? "cmd.exe" : "sh",
         args: isWindows ? ["/d", "/c", installCmd] : ["-c", installCmd],
@@ -106,8 +106,8 @@ function InstallTerminal({ installId, installCmd, onFinished }: InstallTerminalP
         term?.writeln(`\x1b[31m${t("session.installFailed", { error: String(e) })}\x1b[0m`);
       });
 
-      const u1 = listen<{ session_id: string; data: string }>("pty-data", ({ payload }) => {
-        if (payload.session_id !== installId) return;
+      const u1 = listen<{ pty_id: string; data: string }>("pty-data", ({ payload }) => {
+        if (payload.pty_id !== installId) return;
         try {
           const bin = atob(payload.data);
           const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
@@ -115,8 +115,8 @@ function InstallTerminal({ installId, installCmd, onFinished }: InstallTerminalP
         } catch {}
       });
 
-      const u2 = listen<{ session_id: string }>("pty-exit", ({ payload }) => {
-        if (payload.session_id !== installId) return;
+      const u2 = listen<{ pty_id: string; session_id?: string }>("pty-exit", ({ payload }) => {
+        if (payload.pty_id !== installId) return;
         termRef.current?.writeln(`\r\n\x1b[90m${t("session.installDoneRerun")}\x1b[0m`);
         setTimeout(onFinished, 800);
       });

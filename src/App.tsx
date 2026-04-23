@@ -24,6 +24,8 @@ import { useWorkbenchStore } from "./store/workbenchStore";
 import { useScmStore } from "./store/scmStore";
 import { useExplorerStore, type ExplorerEntry } from "./store/explorerStore";
 import { useEditorStore } from "./store/editorStore";
+import { listPtys } from "./services/ptyCommands";
+import { usePtyStore } from "./store/ptyStore";
 
 const spring = { type: "spring" as const, stiffness: 320, damping: 28, mass: 1 };
 const MAX_FRONTEND_ERROR_LOGS = 50;
@@ -71,6 +73,9 @@ export default function App() {
   const setScmDiffOverride = useScmStore((s) => s.setDiffOverride);
 
   const { settings, patchSettings } = useSettingsStore();
+  const syncPtysWithSessions = usePtyStore((s) => s.syncWithSessions);
+  const markPtyExited = usePtyStore((s) => s.markRuntimeExited);
+  const syncLivePtys = usePtyStore((s) => s.syncLiveRuntimes);
   const effectiveLocale = resolveEffectiveLocale(settings.locale);
   const direction = getLocaleDirection(effectiveLocale);
   const settingsOpen = useSettingsStore((s) => s.settingsOpen);
@@ -472,6 +477,13 @@ export default function App() {
     (s) => s.id === focusedSessionId && s.workspaceId === activeWorkspaceId
   ) ?? activeSession ?? null;
 
+  useEffect(() => {
+    const terminalTabs = settings.splitWidgetCanvas.items.flatMap((item) => (
+      item.type === "terminal" ? item.tabs : []
+    ));
+    syncPtysWithSessions(sessions, terminalTabs);
+  }, [sessions, settings.splitWidgetCanvas.items, syncPtysWithSessions]);
+
   const refreshSessionDiff = useCallback((sessionId?: string | null, options?: { reloadExplorer?: boolean; reloadDirs?: string[] }) => {
     if (!("__TAURI_INTERNALS__" in window)) return;
 
@@ -588,6 +600,24 @@ export default function App() {
   }, []);
 
   // ── Esc 关闭 ──────────────────────────────────────────────
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+    listPtys()
+      .then((entries) => {
+        syncLivePtys(entries.map((entry) => ({
+          ptyId: entry.pty_id,
+          sessionId: entry.session_id ?? undefined,
+          kind: entry.kind,
+          runnerType: entry.runner_type,
+          workdir: entry.workdir,
+          createdAtMs: entry.created_at_ms,
+          lastActiveAtMs: entry.last_active_at_ms,
+          status: entry.status,
+        })));
+      })
+      .catch(() => {});
+  }, [syncLivePtys]);
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
@@ -867,14 +897,21 @@ export default function App() {
 
     // PTY 退出：将 running/waiting/suspended 状态的 session 标记为 done
     // SessionPanel 关闭后不再常驻，此处补全全局兜底监听
-    const u6 = listen<{ session_id: string }>(
+    const u6 = listen<{ pty_id?: string; session_id?: string }>(
       "pty-exit",
       ({ payload }) => {
+        const ptyId = payload.pty_id?.trim() ?? "";
+        if (ptyId) {
+          markPtyExited(ptyId);
+        }
+        const exitedRunnerSessionId = payload.session_id?.trim()
+          || (ptyId.startsWith("runner:") ? ptyId.slice("runner:".length) : "");
+        if (!exitedRunnerSessionId) return;
         // 延迟 1.2s 与 SessionPanel 内的逻辑保持一致
         setTimeout(() => {
-          const s = useSessionStore.getState().sessions.find((x) => x.id === payload.session_id);
+          const s = useSessionStore.getState().sessions.find((x) => x.id === exitedRunnerSessionId);
           if (s && (s.status === "running" || s.status === "waiting" || s.status === "suspended")) {
-            updateSession(payload.session_id, { status: "done" });
+            updateSession(exitedRunnerSessionId, { status: "done" });
           }
         }, 1200);
       }
@@ -910,7 +947,7 @@ export default function App() {
     return () => {
       [u1, u2, u3, u4, u5, u5b, u5c, u5d, u6, u7].forEach((p) => p.then((f) => f()).catch(() => {}));
     };
-  }, [appendOutput, updateSession, setDiffFiles, setScmSnapshot, setScmStatus, setScmDiffOverride, refreshSessionDiff]);
+  }, [appendOutput, updateSession, setDiffFiles, setScmSnapshot, setScmStatus, setScmDiffOverride, refreshSessionDiff, markPtyExited]);
 
   // ── 会话切换时主动拉一次 Diff（覆盖非 running / 外部改动场景）──
   useEffect(() => {

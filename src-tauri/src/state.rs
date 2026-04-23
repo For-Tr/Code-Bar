@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     io::Write,
     sync::{Arc, Mutex},
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use notify::RecommendedWatcher;
@@ -20,12 +20,38 @@ pub type PtyMasterMap = Arc<Mutex<HashMap<String, Box<dyn portable_pty::MasterPt
 
 #[derive(Debug, Clone, Default)]
 pub struct PtySessionMeta {
+    pub session_id: Option<String>,
+    pub kind: String,
     pub runner_type: String,
     pub workdir: String,
+    pub created_at_ms: u64,
+    pub last_active_at_ms: u64,
+    pub status: String,
 }
 
-/// session_id → PTY 会话元信息（用于 hooks 事件精确路由）
+/// pty_id → PTY 会话元信息（用于 hooks 事件精确路由与管理面板）
 pub type PtySessionMetaMap = Arc<Mutex<HashMap<String, PtySessionMeta>>>;
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PtySessionInfo {
+    pub pty_id: String,
+    pub session_id: Option<String>,
+    pub kind: String,
+    pub runner_type: String,
+    pub workdir: String,
+    pub created_at_ms: u64,
+    pub last_active_at_ms: u64,
+    pub status: String,
+}
+
+pub fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0)
+}
 
 /// session_id → Git watcher（用于 SCM 自动刷新）
 pub type GitWatcherMap = Arc<Mutex<HashMap<String, RecommendedWatcher>>>;

@@ -6,6 +6,7 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
+  useState,
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
@@ -18,6 +19,7 @@ import {
   type SplitWidgetCanvasItem,
   type SplitWidgetTerminalItem,
 } from "../store/settingsStore";
+import { buildTerminalPtyId } from "../services/ptyIdentity";
 import { resetWorkbenchMode } from "../services/workbenchCommands";
 import { useSessionStore } from "../store/sessionStore";
 import { useWorkspaceStore } from "../store/workspaceStore";
@@ -27,14 +29,6 @@ const SESSION_DETAIL_ITEM_ID = "session-detail";
 function shellQuote(value: string) {
   if (!value) return "''";
   return `'${value.replace(/'/g, `'"'"'`)}'`;
-}
-
-function sanitizeSessionKey(value: string) {
-  return value.replace(/[^a-zA-Z0-9_-]/g, "_");
-}
-
-function buildWidgetTerminalSessionId(sessionId: string, ptySessionKey: string) {
-  return `widget-${sanitizeSessionKey(sessionId)}-${sanitizeSessionKey(ptySessionKey)}`;
 }
 
 function createTerminalTab(tabs: SplitWidgetTerminalItem["tabs"]) {
@@ -166,19 +160,23 @@ function TerminalWidgetBody({ itemId }: { itemId: string }) {
   });
   const sessions = useSessionStore((s) => s.sessions);
   const expandedSessionId = useSessionStore((s) => s.expandedSessionId);
-  const session = useMemo(
-    () => sessions.find((item) => item.id === expandedSessionId) ?? null,
-    [expandedSessionId, sessions]
-  );
-  const terminalWorkdir = session?.worktreePath ?? session?.workdir ?? "";
-  const terminalCommand = navigator.userAgent.toLowerCase().includes("windows") ? "cmd.exe" : "sh";
-  const terminalArgs = navigator.userAgent.toLowerCase().includes("windows")
-    ? ["/K", `cd /d "${terminalWorkdir}"`]
-    : ["-lc", `cd ${shellQuote(terminalWorkdir)} && exec zsh -i`];
+  const [mountedSessionIds, setMountedSessionIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!expandedSessionId) return;
+    setMountedSessionIds((prev) => (
+      prev.includes(expandedSessionId) ? prev : [...prev, expandedSessionId]
+    ));
+  }, [expandedSessionId]);
+
+  useEffect(() => {
+    const sessionIds = new Set(sessions.map((session) => session.id));
+    setMountedSessionIds((prev) => prev.filter((sessionId) => sessionIds.has(sessionId)));
+  }, [sessions]);
 
   if (!widget) return null;
 
-  if (!session || !terminalWorkdir) {
+  if (mountedSessionIds.length === 0) {
     return (
       <div style={{
         width: "100%",
@@ -199,29 +197,41 @@ function TerminalWidgetBody({ itemId }: { itemId: string }) {
 
   return (
     <div style={{ position: "relative", width: "100%", height: "100%" }}>
-      {widget.tabs.map((tab) => {
-        const ptySessionId = buildWidgetTerminalSessionId(session.id, tab.ptySessionKey);
-        const isActiveTab = tab.id === widget.activeTabId;
-        return (
-          <div
-            key={ptySessionId}
-            style={{
-              position: "absolute",
-              inset: 0,
-              opacity: isActiveTab ? 1 : 0,
-              pointerEvents: isActiveTab ? "auto" : "none",
-              zIndex: isActiveTab ? 1 : 0,
-            }}
-          >
-            <PtyTerminal
-              sessionId={ptySessionId}
-              command={terminalCommand}
-              args={terminalArgs}
-              workdir={terminalWorkdir}
-              active={isActiveTab}
-            />
-          </div>
-        );
+      {mountedSessionIds.map((sessionId) => {
+        const session = sessions.find((item) => item.id === sessionId) ?? null;
+        const terminalWorkdir = session?.worktreePath ?? session?.workdir ?? "";
+        if (!session || !terminalWorkdir) return null;
+        const terminalCommand = navigator.userAgent.toLowerCase().includes("windows") ? "cmd.exe" : "sh";
+        const terminalArgs = navigator.userAgent.toLowerCase().includes("windows")
+          ? ["/K", `cd /d "${terminalWorkdir}"`]
+          : ["-lc", `cd ${shellQuote(terminalWorkdir)} && exec zsh -i`];
+        const isVisibleSession = expandedSessionId === sessionId;
+
+        return widget.tabs.map((tab) => {
+          const ptyId = buildTerminalPtyId(session.id, tab.ptySessionKey);
+          const isActiveTab = tab.id === widget.activeTabId;
+          const isVisible = isVisibleSession && isActiveTab;
+          return (
+            <div
+              key={`${sessionId}:${ptyId}`}
+              style={{
+                position: "absolute",
+                inset: 0,
+                opacity: isVisible ? 1 : 0,
+                pointerEvents: isVisible ? "auto" : "none",
+                zIndex: isVisible ? 1 : 0,
+              }}
+            >
+              <PtyTerminal
+                ptyId={ptyId}
+                command={terminalCommand}
+                args={terminalArgs}
+                workdir={terminalWorkdir}
+                active={isVisible}
+              />
+            </div>
+          );
+        });
       })}
     </div>
   );

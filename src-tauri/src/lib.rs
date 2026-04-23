@@ -232,6 +232,7 @@ pub fn run() {
             pty::resize_pty,
             pty::stop_pty_session,
             pty::send_pty_query,
+            pty::list_pty_sessions,
             // 通知 & Hooks
             hooks::send_notification,
             i18n::set_app_locale,

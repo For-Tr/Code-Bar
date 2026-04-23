@@ -21,6 +21,8 @@ import {
   type SplitWidgetTerminalItem,
   type SplitWidgetTerminalTab,
 } from "../store/settingsStore";
+import { stopTerminalTabPtys } from "../services/ptyCommands";
+import { usePtyStore } from "../store/ptyStore";
 import { getWorkspaceColor, useWorkspaceStore } from "../store/workspaceStore";
 
 const WIDGET_GAP = 1;
@@ -1080,6 +1082,7 @@ export function SplitWidgetPanel() {
                             }));
                           }}
                           onClose={() => {
+                            stopTerminalTabPtys(tab.ptySessionKey).catch(() => {});
                             updateTerminalWidget(item.id, (current) => removeTabFromWidget(current, tab.id).nextWidget ?? current);
                           }}
                         />
