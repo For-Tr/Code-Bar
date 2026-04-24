@@ -72,6 +72,7 @@ pub fn run() {
         .manage(PtyMasterMap::default())
         .manage(PtySessionMetaMap::default())
         .manage(GitWatcherMap::default())
+        .manage(orchestration::OrchestrationRuntime::default())
         .manage(PopupVisible::new(false))
         .manage(PreExpandPos::new())
         .manage(RestoringLock::new())
@@ -246,6 +247,15 @@ pub fn run() {
             hooks::trust_workspace,
             // 支持点击回调的原生通知（macOS 常驻等待 + click callback）
             notification::send_notification_with_callback,
+            orchestration::orchestration_get_workflow_snapshot,
+            orchestration::orchestration_list_task_events,
+            orchestration::orchestration_get_session_next_action,
+            orchestration::orchestration_claim_step,
+            orchestration::orchestration_update_step_progress,
+            orchestration::orchestration_complete_step,
+            orchestration::orchestration_block_step,
+            orchestration::orchestration_attach_session,
+            orchestration::orchestration_resolve_approval,
             ui_state::load_ui_states,
             ui_state::load_deleted_ui_state,
             ui_state::mark_deleted_items,

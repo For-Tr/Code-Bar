@@ -4,6 +4,7 @@ import { useAppI18n } from "../i18n";
 import { SplitDetailHost } from "../components/SplitSwapLayout";
 import { ExploreEditor } from "../components/ExploreMode";
 import { showSessionSurface, showExplorer, showScm } from "../services/workbenchCommands";
+import { WorkflowPanel } from "../components/workflow/WorkflowPanel";
 import { sanitizeRunnerConfig, useSettingsStore } from "../store/settingsStore";
 import { useWorkspaceStore } from "../store/workspaceStore";
 import { useWorkbenchStore } from "../store/workbenchStore";
@@ -334,6 +335,10 @@ export function WorkbenchCenter({
 
   if (centerSurface === "welcome") {
     return <WorkbenchWelcome session={session} />;
+  }
+
+  if (centerSurface === "workflow") {
+    return <WorkflowPanel session={session} />;
   }
 
   if (centerSurface === "editor" || centerSurface === "diff") {

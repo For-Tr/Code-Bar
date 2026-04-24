@@ -9,6 +9,12 @@ export function showSessionSurface(sessionId: string | null) {
   useWorkbenchStore.getState().showSessionSurface(sessionId);
 }
 
+export function showWorkflow(sessionId: string) {
+  useSessionStore.getState().setActiveSession(sessionId);
+  useSessionStore.getState().setExpandedSession(sessionId);
+  useWorkbenchStore.getState().showWorkflow(sessionId);
+}
+
 export function showExplorer(sessionId: string) {
   useSessionStore.getState().setActiveSession(sessionId);
   useSessionStore.getState().setExpandedSession(sessionId);

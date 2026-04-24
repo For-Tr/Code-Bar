@@ -24,6 +24,7 @@ import { useWorkbenchStore } from "./store/workbenchStore";
 import { useScmStore } from "./store/scmStore";
 import { useExplorerStore, type ExplorerEntry } from "./store/explorerStore";
 import { useEditorStore } from "./store/editorStore";
+import { useWorkflowStore } from "./store/workflowStore";
 
 const spring = { type: "spring" as const, stiffness: 320, damping: 28, mass: 1 };
 const MAX_FRONTEND_ERROR_LOGS = 50;
@@ -69,6 +70,9 @@ export default function App() {
   const setScmSnapshot = useScmStore((s) => s.setSnapshot);
   const setScmStatus = useScmStore((s) => s.setStatus);
   const setScmDiffOverride = useScmStore((s) => s.setDiffOverride);
+  const applyWorkflowSnapshotDocument = useWorkflowStore((s) => s.applySnapshotDocument);
+  const applyWorkflowEvents = useWorkflowStore((s) => s.applyEvents);
+  const applyWorkflowDiagnostics = useWorkflowStore((s) => s.applyDiagnostics);
 
   const { settings, patchSettings } = useSettingsStore();
   const effectiveLocale = resolveEffectiveLocale(settings.locale);
@@ -907,10 +911,31 @@ export default function App() {
       }
     );
 
+    const u8 = listen<{ taskId: string; sessionId?: string | null; document: import("@codebar/contracts").TaskDagDocument }>(
+      "workflow-snapshot-updated",
+      ({ payload }) => {
+        applyWorkflowSnapshotDocument(payload.taskId, payload.document, payload.sessionId ?? undefined);
+      }
+    );
+
+    const u9 = listen<{ taskId: string; events: import("@codebar/contracts").TaskDagEvent[] }>(
+      "workflow-events-appended",
+      ({ payload }) => {
+        applyWorkflowEvents(payload.taskId, payload.events);
+      }
+    );
+
+    const u10 = listen<{ taskId: string; diagnostics: import("@codebar/contracts").TaskDagDiagnostic[] }>(
+      "workflow-diagnostics-updated",
+      ({ payload }) => {
+        applyWorkflowDiagnostics(payload.taskId, payload.diagnostics);
+      }
+    );
+
     return () => {
-      [u1, u2, u3, u4, u5, u5b, u5c, u5d, u6, u7].forEach((p) => p.then((f) => f()).catch(() => {}));
+      [u1, u2, u3, u4, u5, u5b, u5c, u5d, u6, u7, u8, u9, u10].forEach((p) => p.then((f) => f()).catch(() => {}));
     };
-  }, [appendOutput, updateSession, setDiffFiles, setScmSnapshot, setScmStatus, setScmDiffOverride, refreshSessionDiff]);
+  }, [appendOutput, updateSession, setDiffFiles, setScmSnapshot, setScmStatus, setScmDiffOverride, refreshSessionDiff, applyWorkflowSnapshotDocument, applyWorkflowEvents, applyWorkflowDiagnostics]);
 
   // ── 会话切换时主动拉一次 Diff（覆盖非 running / 外部改动场景）──
   useEffect(() => {

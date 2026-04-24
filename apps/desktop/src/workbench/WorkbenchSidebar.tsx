@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Files, GitBranch, GitBranchPlus, MessageSquareCode } from "lucide-react";
+import { Files, GitBranch, GitBranchPlus, MessageSquareCode, Workflow } from "lucide-react";
 import { TitleBar } from "../components/TitleBar";
 import { StatusBar } from "../components/StatusBar";
 import { ExploreSidebar } from "../components/ExploreMode";
@@ -7,7 +7,7 @@ import { ScmSidebar } from "../components/scm/ScmSidebar";
 import { useAppI18n } from "../i18n";
 import { useWorkbenchStore } from "../store/workbenchStore";
 import { type ClaudeSession } from "../store/sessionStore";
-import { showExplorer, showScm, showSessionSurface } from "../services/workbenchCommands";
+import { showExplorer, showScm, showSessionSurface, showWorkflow } from "../services/workbenchCommands";
 import { WorkbenchTooltip } from "../components/ui/WorkbenchTooltip";
 
 function ActivityButton({
@@ -64,6 +64,7 @@ export function WorkbenchSidebar({
         {session && sidebarSection !== "sessions" && (
           <div style={{ width: 48, display: "flex", flexDirection: "column", alignItems: "stretch", borderInlineEnd: "1px solid var(--ci-toolbar-border)", background: "transparent" }}>
             <ActivityButton label={t("workbench.sessions")} active={false} onClick={() => showSessionSurface(session.id)} icon={<MessageSquareCode size={20} strokeWidth={1.9} />} />
+            <ActivityButton label={t("workbench.workflow")} active={sidebarSection === "workflow"} onClick={() => showWorkflow(session.id)} icon={<Workflow size={20} strokeWidth={1.9} />} />
             <ActivityButton label={t("workbench.explorer")} active={sidebarSection === "explorer"} onClick={() => showExplorer(session.id)} icon={<Files size={20} strokeWidth={1.9} />} />
             <ActivityButton label={t("workbench.sourceControl")} active={sidebarSection === "scm"} onClick={() => showScm(session.id)} icon={<GitBranchPlus size={20} strokeWidth={1.9} />} />
           </div>

@@ -128,6 +128,7 @@ const messages = {
     },
     workbench: {
       sessions: "会话",
+      workflow: "Workflow",
       explorer: "Explorer",
       sourceControl: "Source Control",
       welcome: {
@@ -464,6 +465,7 @@ const messages = {
     },
     workbench: {
       sessions: "Sessions",
+      workflow: "Workflow",
       explorer: "Explorer",
       sourceControl: "Source Control",
       welcome: {
@@ -800,6 +802,7 @@ const messages = {
     },
     workbench: {
       sessions: "الجلسات",
+      workflow: "سير العمل",
       explorer: "المستكشف",
       sourceControl: "التحكم بالمصدر",
       welcome: {

@@ -1,7 +1,7 @@
 import { create } from "zustand";
 
-export type WorkbenchSidebarSection = "sessions" | "explorer" | "scm";
-export type WorkbenchCenterSurface = "session" | "editor" | "diff" | "welcome";
+export type WorkbenchSidebarSection = "sessions" | "workflow" | "explorer" | "scm";
+export type WorkbenchCenterSurface = "session" | "workflow" | "editor" | "diff" | "welcome";
 
 interface WorkbenchStore {
   sidebarSection: WorkbenchSidebarSection;
@@ -12,6 +12,7 @@ interface WorkbenchStore {
   setCenterSurface: (surface: WorkbenchCenterSurface) => void;
   focusSession: (sessionId: string | null) => void;
   showSessionSurface: (sessionId: string | null) => void;
+  showWorkflow: (sessionId: string) => void;
   showExplorer: (sessionId: string) => void;
   showScm: (sessionId: string) => void;
   resetWorkbenchMode: () => void;
@@ -28,6 +29,11 @@ export const useWorkbenchStore = create<WorkbenchStore>()((set) => ({
   showSessionSurface: (sessionId) => set({
     sidebarSection: "sessions",
     centerSurface: "session",
+    focusedSessionId: sessionId,
+  }),
+  showWorkflow: (sessionId) => set({
+    sidebarSection: "workflow",
+    centerSurface: "workflow",
     focusedSessionId: sessionId,
   }),
   showExplorer: (sessionId) => set({

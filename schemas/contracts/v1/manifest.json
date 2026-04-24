@@ -1,5 +1,11 @@
 {
   "namespace": "codebar.contracts",
   "version": "v1",
-  "schemas": []
+  "schemas": [
+    {
+      "name": "workflow",
+      "rustModule": "codebar_contracts::workflow",
+      "tsModule": "@codebar/contracts/workflow"
+    }
+  ]
 }
