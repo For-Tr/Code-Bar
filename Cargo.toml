@@ -1,0 +1,8 @@
+[workspace]
+resolver = "2"
+members = [
+  "apps/desktop/src-tauri",
+  "crates/task-orchestrator",
+  "crates/codebar-contracts",
+]
+default-members = ["apps/desktop/src-tauri"]

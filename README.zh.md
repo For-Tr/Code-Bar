@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="src-tauri/icons/128x128.png" alt="Code Bar" width="104" height="104">
+  <img src="apps/desktop/src-tauri/icons/128x128.png" alt="Code Bar" width="104" height="104">
 </p>
 
 <h1 align="center">Code Bar</h1>
@@ -165,6 +165,8 @@ git clone https://github.com/For-Tr/code-bar.git
 cd code-bar
 pnpm install
 ```
+
+The desktop app source now lives in `apps/desktop`, but the common development commands can still be run from the repository root.
 
 ### 开发
 

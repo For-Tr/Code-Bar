@@ -6,6 +6,7 @@ mod i18n;
 mod integration_control;
 mod keystore;
 mod notification;
+mod orchestration;
 mod provider_sessions;
 mod pty;
 mod runner;

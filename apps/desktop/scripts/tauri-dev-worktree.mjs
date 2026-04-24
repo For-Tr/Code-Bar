@@ -1,6 +1,10 @@
 import { spawn } from "node:child_process";
 import net from "node:net";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+const appRoot = path.resolve(scriptDir, "..");
 
 function hashString(input) {
   let hash = 0;
@@ -58,7 +62,7 @@ async function findAvailablePortPair(startPort) {
 
 function spawnPnpm(args, env) {
   const child = spawn(process.platform === "win32" ? "pnpm.cmd" : "pnpm", args, {
-    cwd: process.cwd(),
+    cwd: appRoot,
     env,
     stdio: "inherit",
   });
@@ -83,7 +87,7 @@ const command = inputArgs[0] ?? "dev";
 if (command !== "dev") {
   spawnPnpm(["exec", "tauri", ...inputArgs], process.env);
 } else {
-  const cwd = process.cwd();
+  const cwd = appRoot;
   const cwdHash = hashString(cwd);
   const fallbackDevPort = 15000 + ((cwdHash % 2000) * 2);
   const requestedDevPort = readPort("CODE_BAR_DEV_PORT");
