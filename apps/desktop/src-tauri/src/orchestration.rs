@@ -15,12 +15,13 @@ use codebar_contracts::workflow::{
     WorkflowMetadata,
 };
 use serde::Serialize;
-use serde_json::{json, Value};
+use serde_json::Value;
 use tauri::{AppHandle, Emitter, State};
 use task_orchestrator::{
-    ApprovalStatus, Engine, EventEnvelope, EventEntityType, NextActionView, OrchestrationState,
-    PlanMode, PlanStatus, PlanStep, PlanStepStatus, Provider, Session, SessionAttachmentInput,
-    SessionState, TaskStatus,
+    ApprovalActionType, ApprovalRequest, ApprovalStatus, CleanupPolicy, Engine, EventEnvelope,
+    EventEntityType, EventSource, NextActionView, OrchestrationState, PlanMode, PlanStatus,
+    PlanStep, PlanStepStatus, Provider, Session, SessionAttachmentInput, SessionLaunchMode,
+    SessionState, Task, TaskStatus, Worktree, WorktreeLifecycleState, WorktreeSource, Workspace,
 };
 
 static REVISION_COUNTER: AtomicU64 = AtomicU64::new(1);
@@ -69,7 +70,7 @@ impl Default for OrchestrationRuntime {
     fn default() -> Self {
         Self {
             engine: Engine::default(),
-            state: Arc::new(Mutex::new(seed_state())),
+            state: Arc::new(Mutex::new(OrchestrationState::default())),
             revision: AtomicU64::new(REVISION_COUNTER.fetch_add(1, Ordering::SeqCst)),
         }
     }
@@ -247,14 +248,15 @@ pub fn orchestration_attach_session(
     runtime: State<'_, OrchestrationRuntime>,
     input: AttachWorkflowSessionRequest,
 ) -> Result<WorkflowSnapshotUpdatedEvent, String> {
-    let task_id = {
+    let (task_id, session_id) = {
         let mut state = runtime.state.lock().map_err(|e| e.to_string())?;
+        let task_id = sync_desktop_session_into_orchestrator(&mut state, &input)?;
         let attachment = runtime
             .engine
             .attach_session(
                 &mut state,
                 &SessionAttachmentInput {
-                    provider: map_provider_from_contract(input.provider),
+                    provider: map_provider_from_contract(input.provider.clone()),
                     session_id: input.session_id.clone(),
                     provider_session_id: input.provider_session_id.clone(),
                     cwd: input.cwd.clone(),
@@ -263,13 +265,13 @@ pub fn orchestration_attach_session(
                 &now_ts(),
             )
             .map_err(|e| e.to_string())?;
-        attachment.task_id
+        (task_id, Some(attachment.session_id))
     };
-    emit_snapshot_events(&app, &runtime, &task_id, input.session_id.as_deref())?;
-    let snapshot = runtime.snapshot_for(&task_id, input.session_id.as_deref())?;
+    emit_snapshot_events(&app, &runtime, &task_id, session_id.as_deref())?;
+    let snapshot = runtime.snapshot_for(&task_id, session_id.as_deref())?;
     Ok(WorkflowSnapshotUpdatedEvent {
         task_id,
-        session_id: input.session_id,
+        session_id,
         revision: snapshot.document.revision.clone(),
         document: snapshot.document,
     })
@@ -295,6 +297,170 @@ pub fn orchestration_resolve_approval(
         approval.task_id.clone()
     };
     emit_snapshot_events(&app, &runtime, &task_id, input.session_id.as_deref())
+}
+
+fn sync_desktop_session_into_orchestrator(
+    state: &mut OrchestrationState,
+    input: &AttachWorkflowSessionRequest,
+) -> Result<String, String> {
+    let session_id = input
+        .session_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "sessionId is required for workflow attach".to_string())?;
+    let workspace_id = input
+        .workspace_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "workspaceId is required for workflow attach".to_string())?;
+    let workspace_path = input
+        .workspace_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "workspacePath is required for workflow attach".to_string())?;
+
+    let task_id = format!("task-{session_id}");
+    let worktree_id = input
+        .worktree_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|_| format!("worktree-{session_id}"));
+    let now = now_ts();
+
+    state.workspaces.insert(
+        workspace_id.to_string(),
+        Workspace {
+            id: workspace_id.to_string(),
+            display_name: input
+                .workspace_name
+                .clone()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| workspace_path.rsplit('/').next().unwrap_or(workspace_id).to_string()),
+            root_path: workspace_path.to_string(),
+            vcs_type: task_orchestrator::VcsType::Git,
+            repo_identity: None,
+            trust_level: task_orchestrator::TrustLevel::Trusted,
+            default_provider: Some(map_provider_from_contract(input.provider.clone())),
+            created_at: now.clone(),
+            updated_at: now.clone(),
+        },
+    );
+
+    if let (Some(worktree_id), Some(worktree_path)) = (
+        worktree_id.as_ref(),
+        input
+            .worktree_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty()),
+    ) {
+        state.worktrees.insert(
+            worktree_id.clone(),
+            Worktree {
+                id: worktree_id.clone(),
+                workspace_id: workspace_id.to_string(),
+                path: worktree_path.to_string(),
+                branch_name: input.branch_name.clone(),
+                base_branch: input.base_branch.clone(),
+                source: WorktreeSource::Managed,
+                lifecycle_state: WorktreeLifecycleState::Ready,
+                cleanup_policy: CleanupPolicy::Manual,
+                created_at: now.clone(),
+                updated_at: now.clone(),
+            },
+        );
+    }
+
+    let task_status = map_session_status_to_task_status(input.session_status.as_deref());
+    state.tasks.insert(
+        task_id.clone(),
+        Task {
+            id: task_id.clone(),
+            workspace_id: workspace_id.to_string(),
+            title: input
+                .session_name
+                .clone()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| format!("Session {session_id}")),
+            prompt: input
+                .current_task
+                .clone()
+                .filter(|value| !value.trim().is_empty())
+                .or_else(|| input.session_name.clone())
+                .unwrap_or_else(|| format!("Session {session_id}")),
+            goal: None,
+            constraints: None,
+            requested_provider: Some(map_provider_from_contract(input.provider.clone())),
+            requested_model: None,
+            status: task_status,
+            active_plan_id: None,
+            active_skill_profile_id: None,
+            created_at: now.clone(),
+            updated_at: now.clone(),
+        },
+    );
+
+    state.sessions.insert(
+        session_id.to_string(),
+        Session {
+            id: session_id.to_string(),
+            task_id: task_id.clone(),
+            workspace_id: workspace_id.to_string(),
+            worktree_id: worktree_id.clone(),
+            provider: map_provider_from_contract(input.provider.clone()),
+            provider_session_id: input.provider_session_id.clone(),
+            launch_mode: SessionLaunchMode::Resume,
+            state: map_session_status_to_orchestrator_state(input.session_status.as_deref()),
+            current_step_id: None,
+            last_activity_at: Some(now.clone()),
+            created_at: now.clone(),
+            updated_at: now.clone(),
+        },
+    );
+
+    ensure_task_attach_event(state, &task_id, session_id, &now, input.provider_session_id.clone());
+    Ok(task_id)
+}
+
+fn ensure_task_attach_event(
+    state: &mut OrchestrationState,
+    task_id: &str,
+    session_id: &str,
+    now: &str,
+    provider_session_id: Option<String>,
+) {
+    if state.events.iter().any(|event| {
+        event.event_type == "task.attached"
+            && event.entity_id == session_id
+            && event
+                .payload
+                .get("taskId")
+                .and_then(|value| value.as_str())
+                == Some(task_id)
+    }) {
+        return;
+    }
+
+    state.events.push(EventEnvelope {
+        id: format!("event-attach-{session_id}-{now}"),
+        entity_type: EventEntityType::Session,
+        entity_id: session_id.to_string(),
+        event_type: "task.attached".into(),
+        source: EventSource::Daemon,
+        correlation_id: None,
+        payload: BTreeMap::from([
+            ("taskId".into(), Value::String(task_id.to_string())),
+            (
+                "providerSessionId".into(),
+                provider_session_id.map(Value::String).unwrap_or(Value::Null),
+            ),
+        ]),
+        created_at: now.to_string(),
+    });
 }
 
 fn emit_snapshot_events(
@@ -376,9 +542,10 @@ fn project_snapshot(
             workspace_id: task.workspace_id.clone(),
             active_session_id: active_session.map(|session| session.id.clone()),
             active_plan_id: task.active_plan_id.clone(),
-            metadata: Some(BTreeMap::from([
-                ("updatedAt".into(), Value::String(task.updated_at.clone())),
-            ])),
+            metadata: Some(BTreeMap::from([(
+                "updatedAt".into(),
+                Value::String(task.updated_at.clone()),
+            )])),
         },
         plan: plan.map(|plan| TaskDagPlan {
             id: plan.id.clone(),
@@ -393,9 +560,9 @@ fn project_snapshot(
         layout_version: 1,
         capabilities: TaskDagCapabilities {
             can_refresh: true,
-            can_claim_step: active_session.is_some(),
-            can_complete_step: active_session.is_some(),
-            can_block_step: active_session.is_some(),
+            can_claim_step: active_session.is_some() && !step_map.is_empty(),
+            can_complete_step: active_session.is_some() && !step_map.is_empty(),
+            can_block_step: active_session.is_some() && !step_map.is_empty(),
             can_resolve_approval: !approvals.is_empty(),
             can_attach_session: true,
             can_launch_session: true,
@@ -420,10 +587,10 @@ fn project_snapshot(
 }
 
 fn project_nodes(
-    task: &task_orchestrator::Task,
+    task: &Task,
     active_session: Option<&Session>,
     step_map: &BTreeMap<String, PlanStep>,
-    approvals: &[task_orchestrator::ApprovalRequest],
+    approvals: &[ApprovalRequest],
 ) -> Vec<TaskDagNode> {
     let mut nodes = Vec::new();
     nodes.push(TaskDagNode::TaskRoot(TaskDagTaskRootNode {
@@ -431,7 +598,7 @@ fn project_nodes(
         kind: TaskDagNodeKind::TaskRoot,
         task_id: task.id.clone(),
         label: task.title.clone(),
-        description: task.goal.clone(),
+        description: task.goal.clone().or_else(|| Some(task.prompt.clone())),
         status: Some(map_task_status(task.status).to_string()),
         x: 80.0,
         y: 80.0,
@@ -442,10 +609,9 @@ fn project_nodes(
         let level = levels.get(&step.id).copied().unwrap_or(0) as f64;
         let y = 200.0 + (index as f64 * 170.0);
         let session = active_session.filter(|session| session.current_step_id.as_deref() == Some(step.id.as_str()));
-        let step_approvals = approvals
+        let step_approval = approvals
             .iter()
-            .filter(|approval| active_session.map(|s| s.id.as_str()) == Some(approval.session_id.as_str()))
-            .collect::<Vec<_>>();
+            .find(|approval| active_session.map(|s| s.id.as_str()) == Some(approval.session_id.as_str()));
         let next_actions = if active_session
             .and_then(|session| session.current_step_id.as_deref())
             == Some(step.id.as_str())
@@ -475,7 +641,7 @@ fn project_nodes(
             y,
             runtime: Some(TaskDagStepRuntime {
                 current_session: session.map(project_session),
-                active_approval: step_approvals.first().map(|approval| project_approval(approval)),
+                active_approval: step_approval.map(project_approval),
                 lease: Some(codebar_contracts::workflow::TaskDagLease {
                     owner_session_id: step.lease_owner_session_id.clone(),
                     token: step.lease_token.clone(),
@@ -491,7 +657,7 @@ fn project_nodes(
     for (index, approval) in approvals.iter().enumerate() {
         let step_id = active_session
             .and_then(|session| session.current_step_id.clone())
-            .unwrap_or_else(|| "task-root".to_string());
+            .unwrap_or_else(|| format!("task:{}", task.id));
         nodes.push(TaskDagNode::ApprovalGate(TaskDagApprovalGateNode {
             id: format!("approval:{}", approval.id),
             kind: TaskDagNodeKind::ApprovalGate,
@@ -506,10 +672,7 @@ fn project_nodes(
     nodes
 }
 
-fn project_edges(
-    step_map: &BTreeMap<String, PlanStep>,
-    approvals: &[task_orchestrator::ApprovalRequest],
-) -> Vec<TaskDagEdge> {
+fn project_edges(step_map: &BTreeMap<String, PlanStep>, approvals: &[ApprovalRequest]) -> Vec<TaskDagEdge> {
     let mut edges = Vec::new();
     for step in step_map.values() {
         for dependency in &step.depends_on {
@@ -550,7 +713,7 @@ fn project_event(state: &OrchestrationState, event: &EventEnvelope) -> TaskDagEv
 
     TaskDagEvent {
         id: event.id.clone(),
-        task_id: task_id.clone(),
+        task_id,
         step_id,
         session_id,
         kind: event.event_type.clone(),
@@ -565,7 +728,7 @@ fn project_diagnostics(
     task_id: &str,
     step_map: &BTreeMap<String, PlanStep>,
     active_session: Option<&Session>,
-    approvals: &[task_orchestrator::ApprovalRequest],
+    approvals: &[ApprovalRequest],
     events: &[TaskDagEvent],
 ) -> Vec<TaskDagDiagnostic> {
     let mut diagnostics = Vec::new();
@@ -574,9 +737,9 @@ fn project_diagnostics(
             id: format!("diag:{task_id}:empty-plan"),
             task_id: task_id.to_string(),
             step_id: None,
-            severity: TaskDagDiagnosticSeverity::Warning,
-            summary: "No active plan steps".into(),
-            detail: Some("This task has no projected plan steps yet.".into()),
+            severity: TaskDagDiagnosticSeverity::Info,
+            summary: "No active plan yet".into(),
+            detail: Some("This session is attached to workflow runtime, but no explicit plan/steps exist yet.".into()),
             created_at: Some(now_ts()),
             data: None,
         });
@@ -714,7 +877,7 @@ fn event_message(event: &EventEnvelope) -> String {
             .to_string(),
         "step.lease_expired" => "Step lease expired".into(),
         "skills.resolved" => "Resolved active skills".into(),
-        "task.attached" => "Attached session to task".into(),
+        "task.attached" => "Attached session to workflow task".into(),
         _ => event.event_type.clone(),
     }
 }
@@ -786,7 +949,7 @@ fn project_session(session: &Session) -> TaskDagSession {
     }
 }
 
-fn project_approval(approval: &task_orchestrator::ApprovalRequest) -> TaskDagApprovalRequest {
+fn project_approval(approval: &ApprovalRequest) -> TaskDagApprovalRequest {
     TaskDagApprovalRequest {
         id: approval.id.clone(),
         status: match approval.status {
@@ -848,156 +1011,26 @@ fn map_next_action(next: &NextActionView) -> TaskDagNextAction {
     }
 }
 
-fn now_ts() -> String {
-    format!("{}", max(1, REVISION_COUNTER.fetch_add(1, Ordering::SeqCst)))
+fn map_session_status_to_task_status(status: Option<&str>) -> TaskStatus {
+    match status.unwrap_or_default() {
+        "running" | "waiting" | "suspended" => TaskStatus::Active,
+        "error" => TaskStatus::Failed,
+        "done" => TaskStatus::Completed,
+        _ => TaskStatus::Ready,
+    }
 }
 
-fn seed_state() -> OrchestrationState {
-    use task_orchestrator::{
-        ApprovalActionType, CleanupPolicy, Plan, PlanStatus, SessionLaunchMode, Worktree,
-        WorktreeLifecycleState, WorktreeSource, Workspace,
-    };
+fn map_session_status_to_orchestrator_state(status: Option<&str>) -> SessionState {
+    match status.unwrap_or_default() {
+        "running" => SessionState::Running,
+        "waiting" => SessionState::WaitingInput,
+        "suspended" => SessionState::Interrupted,
+        "done" => SessionState::Completed,
+        "error" => SessionState::Failed,
+        _ => SessionState::Ready,
+    }
+}
 
-    let workspace = Workspace {
-        id: "workspace-1".into(),
-        display_name: "Workflow Workspace".into(),
-        root_path: "/demo/workspace".into(),
-        vcs_type: task_orchestrator::VcsType::Git,
-        repo_identity: Some("demo-repo".into()),
-        trust_level: task_orchestrator::TrustLevel::Trusted,
-        default_provider: Some(Provider::Claude),
-        created_at: "1".into(),
-        updated_at: "1".into(),
-    };
-    let worktree = Worktree {
-        id: "worktree-1".into(),
-        workspace_id: workspace.id.clone(),
-        path: "/demo/workspace/.codebar/worktree-1".into(),
-        branch_name: Some("ci/workflow-demo".into()),
-        base_branch: Some("main".into()),
-        source: WorktreeSource::Managed,
-        lifecycle_state: WorktreeLifecycleState::Ready,
-        cleanup_policy: CleanupPolicy::Manual,
-        created_at: "1".into(),
-        updated_at: "1".into(),
-    };
-    let task = task_orchestrator::Task {
-        id: "task-1".into(),
-        workspace_id: workspace.id.clone(),
-        title: "Workflow MVP".into(),
-        prompt: "Visualize and manually orchestrate workflow steps".into(),
-        goal: Some("Prove workflow display and human orchestration".into()),
-        constraints: None,
-        requested_provider: Some(Provider::Claude),
-        requested_model: None,
-        status: TaskStatus::Active,
-        active_plan_id: Some("plan-1".into()),
-        active_skill_profile_id: None,
-        created_at: "1".into(),
-        updated_at: "1".into(),
-    };
-    let plan = Plan {
-        id: "plan-1".into(),
-        task_id: task.id.clone(),
-        mode: PlanMode::Guided,
-        status: PlanStatus::Active,
-        created_at: "1".into(),
-        updated_at: "1".into(),
-    };
-    let step_a = PlanStep {
-        id: "step-a".into(),
-        plan_id: plan.id.clone(),
-        title: "Project workflow contract".into(),
-        description: Some("Define TaskDag contract from orchestrator state.".into()),
-        status: PlanStepStatus::Running,
-        depends_on: vec![],
-        parallelizable: false,
-        required_skills: vec!["contracts".into()],
-        allowed_providers: Some(vec![Provider::Claude, Provider::Codex]),
-        lease_owner_session_id: Some("session-1".into()),
-        lease_token: Some("lease-session-1-step-a".into()),
-        lease_expires_at: Some("999999".into()),
-        created_at: "2".into(),
-        updated_at: "2".into(),
-    };
-    let step_b = PlanStep {
-        id: "step-b".into(),
-        plan_id: plan.id.clone(),
-        title: "Build desktop projection adapter".into(),
-        description: Some("Expose workflow snapshot from Tauri.".into()),
-        status: PlanStepStatus::Pending,
-        depends_on: vec!["step-a".into()],
-        parallelizable: true,
-        required_skills: vec!["rust".into(), "tauri".into()],
-        allowed_providers: Some(vec![Provider::Claude]),
-        lease_owner_session_id: None,
-        lease_token: None,
-        lease_expires_at: None,
-        created_at: "3".into(),
-        updated_at: "3".into(),
-    };
-    let step_c = PlanStep {
-        id: "step-c".into(),
-        plan_id: plan.id.clone(),
-        title: "Render workflow UI".into(),
-        description: Some("Add workflow graph to desktop workbench.".into()),
-        status: PlanStepStatus::Pending,
-        depends_on: vec!["step-b".into()],
-        parallelizable: true,
-        required_skills: vec!["react".into(), "graph".into()],
-        allowed_providers: Some(vec![Provider::Claude, Provider::Codex]),
-        lease_owner_session_id: None,
-        lease_token: None,
-        lease_expires_at: None,
-        created_at: "4".into(),
-        updated_at: "4".into(),
-    };
-    let session = Session {
-        id: "session-1".into(),
-        task_id: task.id.clone(),
-        workspace_id: workspace.id.clone(),
-        worktree_id: Some(worktree.id.clone()),
-        provider: Provider::Claude,
-        provider_session_id: Some("provider-session-1".into()),
-        launch_mode: SessionLaunchMode::New,
-        state: SessionState::Running,
-        current_step_id: Some("step-a".into()),
-        last_activity_at: Some("2".into()),
-        created_at: "1".into(),
-        updated_at: "2".into(),
-    };
-    let approval = task_orchestrator::ApprovalRequest {
-        id: "approval-1".into(),
-        session_id: session.id.clone(),
-        task_id: task.id.clone(),
-        action_type: ApprovalActionType::Write,
-        title: "Approve workflow schema write".into(),
-        description: "Writing contracts requires approval.".into(),
-        payload: BTreeMap::new(),
-        status: ApprovalStatus::Pending,
-        created_at: "2".into(),
-        resolved_at: None,
-    };
-
-    let mut state = OrchestrationState::default();
-    state.workspaces.insert(workspace.id.clone(), workspace);
-    state.worktrees.insert(worktree.id.clone(), worktree);
-    state.tasks.insert(task.id.clone(), task);
-    state.plans.insert(plan.id.clone(), plan);
-    state.steps.insert(step_a.id.clone(), step_a);
-    state.steps.insert(step_b.id.clone(), step_b);
-    state.steps.insert(step_c.id.clone(), step_c);
-    state.sessions.insert(session.id.clone(), session);
-    state.approvals.insert(approval.id.clone(), approval);
-    state.events.push(task_orchestrator::EventEnvelope {
-        id: "event-1".into(),
-        entity_type: EventEntityType::Session,
-        entity_id: "session-1".into(),
-        event_type: "step.progress_updated".into(),
-        source: task_orchestrator::EventSource::Daemon,
-        correlation_id: None,
-        payload: BTreeMap::from([("summary".into(), json!("Projecting workflow snapshot"))]),
-        created_at: "2".into(),
-    });
-    state
+fn now_ts() -> String {
+    format!("{}", max(1, REVISION_COUNTER.fetch_add(1, Ordering::SeqCst)))
 }

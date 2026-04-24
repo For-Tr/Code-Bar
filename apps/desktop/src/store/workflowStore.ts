@@ -22,6 +22,7 @@ interface WorkflowStore {
   snapshotsByTaskId: Record<string, TaskDagDocument>;
   eventsByTaskId: Record<string, TaskDagEvent[]>;
   diagnosticsByTaskId: Record<string, TaskDagDiagnostic[]>;
+  taskIdBySessionId: Record<string, string>;
   selectedTaskId: string | null;
   selectedSessionId: string | null;
   selectedNodeId: string | null;
@@ -42,6 +43,29 @@ interface WorkflowStore {
     providerSessionId?: string | null;
     cwd?: string | null;
     worktreePath?: string | null;
+    workspaceId?: string | null;
+    workspaceName?: string | null;
+    workspacePath?: string | null;
+    sessionName?: string | null;
+    currentTask?: string | null;
+    branchName?: string | null;
+    baseBranch?: string | null;
+    sessionStatus?: string | null;
+  }) => Promise<void>;
+  syncSession: (input: {
+    provider: "claude_code" | "codex";
+    sessionId: string;
+    providerSessionId?: string | null;
+    cwd?: string | null;
+    worktreePath?: string | null;
+    workspaceId?: string | null;
+    workspaceName?: string | null;
+    workspacePath?: string | null;
+    sessionName?: string | null;
+    currentTask?: string | null;
+    branchName?: string | null;
+    baseBranch?: string | null;
+    sessionStatus?: string | null;
   }) => Promise<void>;
   claimStep: (sessionId: string, stepId?: string) => Promise<void>;
   completeStep: (sessionId: string, stepId: string) => Promise<void>;
@@ -54,6 +78,7 @@ export const useWorkflowStore = create<WorkflowStore>()((set, get) => ({
   snapshotsByTaskId: {},
   eventsByTaskId: {},
   diagnosticsByTaskId: {},
+  taskIdBySessionId: {},
   selectedTaskId: null,
   selectedSessionId: null,
   selectedNodeId: null,
@@ -82,8 +107,13 @@ export const useWorkflowStore = create<WorkflowStore>()((set, get) => ({
       ...state.diagnosticsByTaskId,
       [response.document.task.id]: response.diagnostics,
     },
+    taskIdBySessionId: sessionId ? {
+      ...state.taskIdBySessionId,
+      [sessionId]: response.document.task.id,
+    } : state.taskIdBySessionId,
     selectedTaskId: response.document.task.id,
     selectedSessionId: sessionId ?? state.selectedSessionId,
+    selectedNodeId: sessionId && sessionId !== state.selectedSessionId ? null : state.selectedNodeId,
     loadingTaskIds: {
       ...state.loadingTaskIds,
       [response.document.task.id]: false,
@@ -99,8 +129,13 @@ export const useWorkflowStore = create<WorkflowStore>()((set, get) => ({
       ...state.snapshotsByTaskId,
       [taskId]: document,
     },
+    taskIdBySessionId: sessionId ? {
+      ...state.taskIdBySessionId,
+      [sessionId]: taskId,
+    } : state.taskIdBySessionId,
     selectedTaskId: taskId,
     selectedSessionId: sessionId ?? state.selectedSessionId,
+    selectedNodeId: sessionId && sessionId !== state.selectedSessionId ? null : state.selectedNodeId,
   })),
 
   applyEvents: (taskId, events) => set((state) => ({
@@ -150,9 +185,21 @@ export const useWorkflowStore = create<WorkflowStore>()((set, get) => ({
       providerSessionId: input.providerSessionId ?? undefined,
       cwd: input.cwd ?? undefined,
       worktreePath: input.worktreePath ?? undefined,
+      workspaceId: input.workspaceId ?? undefined,
+      workspaceName: input.workspaceName ?? undefined,
+      workspacePath: input.workspacePath ?? undefined,
+      sessionName: input.sessionName ?? undefined,
+      currentTask: input.currentTask ?? undefined,
+      branchName: input.branchName ?? undefined,
+      baseBranch: input.baseBranch ?? undefined,
+      sessionStatus: input.sessionStatus ?? undefined,
     }) as { taskId: string; sessionId?: string | null; document: TaskDagDocument };
     get().applySnapshotDocument(response.taskId, response.document, response.sessionId ?? undefined);
     await get().refreshWorkflow(response.taskId, response.sessionId ?? undefined);
+  },
+
+  syncSession: async (input) => {
+    await get().attachSessionAndLoad(input);
   },
 
   claimStep: async (sessionId, stepId) => {

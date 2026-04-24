@@ -401,4 +401,20 @@ pub struct AttachWorkflowSessionRequest {
     pub cwd: Option<String>,
     #[serde(default)]
     pub worktree_path: Option<String>,
+    #[serde(default)]
+    pub workspace_id: Option<String>,
+    #[serde(default)]
+    pub workspace_name: Option<String>,
+    #[serde(default)]
+    pub workspace_path: Option<String>,
+    #[serde(default)]
+    pub session_name: Option<String>,
+    #[serde(default)]
+    pub current_task: Option<String>,
+    #[serde(default)]
+    pub branch_name: Option<String>,
+    #[serde(default)]
+    pub base_branch: Option<String>,
+    #[serde(default)]
+    pub session_status: Option<String>,
 }

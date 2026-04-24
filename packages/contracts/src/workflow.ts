@@ -224,4 +224,12 @@ export interface AttachWorkflowSessionRequest {
   providerSessionId?: string;
   cwd?: string;
   worktreePath?: string;
+  workspaceId?: string;
+  workspaceName?: string;
+  workspacePath?: string;
+  sessionName?: string;
+  currentTask?: string;
+  branchName?: string;
+  baseBranch?: string;
+  sessionStatus?: string;
 }

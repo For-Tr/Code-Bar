@@ -11,6 +11,7 @@ export function WorkflowDetailSheet({
   onResolveApproval,
   diagnostics,
   events,
+  capabilities,
 }: {
   node: TaskDagNode | null;
   onClose: () => void;
@@ -20,6 +21,12 @@ export function WorkflowDetailSheet({
   onResolveApproval: (approvalId: string) => void;
   diagnostics: TaskDagDiagnostic[];
   events: TaskDagEvent[];
+  capabilities: {
+    canClaimStep: boolean;
+    canCompleteStep: boolean;
+    canBlockStep: boolean;
+    canResolveApproval: boolean;
+  };
 }) {
   if (!node) return null;
 
@@ -57,16 +64,16 @@ export function WorkflowDetailSheet({
             {node.description ? <div style={{ fontSize: 11, lineHeight: 1.6, color: "var(--ci-text-dim)" }}>{node.description}</div> : null}
             <div style={{ fontSize: 11, color: "var(--ci-text-dim)" }}>Status: {node.status}</div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button onClick={() => onClaim(node.stepId)} style={actionButtonStyle("accent")}>Claim</button>
-              <button onClick={() => onComplete(node.stepId)} style={actionButtonStyle()}>Complete</button>
-              <button onClick={() => onBlock(node.stepId)} style={actionButtonStyle("danger")}>Block</button>
+              <button disabled={!capabilities.canClaimStep} onClick={() => onClaim(node.stepId)} style={actionButtonStyle("accent", !capabilities.canClaimStep)}>Claim</button>
+              <button disabled={!capabilities.canCompleteStep} onClick={() => onComplete(node.stepId)} style={actionButtonStyle("default", !capabilities.canCompleteStep)}>Complete</button>
+              <button disabled={!capabilities.canBlockStep} onClick={() => onBlock(node.stepId)} style={actionButtonStyle("danger", !capabilities.canBlockStep)}>Block</button>
             </div>
           </>
         ) : null}
 
         {isApproval ? (
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button onClick={() => onResolveApproval(node.approvalRequest.id)} style={actionButtonStyle("accent")}>Approve</button>
+            <button disabled={!capabilities.canResolveApproval} onClick={() => onResolveApproval(node.approvalRequest.id)} style={actionButtonStyle("accent", !capabilities.canResolveApproval)}>Approve</button>
           </div>
         ) : null}
 
@@ -92,7 +99,7 @@ export function WorkflowDetailSheet({
   );
 }
 
-function actionButtonStyle(variant: "default" | "accent" | "danger" = "default") {
+function actionButtonStyle(variant: "default" | "accent" | "danger" = "default", disabled = false) {
   const colors = {
     default: {
       background: "var(--ci-btn-ghost-bg)",
@@ -115,7 +122,8 @@ function actionButtonStyle(variant: "default" | "accent" | "danger" = "default")
     padding: "6px 10px",
     fontSize: 11,
     fontWeight: 600,
-    cursor: "pointer",
+    cursor: disabled ? "not-allowed" : "pointer",
+    opacity: disabled ? 0.5 : 1,
     ...colors[variant],
   };
 }

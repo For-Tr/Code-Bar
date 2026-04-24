@@ -19,7 +19,7 @@ import {
   isGlassTheme,
   type ThemeMode,
 } from "./store/settingsStore";
-import { useWorkspaceStore } from "./store/workspaceStore";
+import { useWorkspaceStore, useWorkspacesSorted } from "./store/workspaceStore";
 import { useWorkbenchStore } from "./store/workbenchStore";
 import { useScmStore } from "./store/scmStore";
 import { useExplorerStore, type ExplorerEntry } from "./store/explorerStore";
@@ -73,6 +73,7 @@ export default function App() {
   const applyWorkflowSnapshotDocument = useWorkflowStore((s) => s.applySnapshotDocument);
   const applyWorkflowEvents = useWorkflowStore((s) => s.applyEvents);
   const applyWorkflowDiagnostics = useWorkflowStore((s) => s.applyDiagnostics);
+  const syncWorkflowSession = useWorkflowStore((s) => s.syncSession);
 
   const { settings, patchSettings } = useSettingsStore();
   const effectiveLocale = resolveEffectiveLocale(settings.locale);
@@ -80,6 +81,7 @@ export default function App() {
   const settingsOpen = useSettingsStore((s) => s.settingsOpen);
   const closeSettings = useSettingsStore((s) => s.closeSettings);
   const { activeWorkspaceId } = useWorkspaceStore();
+  const workspaces = useWorkspacesSorted();
   const sidebarSection = useWorkbenchStore((s) => s.sidebarSection);
   const focusSession = useWorkbenchStore((s) => s.focusSession);
   const focusedSessionId = useWorkbenchStore((s) => s.focusedSessionId);
@@ -475,6 +477,27 @@ export default function App() {
   const workbenchSession = sessions.find(
     (s) => s.id === focusedSessionId && s.workspaceId === activeWorkspaceId
   ) ?? activeSession ?? null;
+
+  const syncWorkflowFromSession = useCallback((sessionId: string) => {
+    const session = useSessionStore.getState().sessions.find((item) => item.id === sessionId);
+    if (!session) return;
+    const workspace = workspaces.find((item) => item.id === session.workspaceId) ?? null;
+    void syncWorkflowSession({
+      provider: session.runner.type === "codex" ? "codex" : "claude_code",
+      sessionId: session.id,
+      providerSessionId: session.providerSessionId,
+      cwd: session.workdir,
+      worktreePath: session.worktreePath,
+      workspaceId: session.workspaceId,
+      workspaceName: workspace?.name,
+      workspacePath: workspace?.path,
+      sessionName: session.name,
+      currentTask: session.currentTask,
+      branchName: session.branchName,
+      baseBranch: session.baseBranch,
+      sessionStatus: session.status,
+    }).catch(() => {});
+  }, [syncWorkflowSession, workspaces]);
 
   const refreshSessionDiff = useCallback((sessionId?: string | null, options?: { reloadExplorer?: boolean; reloadDirs?: string[] }) => {
     if (!("__TAURI_INTERNALS__" in window)) return;
@@ -880,6 +903,7 @@ export default function App() {
           if (s && (s.status === "running" || s.status === "waiting" || s.status === "suspended")) {
             updateSession(payload.session_id, { status: "done" });
           }
+          syncWorkflowFromSession(payload.session_id);
         }, 1200);
       }
     );
@@ -900,6 +924,7 @@ export default function App() {
         updateSession(payload.session_id, {
           providerSessionId: payload.provider_session_id,
         });
+        queueMicrotask(() => syncWorkflowFromSession(payload.session_id));
         void invoke("save_recovery_binding", {
           input: {
             sessionId: payload.session_id,
@@ -935,7 +960,7 @@ export default function App() {
     return () => {
       [u1, u2, u3, u4, u5, u5b, u5c, u5d, u6, u7, u8, u9, u10].forEach((p) => p.then((f) => f()).catch(() => {}));
     };
-  }, [appendOutput, updateSession, setDiffFiles, setScmSnapshot, setScmStatus, setScmDiffOverride, refreshSessionDiff, applyWorkflowSnapshotDocument, applyWorkflowEvents, applyWorkflowDiagnostics]);
+  }, [appendOutput, updateSession, setDiffFiles, setScmSnapshot, setScmStatus, setScmDiffOverride, refreshSessionDiff, applyWorkflowSnapshotDocument, applyWorkflowEvents, applyWorkflowDiagnostics, syncWorkflowFromSession]);
 
   // ── 会话切换时主动拉一次 Diff（覆盖非 running / 外部改动场景）──
   useEffect(() => {
