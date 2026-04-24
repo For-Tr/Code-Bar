@@ -1,5 +1,8 @@
 import type { PlanMode, ProviderKind } from "./domain";
 
+export type RecommendedSequenceItemType = "skill" | "tool";
+export type SkillArtifactType = "text" | "json" | "file" | "command" | "url";
+
 export interface SessionAttachInput {
   provider: ProviderKind;
   providerSessionId?: string;
@@ -49,4 +52,88 @@ export interface ContextGetCurrentOutput {
   workspace: ContextWorkspaceView;
   worktree?: ContextWorktreeView;
   session: ContextSessionView;
+}
+
+export interface RecommendedSequenceItem {
+  type: RecommendedSequenceItemType;
+  name: string;
+}
+
+export interface TaskGetNextActionInput {
+  sessionId: string;
+}
+
+export interface TaskGetNextActionStep {
+  id: string;
+  title: string;
+  description?: string;
+  successCriteria?: string[];
+  leaseToken?: string;
+}
+
+export interface TaskGetNextActionOutput {
+  mode: PlanMode;
+  step?: TaskGetNextActionStep;
+  activeSkills: string[];
+  recommendedSequence?: RecommendedSequenceItem[];
+}
+
+export interface TaskUpdateProgressInput {
+  sessionId: string;
+  stepId?: string;
+  leaseToken?: string;
+  summary: string;
+  details?: Record<string, unknown>;
+}
+
+export interface McpAcceptedOutput {
+  accepted: true;
+}
+
+export interface TaskCompleteStepInput {
+  sessionId: string;
+  stepId: string;
+  leaseToken?: string;
+  summary?: string;
+  outputs?: Record<string, unknown>;
+}
+
+export interface TaskCompleteStepOutput {
+  accepted: true;
+  nextStepId?: string;
+}
+
+export interface TaskBlockStepInput {
+  sessionId: string;
+  stepId: string;
+  reason: string;
+}
+
+export interface SkillListActiveInput {
+  sessionId: string;
+}
+
+export interface SkillListActiveOutput {
+  activeSkills: string[];
+  preferredSkills?: string[];
+  forbiddenSkills?: string[];
+}
+
+export interface SkillInvokeInput {
+  sessionId: string;
+  stepId?: string;
+  skill: string;
+  input: Record<string, unknown>;
+}
+
+export interface SkillArtifact {
+  type: SkillArtifactType;
+  uri?: string;
+  text?: string;
+}
+
+export interface SkillInvokeOutput {
+  summary: string;
+  result?: Record<string, unknown>;
+  artifacts?: SkillArtifact[];
 }

@@ -1,0 +1,18 @@
+{
+  "input": {
+    "provider": "claude",
+    "providerSessionId": "provider_sess_123",
+    "cwd": "/workspace/repo"
+  },
+  "output": {
+    "sessionId": "sess_123",
+    "taskId": "task_123",
+    "mode": "guided",
+    "activeStepId": "step_001",
+    "activeSkillProfileId": "skill_001",
+    "recommendedNextCalls": [
+      "context.get_current",
+      "task.get_next_action"
+    ]
+  }
+}
