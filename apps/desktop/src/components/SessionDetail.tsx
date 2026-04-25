@@ -51,6 +51,7 @@ interface InstallTerminalProps {
   onFinished: () => void;
 }
 
+// Utility installer terminal intentionally stays desktop-local; main session runtimes are daemon-owned.
 function InstallTerminal({ installId, installCmd, onFinished }: InstallTerminalProps) {
   const { t } = useAppI18n();
   const containerRef = useRef<HTMLDivElement>(null);

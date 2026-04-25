@@ -13,6 +13,7 @@ import {
 import { useSessionStore, type ClaudeSession } from "../store/sessionStore";
 import { useSettingsStore, isGlassTheme } from "../store/settingsStore";
 import { useWorkbenchStore } from "../store/workbenchStore";
+import { syncWorkspaceToDaemon } from "../services/daemonCommands";
 
 // ── 常量 ─────────────────────────────────────────────────────
 const SUMMARY_ROW_H = 34;
@@ -58,6 +59,14 @@ function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
       });
     }
     invoke("trust_workspace", { path: trimmed }).catch(() => {});
+    void syncWorkspaceToDaemon({
+      id: workspaceId,
+      name: name.trim() || trimmed.split(/[\\/]/).filter(Boolean).pop() || trimmed,
+      path: trimmed,
+      color,
+      createdAt: Date.now(),
+      order: 0,
+    }).catch(() => {});
     onDone();
   };
 

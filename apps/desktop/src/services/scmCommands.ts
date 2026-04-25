@@ -4,6 +4,7 @@ import { useEditorStore } from "../store/editorStore";
 import { type ScmActionMode, type ScmEntryGroup, useScmStore } from "../store/scmStore";
 import { useSessionStore } from "../store/sessionStore";
 import { useWorkbenchStore } from "../store/workbenchStore";
+import { requestDangerousSessionAction } from "./daemonCommands";
 
 interface ConflictVersion {
   label: "base" | "ours" | "theirs" | "working";
@@ -105,19 +106,26 @@ export async function unstageScmFile(sessionId: string, path: string) {
 export async function discardScmFile(sessionId: string, path: string, mode: "staged" | "unstaged" | "untracked") {
   const session = getSession(sessionId);
   if (!session) return;
-  await withRefresh(sessionId, async () => {
-    await invoke("git_discard_file", { workdir: session.workdir, path, mode });
-  });
+  await requestDangerousSessionAction({
+    sessionId,
+    actionType: 'delete',
+    title: mode === 'untracked' ? 'Delete untracked file' : 'Discard file changes',
+    description: `${path} (${mode}) requires approval before discarding local changes.`,
+    payload: { path, mode },
+  }).catch(() => {});
 }
 
 export async function commitScm(sessionId: string) {
   const session = getSession(sessionId);
   if (!session) return;
   const message = useScmStore.getState().commitMessageBySessionId[sessionId] ?? "";
-  await withRefresh(sessionId, async () => {
-    await invoke("git_commit_staged", { workdir: session.workdir, message });
-  });
-  useScmStore.getState().setCommitMessage(sessionId, "");
+  await requestDangerousSessionAction({
+    sessionId,
+    actionType: 'write',
+    title: 'Commit staged changes',
+    description: `Committing staged changes requires approval. Message: ${message || '(empty)'}`,
+    payload: { message },
+  }).catch(() => {});
 }
 
 export async function stageAllScm(sessionId: string, paths?: string[]) {

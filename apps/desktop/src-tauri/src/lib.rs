@@ -1,5 +1,7 @@
 // ── 模块声明 ──────────────────────────────────────────────────────
 mod cli_detect;
+mod daemon_bridge;
+mod daemon_client;
 mod git;
 mod hooks;
 mod i18n;
@@ -79,6 +81,12 @@ pub fn run() {
         .setup(|app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Regular);
+
+            if let Err(error) = daemon_bridge::ensure_daemon_ready() {
+                eprintln!("[codebard] startup failed: {error}");
+            } else {
+                daemon_client::start_event_bridge(app.handle().clone());
+            }
 
             // 启动 CLI hook 接收器（Unix Socket / Windows Loopback TCP）
             hooks::start_hook_socket_servers(app.handle().clone());
@@ -238,6 +246,14 @@ pub fn run() {
             pty::send_pty_query,
             // 通知 & Hooks
             hooks::send_notification,
+            daemon_bridge::ensure_daemon_ready,
+            daemon_bridge::daemon_health_check,
+            daemon_bridge::daemon_upsert_workspace,
+            daemon_bridge::daemon_bind_provider_session,
+            daemon_bridge::daemon_write_pty,
+            daemon_bridge::daemon_resize_pty,
+            daemon_bridge::daemon_forward_provider_hook,
+            daemon_bridge::daemon_request,
             i18n::set_app_locale,
             hooks::setup_all_hooks,
             hooks::setup_claude_hooks,

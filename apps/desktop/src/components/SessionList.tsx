@@ -10,6 +10,7 @@ import { useWorkspaceStore, getWorkspaceColor } from "../store/workspaceStore";
 import { useSettingsStore, RUNNER_LABELS, sanitizeRunnerConfig, isGlassTheme } from "../store/settingsStore";
 import { useWorkbenchStore } from "../store/workbenchStore";
 import { showExplorer, showSessionSurface } from "../services/workbenchCommands";
+import { createDaemonSession, stopDaemonSession } from "../services/daemonCommands";
 
 // ── 状态配置（使用 CSS 变量）────────────────────────────────
 const STATUS_CONFIG: Record<SessionStatus, {
@@ -465,79 +466,40 @@ export function SessionList() {
   const handleNewSession = async () => {
     if (!activeWorkspace) return;
 
-    let id: string;
     if ("__TAURI_INTERNALS__" in window) {
       try {
-        id = await invoke<string>("reserve_session_id", {
-          workspaces: workspaces.map((workspace) => ({
-            workspaceId: workspace.id,
-            workspacePath: workspace.path,
-          })),
-          existingSessionIds: sessions.map((session) => session.id),
+        const created = await createDaemonSession({
+          workspace: activeWorkspace,
+          runnerType: runner.type,
         });
+        addSession(created.sessionId, activeWorkspace.id, created.worktree?.path ?? activeWorkspace.path, undefined, { ...runner });
+        useSessionStore.getState().updateSession(created.sessionId, {
+          workdir: created.worktree?.path ?? activeWorkspace.path,
+          worktreePath: created.worktree?.path,
+          branchName: created.worktree?.branchName,
+          baseBranch: created.worktree?.baseBranch,
+          taskId: created.taskId,
+        });
+        setActiveSession(created.sessionId);
+        setExpandedSession(created.sessionId);
+        focusSession(created.sessionId);
+        markWorktreeReady(created.sessionId);
+        return;
       } catch (e) {
-        console.warn("[ui-state] reserve session id failed:", e);
+        console.warn("[daemon] create session failed:", e);
         return;
       }
-    } else {
-      const maxId = sessions
-        .map((session) => Number(session.id))
-        .filter((value) => !Number.isNaN(value))
-        .reduce((max, value) => Math.max(max, value), 0);
-      id = String(maxId + 1);
     }
 
+    const maxId = sessions
+      .map((session) => Number(session.id))
+      .filter((value) => !Number.isNaN(value))
+      .reduce((max, value) => Math.max(max, value), 0);
+    const id = String(maxId + 1);
     addSession(id, activeWorkspace.id, activeWorkspace.path, undefined, { ...runner });
     setActiveSession(id);
     setExpandedSession(id);
     focusSession(id);
-
-    if ("__TAURI_INTERNALS__" in window) {
-      await invoke("clear_deleted_items", {
-        sessionIds: [id],
-        workspaceIds: [],
-        sessionRefs: [{ sessionId: id, workspaceId: activeWorkspace.id }],
-        workspaceRefs: [],
-      }).catch((e) => {
-        console.warn("[ui-state] clear deleted session failed:", e);
-      });
-      await invoke("remember_session_workdir", {
-        sessionId: id,
-        workdir: activeWorkspace.path,
-      }).catch((e) => {
-        console.warn("[session-files] remember workdir failed:", e);
-      });
-    }
-
-    if ("__TAURI_INTERNALS__" in window) {
-      try {
-        const result = await invoke<{
-          worktree_path: string;
-          branch: string;
-          base_branch: string;
-        } | null>("setup_session_worktree", {
-          workdir: activeWorkspace.path,
-          sessionId: id,
-        });
-
-        if (result) {
-          await invoke("remember_session_workdir", {
-            sessionId: id,
-            workdir: result.worktree_path,
-          }).catch((e) => {
-            console.warn("[session-files] remember worktree failed:", e);
-          });
-          useSessionStore.getState().updateSession(id, {
-            workdir: result.worktree_path,
-            worktreePath: result.worktree_path,
-            branchName: result.branch,
-            baseBranch: result.base_branch,
-          });
-        }
-      } catch (e) {
-        console.warn("[worktree] setup failed, fallback to workdir:", e);
-      }
-    }
     markWorktreeReady(id);
   };
 
@@ -545,6 +507,9 @@ export function SessionList() {
     setPendingDeleteSessionId(null);
 
     if ("__TAURI_INTERNALS__" in window) {
+      await stopDaemonSession(session.id).catch((e) => {
+        console.warn("[daemon] stop session failed:", e);
+      });
       await invoke("mark_deleted_items", {
         sessionIds: [session.id],
         workspaceIds: [],

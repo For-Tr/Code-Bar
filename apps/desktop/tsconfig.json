@@ -13,6 +13,11 @@
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "@codebar/contracts": ["../../packages/contracts/src/index.ts"],
+      "@codebar/contracts/*": ["../../packages/contracts/src/*"]
+    },
 
     /* Linting */
     "strict": true,
@@ -20,6 +25,6 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"],
+  "include": ["src", "../../packages/contracts/src"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

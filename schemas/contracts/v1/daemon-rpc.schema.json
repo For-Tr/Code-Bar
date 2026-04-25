@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codebar.dev/schemas/contracts/v1/daemon-rpc.schema.json",
+  "title": "CodeBar Daemon RPC Envelope",
+  "type": "object",
+  "required": ["id", "method", "params"],
+  "properties": {
+    "id": {
+      "type": ["string", "null"]
+    },
+    "method": {
+      "type": "string"
+    },
+    "params": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": true
+}

@@ -82,10 +82,7 @@ export function useSessionRunnerController({
     const send = () => {
       const query = pendingQueryRef.current?.trim();
       if (!query || !ptyReadyRef.current) return;
-      invoke("send_pty_query", {
-        sessionId: sessionIdRef.current,
-        query,
-      })
+      sendDaemonSessionInput(sessionIdRef.current, query)
         .then(() => {
           if (pendingQueryRef.current?.trim() === query) {
             pendingQueryRef.current = null;
@@ -114,6 +111,14 @@ export function useSessionRunnerController({
 
   const handlePtyReady = useCallback(() => {
     ptyReadyRef.current = true;
+    if (sessionIdRef.current) {
+      const session = useSessionStore.getState().sessions.find((item) => item.id === sessionIdRef.current);
+      if (session?.providerSessionId?.trim()) {
+        void resumeDaemonSession(sessionIdRef.current).catch(() => {});
+      } else {
+        void launchDaemonSession(sessionIdRef.current).catch(() => {});
+      }
+    }
     setLaunchPrompt(null);
     if (isWindows) {
       clearPendingQueryTimer();
@@ -132,20 +137,25 @@ export function useSessionRunnerController({
     flushPendingQuery(isWindows ? 120 : 0);
     if (s?.status === "waiting") return;
     updateSession(sid, { status: "waiting" });
+    void recordDaemonRuntimeLifecycle(sid, "waiting").catch(() => {});
     const taskName = s?.currentTask?.slice(0, 40) || t("session.genericTask");
     invoke("send_notification", {
       title: t("notifications.codeBarTitle"),
       body: t("session.waitingNextStepNotification", { task: taskName }),
       sessionId: sid,
     }).catch(() => {});
-  }, [flushPendingQuery, isWindows, updateSession]);
+  }, [flushPendingQuery, isWindows, updateSession, t]);
 
   const handlePtyRunning = useCallback(() => {
-    updateSession(sessionIdRef.current, { status: "running" });
+    const sid = sessionIdRef.current;
+    updateSession(sid, { status: "running" });
+    void recordDaemonRuntimeLifecycle(sid, "running").catch(() => {});
   }, [updateSession]);
 
   const handlePtyError = useCallback((error: string) => {
-    updateSession(sessionIdRef.current, { status: "error", currentTask: error });
+    const sid = sessionIdRef.current;
+    updateSession(sid, { status: "error", currentTask: error });
+    void recordDaemonRuntimeLifecycle(sid, "error", error).catch(() => {});
   }, [updateSession]);
 
   const cliCommand = getRunnerCliCommand(runner);
@@ -196,7 +206,7 @@ export function useSessionRunnerController({
     clearPendingQueryTimer();
     ptyReadyRef.current = false;
     pendingQueryRef.current = null;
-    invoke("stop_pty_session", { sessionId }).catch(() => {});
+    void stopDaemonSession(sessionId).catch(() => {});
     switchRunnerForSession(sessionId, type);
   }, [clearPendingQueryTimer, sessionId]);
 
@@ -274,6 +284,7 @@ export function useSessionRunnerController({
       if (payload.session_id !== sessionIdRef.current) return;
       setTimeout(() => {
         updateSession(sessionIdRef.current, { status: "done" });
+        void recordDaemonRuntimeLifecycle(sessionIdRef.current, "exit").catch(() => {});
         setQuerySent(false);
       }, 1200);
     });

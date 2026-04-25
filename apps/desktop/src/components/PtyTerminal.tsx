@@ -20,7 +20,7 @@ interface Props {
   onRunning?: () => void; // CLI 开始处理 query 时回调
   onError?: (error: string) => void; // API 错误中断回调
   onNotification?: (title: string, message: string, notification_type: string) => void; // CLI hook 通知回调
-  // 额外注入的环境变量，透传给 start_pty_session（如 CODE_BAR_* context 信息）
+  // 额外注入的环境变量，供 daemon 侧 runtime 启动时使用（如 CODE_BAR_* context 信息）
   env?: [string, string][];
 }
 
@@ -197,7 +197,7 @@ export function PtyTerminal({
     term.onData((data: string) => {
       const bytes = new TextEncoder().encode(data);
       const b64 = btoa(String.fromCharCode(...bytes));
-      invoke("write_pty", { sessionId, data: b64 }).catch(() => {});
+      invoke("daemon_write_pty", { sessionId, data: b64 }).catch(() => {});
     });
 
     return () => {
@@ -209,15 +209,12 @@ export function PtyTerminal({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
-  // runner/workdir 切换会通过 key 触发卸载；这里顺手停掉旧 PTY，避免旧 CLI 抢到下一条输入。
+  // runner/workdir 切换会通过 key 触发卸载；这里只清理本地 UI 启动标记，不主动停止 daemon runtime。
   useEffect(() => {
     return () => {
       if (!startedRef.current && !startingRef.current) return;
       startingRef.current = false;
       launchTokenRef.current += 1;
-      if (startedRef.current) {
-        invoke("stop_pty_session", { sessionId }).catch(() => {});
-      }
     };
   }, [sessionId]);
 
@@ -347,7 +344,7 @@ export function PtyTerminal({
     };
   }, [sessionId]);
 
-  // ── 启动 PTY 进程（仅第一次，之后常驻直到 exit）────────
+  // ── 标记 terminal 已就绪，真正 runtime 由 daemon 持有 ─────
   // 用 ref 保存最新的 args/onReady/env，避免加入依赖导致每次渲染重启
   const argsRef = useRef(args);
   argsRef.current = args;
@@ -393,20 +390,11 @@ export function PtyTerminal({
         : [command, ...launchArgs].join(" ");
       term?.writeln(`\x1b[90m$ ${displayCmd}\x1b[0m`);
 
-      invoke("start_pty_session", {
-        sessionId,
-        workdir,
-        command,
-        args: launchArgs,
-        cols,
-        rows,
-        env: envRef.current ?? null,
-      })
+      Promise.resolve()
         .then(() => {
           if (launchTokenRef.current !== launchToken) return;
           startedRef.current = true;
           startingRef.current = false;
-          // spawn 返回 = CLI 进程已启动（resolve_command_path 保证是完整路径直接 spawn）
           onReadyRef.current?.();
         })
         .catch((e) => {
@@ -445,15 +433,7 @@ export function PtyTerminal({
     const displayCmd = [command, ...argsRef.current].join(" ");
     term?.writeln(`\x1b[90m$ ${displayCmd}\x1b[0m`);
 
-    invoke("start_pty_session", {
-      sessionId,
-      workdir,
-      command,
-      args: argsRef.current,
-      cols,
-      rows,
-      env: envRef.current ?? null,
-    })
+    Promise.resolve()
       .then(() => {
         if (launchTokenRef.current !== launchToken) return;
         startedRef.current = true;
@@ -468,7 +448,7 @@ export function PtyTerminal({
       });
   };
 
-  // ── 可见时 fit + focus（重新展开时恢复焦点，不重启 PTY）──
+  // ── 可见时 fit + focus（重新展开时恢复焦点，不重启 daemon runtime）──
   useEffect(() => {
     if (!active) return;
     const t = setTimeout(() => {
@@ -476,7 +456,7 @@ export function PtyTerminal({
       const term = termRef.current;
       term?.focus();
       if (!term) return;
-      invoke("resize_pty", { sessionId, ...getClampedTerminalSize(term) }).catch(() => {});
+      invoke("daemon_resize_pty", { sessionId, ...getClampedTerminalSize(term) }).catch(() => {});
     }, 80);
     return () => clearTimeout(t);
   }, [active, sessionId]);
@@ -485,9 +465,9 @@ export function PtyTerminal({
   const activeRef = useRef(active);
   activeRef.current = active;
 
-  // ── ResizeObserver：自动 fit + 同步 PTY 大小给 Rust ─────
-  // 只有 active=true（面板可见）时才向 Rust 同步尺寸，
-  // 避免面板收起时窗口缩小导致 resize_pty 传入极小值使进程崩溃
+  // ── ResizeObserver：自动 fit + 同步 daemon PTY 大小 ─────
+  // 只有 active=true（面板可见）时才向 daemon 同步尺寸，
+  // 避免面板收起时窗口缩小导致 cols/rows 传入极小值
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -498,7 +478,7 @@ export function PtyTerminal({
       fit.fit();
       // 仅在面板可见时同步给 Rust，防止收起时 cols/rows 为 0 导致进程崩溃
       if (!activeRef.current) return;
-      invoke("resize_pty", { sessionId, ...getClampedTerminalSize(term) }).catch(() => {});
+      invoke("daemon_resize_pty", { sessionId, ...getClampedTerminalSize(term) }).catch(() => {});
     });
     ro.observe(el);
     return () => ro.disconnect();

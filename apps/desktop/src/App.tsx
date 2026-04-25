@@ -51,11 +51,6 @@ interface FrontendErrorLog {
   detail?: string | null;
 }
 
-interface BackfilledSessionBinding {
-  sessionId: string;
-  providerSessionId: string;
-}
-
 export default function App() {
   const { t } = useAppI18n();
   const {
@@ -731,6 +726,20 @@ export default function App() {
     });
   }, []);
 
+  // ── 启动时确保 daemon 可用并同步已存在工作区 ───────────────
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+
+    ensureDaemonReady()
+      .then(() => {
+        const workspaces = useWorkspaceStore.getState().workspaces;
+        workspaces.forEach((workspace) => {
+          void syncWorkspaceToDaemon(workspace).catch(() => {});
+        });
+      })
+      .catch(() => {});
+  }, []);
+
   // ── 启动时加载保存的 API Key ──────────────────────────────
   useEffect(() => {
     if (!("__TAURI_INTERNALS__" in window)) return;
@@ -751,7 +760,7 @@ export default function App() {
     });
   }, []);
 
-  // ── 启动时恢复缺失 session，并为已有旧 session 回填 provider resume 绑定 ──
+  // ── 启动时从 daemon 恢复 session 主状态 ─────────────────────
   useEffect(() => {
     if (!("__TAURI_INTERNALS__" in window)) return;
 
@@ -759,55 +768,51 @@ export default function App() {
 
     (async () => {
       const workspaces = useWorkspaceStore.getState().workspaces;
-      const workspaceInputs = workspaces.map((workspace) => ({
-        workspaceId: workspace.id,
-        workspacePath: workspace.path,
-      }));
-      const knownIds = new Set(useSessionStore.getState().sessions.map((s) => s.id));
-      const recovered = await invoke<ClaudeSession[]>("recover_workspace_sessions", {
-        workspaces: workspaceInputs,
-        existingSessionIds: [...knownIds],
-      }).catch(() => []);
-
+      const workspacePathById = Object.fromEntries(workspaces.map((workspace) => [workspace.id, workspace.path]));
+      const result = await listDaemonSessions().catch(() => ({ sessions: [] }));
       if (cancelled) return;
-      if (recovered.length > 0) {
-        useSessionStore.getState().mergeRecoveredSessions(recovered);
-      }
 
-      const backfillCandidates = useSessionStore
-        .getState()
-        .sessions
-        .filter((session) => {
-          if (!session.worktreePath?.trim()) return false;
-          if (session.providerSessionId?.trim()) return false;
-          return session.runner.type === "claude-code" || session.runner.type === "codex";
-        })
-        .map((session) => ({
-          sessionId: session.id,
-          runnerType: session.runner.type,
-          worktreePath: session.worktreePath ?? null,
-          providerSessionId: session.providerSessionId ?? null,
-        }));
-
-      if (backfillCandidates.length === 0) return;
-
-      const backfilled = await invoke<BackfilledSessionBinding[]>("backfill_workspace_session_bindings", {
-        sessions: backfillCandidates,
-      }).catch(() => []);
-
-      if (cancelled || backfilled.length === 0) return;
-
-      backfilled.forEach(({ sessionId, providerSessionId }) => {
-        const current = useSessionStore.getState().sessions.find((session) => session.id === sessionId);
-        if (!current || current.providerSessionId?.trim()) return;
-        updateSession(sessionId, { providerSessionId });
+      const daemonSessions = (result.sessions ?? []).map((session) => {
+        const provider = session.provider === 'codex' ? 'codex' : 'claude-code';
+        return mapDaemonSessionToUiSession({
+          session,
+          taskTitle: typeof session.taskId === 'string' ? `Task ${session.taskId}` : undefined,
+          workspacePathById,
+          runnerType: provider,
+        });
       });
+
+      if (daemonSessions.length > 0) {
+        useSessionStore.getState().mergeRecoveredSessions(daemonSessions);
+        daemonSessions.forEach((session) => {
+          void getDaemonNextAction(session.id)
+            .then((nextAction) => setNextAction(session.id, nextAction))
+            .catch(() => {});
+          void listDaemonApprovals(session.id)
+            .then((result) => {
+              const approvals = (result.requests ?? []).map((request) => ({
+                id: String(request.id ?? ''),
+                sessionId: String(request.sessionId ?? session.id),
+                taskId: String(request.taskId ?? ''),
+                actionType: String(request.actionType ?? ''),
+                title: String(request.title ?? ''),
+                description: String(request.description ?? ''),
+                status: String(request.status ?? ''),
+              }));
+              setApprovals(session.id, approvals);
+            })
+            .catch(() => {});
+          void getDaemonDiagnostics(session.id, session.taskId)
+            .then((diagnostics) => setDiagnostics(session.id, diagnostics))
+            .catch(() => {});
+        });
+      }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [updateSession]);
+  }, [setApprovals, setDiagnostics, setNextAction]);
 
   // ── 监听 Rust 侧事件 ──────────────────────────────────────
   useEffect(() => {
@@ -925,7 +930,6 @@ export default function App() {
           .getState()
           .sessions.find((x) => x.id === payload.session_id);
         const existing = session?.providerSessionId?.trim();
-        // 避免被“新建但空壳”的 provider 会话覆盖已有可恢复会话 ID
         if (existing && existing !== payload.provider_session_id) {
           return;
         }
@@ -941,6 +945,113 @@ export default function App() {
             worktreePath: session?.worktreePath ?? null,
           },
         }).catch(() => {});
+        void bindProviderSession(payload.session_id, payload.provider_session_id).catch(() => {});
+      }
+    );
+
+    const u8 = listen<Record<string, unknown>>(
+      "daemon-event",
+      ({ payload }) => {
+        const eventType = typeof payload.eventType === "string" ? payload.eventType : "";
+        const entityId = typeof payload.entityId === "string" ? payload.entityId : "";
+        const eventPayload = payload.payload as Record<string, unknown> | undefined;
+        if (!eventType || !entityId || !eventPayload) return;
+
+        if (eventType === "session.provider_bound") {
+          const providerSessionId = typeof eventPayload.providerSessionId === "string"
+            ? eventPayload.providerSessionId
+            : undefined;
+          if (providerSessionId) {
+            updateSession(entityId, { providerSessionId });
+          }
+        }
+
+        if (eventType === "session.launched" || eventType === "session.resumed") {
+          updateSession(entityId, { status: "running" });
+        }
+
+        if (eventType === "session.input_sent" || eventType === "session.runtime_running") {
+          updateSession(entityId, { status: "running" });
+        }
+
+        if (eventType === "session.runtime_waiting") {
+          updateSession(entityId, { status: "waiting" });
+        }
+
+        if (eventType === "session.runtime_error") {
+          const message = typeof eventPayload.message === "string" ? eventPayload.message : undefined;
+          updateSession(entityId, { status: "error", currentTask: message });
+        }
+
+        if (eventType === "session.runtime_exit") {
+          updateSession(entityId, { status: "done" });
+        }
+
+        if (eventType === "approval.resolved") {
+          const approval = eventPayload.approval as Record<string, unknown> | undefined
+          const approvalSessionId = typeof approval?.sessionId === 'string' ? approval.sessionId : undefined
+          const executionMessage = typeof (eventPayload.execution as Record<string, unknown> | undefined)?.message === 'string'
+            ? (eventPayload.execution as Record<string, unknown>).message as string
+            : undefined
+          if (approvalSessionId) {
+            if (executionMessage) {
+              setDiagnostics(approvalSessionId, {
+                summary: executionMessage,
+                files: diagnosticsBySessionId[approvalSessionId]?.files ?? [],
+                lastExecutionMessage: executionMessage,
+                recoveryDetail: diagnosticsBySessionId[approvalSessionId]?.recoveryDetail,
+              })
+            }
+            const refreshedSession = useSessionStore.getState().sessions.find((session) => session.id === approvalSessionId)
+            if (refreshedSession) {
+              refreshSessionDiff(approvalSessionId)
+              void getDaemonNextAction(approvalSessionId)
+                .then((nextAction) => setNextAction(approvalSessionId, nextAction))
+                .catch(() => {})
+              void getDaemonDiagnostics(approvalSessionId, refreshedSession.taskId)
+                .then((diagnostics) => setDiagnostics(approvalSessionId, {
+                  ...diagnostics,
+                  lastExecutionMessage: executionMessage ?? diagnosticsBySessionId[approvalSessionId]?.lastExecutionMessage,
+                  recoveryDetail: diagnostics.summary.includes('recovery:') ? diagnostics.summary : diagnosticsBySessionId[approvalSessionId]?.recoveryDetail,
+                }))
+                .catch(() => {})
+              void listDaemonApprovals(approvalSessionId)
+                .then((result) => setApprovals(
+                  approvalSessionId,
+                  (result.requests ?? []).map((request) => ({
+                    id: String(request.id ?? ''),
+                    sessionId: String(request.sessionId ?? approvalSessionId),
+                    taskId: String(request.taskId ?? ''),
+                    actionType: String(request.actionType ?? ''),
+                    title: String(request.title ?? ''),
+                    description: String(request.description ?? ''),
+                    status: String(request.status ?? ''),
+                  }))
+                ))
+                .catch(() => {})
+            }
+          }
+        }
+
+        if (eventType === "session.stopped") {
+          updateSession(entityId, { status: "error" });
+        }
+
+        if (eventType === "session.recovered") {
+          const recoveryReason = typeof (eventPayload.recovery as Record<string, unknown> | undefined)?.reason === 'string'
+            ? (eventPayload.recovery as Record<string, unknown>).reason as string
+            : 'recovered'
+          updateSession(entityId, { status: "suspended", currentTask: `Recovery: ${recoveryReason}` });
+          const recoveredSession = useSessionStore.getState().sessions.find((session) => session.id === entityId)
+          if (recoveredSession) {
+            void getDaemonDiagnostics(entityId, recoveredSession.taskId)
+              .then((diagnostics) => setDiagnostics(entityId, {
+                ...diagnostics,
+                recoveryDetail: diagnostics.summary,
+              }))
+              .catch(() => {})
+          }
+        }
       }
     );
 

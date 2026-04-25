@@ -55,7 +55,7 @@ export interface SplitWidgetTerminalTab {
 
 interface SplitWidgetCanvasItemBase {
   id: string;
-  type: "terminal" | "usage";
+  type: "terminal" | "usage" | "orchestration";
   col: number;
   row: number;
   colSpan: number;
@@ -73,7 +73,11 @@ export interface SplitWidgetUsageItem extends SplitWidgetCanvasItemBase {
   type: "usage";
 }
 
-export type SplitWidgetCanvasItem = SplitWidgetTerminalItem | SplitWidgetUsageItem;
+export interface SplitWidgetOrchestrationItem extends SplitWidgetCanvasItemBase {
+  type: "orchestration";
+}
+
+export type SplitWidgetCanvasItem = SplitWidgetTerminalItem | SplitWidgetUsageItem | SplitWidgetOrchestrationItem;
 
 export interface SplitWidgetCanvas {
   cellSize: number;
@@ -116,8 +120,20 @@ function createDefaultUsageWidget(): SplitWidgetUsageItem {
   };
 }
 
+function createDefaultOrchestrationWidget(): SplitWidgetOrchestrationItem {
+  return {
+    id: "orchestration-widget-1",
+    type: "orchestration",
+    col: 2,
+    row: 30,
+    colSpan: 18,
+    rowSpan: 10,
+    visible: true,
+  };
+}
+
 function createDefaultSplitWidgetItems(): SplitWidgetCanvasItem[] {
-  return [createDefaultTerminalWidget(), createDefaultUsageWidget()];
+  return [createDefaultTerminalWidget(), createDefaultUsageWidget(), createDefaultOrchestrationWidget()];
 }
 
 function normalizeSplitWidgetTerminalTab(tab: unknown, index: number): SplitWidgetTerminalTab | null {
@@ -137,7 +153,7 @@ function normalizeSplitWidgetTerminalTab(tab: unknown, index: number): SplitWidg
 function normalizeSplitWidgetCanvasItem(item: unknown): SplitWidgetCanvasItem | null {
   if (!item || typeof item !== "object") return null;
   const candidate = item as Partial<SplitWidgetCanvasItem>;
-  if (candidate.type !== "terminal" && candidate.type !== "usage") return null;
+  if (candidate.type !== "terminal" && candidate.type !== "usage" && candidate.type !== "orchestration") return null;
   if (!candidate.id || typeof candidate.id !== "string") return null;
   const base = {
     id: candidate.id,
@@ -186,6 +202,10 @@ export function normalizeSplitWidgetCanvas(canvas: unknown): SplitWidgetCanvas {
 
   if (!normalizedItems.some((item) => item.type === "usage")) {
     normalizedItems.push(createDefaultUsageWidget());
+  }
+
+  if (!normalizedItems.some((item) => item.type === "orchestration")) {
+    normalizedItems.push(createDefaultOrchestrationWidget());
   }
 
   return {

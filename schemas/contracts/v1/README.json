@@ -1,0 +1,7 @@
+{
+  "description": "Canonical schema snapshot directory for shared contracts v1",
+  "artifacts": [
+    "Rust serde snapshot tests validate representative payload serialization",
+    "TypeScript fixture tests validate matching surface types"
+  ]
+}

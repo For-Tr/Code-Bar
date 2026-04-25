@@ -8,6 +8,7 @@ import { WorkflowPanel } from "../components/workflow/WorkflowPanel";
 import { sanitizeRunnerConfig, useSettingsStore } from "../store/settingsStore";
 import { useWorkspaceStore } from "../store/workspaceStore";
 import { useWorkbenchStore } from "../store/workbenchStore";
+import { createDaemonSession, syncWorkspaceToDaemon } from "../services/daemonCommands";
 import { useSessionStore, type ClaudeSession } from "../store/sessionStore";
 
 function WelcomeAction({ label, accent = false, onClick }: { label: string; accent?: boolean; onClick: () => void }) {
@@ -135,72 +136,52 @@ function WorkbenchWelcome({ session }: { session: ClaudeSession | null }) {
       workspaceRefs: [{ workspaceId, path: trimmed }],
     }).catch(() => {});
     await invoke("trust_workspace", { path: trimmed }).catch(() => {});
+    void syncWorkspaceToDaemon({
+      id: workspaceId,
+      name: trimmed.split(/[\\/]/).filter(Boolean).pop() || trimmed,
+      path: trimmed,
+      color: "blue",
+      createdAt: Date.now(),
+      order: 0,
+    }).catch(() => {});
   };
 
   const handleNewSession = async () => {
     if (!activeWorkspace) return;
 
-    let id: string;
     if ("__TAURI_INTERNALS__" in window) {
       try {
-        id = await invoke<string>("reserve_session_id", {
-          workspaces: workspaces.map((workspace) => ({
-            workspaceId: workspace.id,
-            workspacePath: workspace.path,
-          })),
-          existingSessionIds: sessions.map((item) => item.id),
+        const created = await createDaemonSession({
+          workspace: activeWorkspace,
+          runnerType: runner.type,
         });
+        addSession(created.sessionId, activeWorkspace.id, created.worktree?.path ?? activeWorkspace.path, undefined, { ...runner });
+        useSessionStore.getState().updateSession(created.sessionId, {
+          workdir: created.worktree?.path ?? activeWorkspace.path,
+          worktreePath: created.worktree?.path,
+          branchName: created.worktree?.branchName,
+          baseBranch: created.worktree?.baseBranch,
+          taskId: created.taskId,
+        });
+        setActiveSession(created.sessionId);
+        setExpandedSession(created.sessionId);
+        focusSession(created.sessionId);
+        markWorktreeReady(created.sessionId);
+        return;
       } catch {
         return;
       }
-    } else {
-      const maxId = sessions
-        .map((item) => Number(item.id))
-        .filter((value) => !Number.isNaN(value))
-        .reduce((max, value) => Math.max(max, value), 0);
-      id = String(maxId + 1);
     }
 
+    const maxId = sessions
+      .map((item) => Number(item.id))
+      .filter((value) => !Number.isNaN(value))
+      .reduce((max, value) => Math.max(max, value), 0);
+    const id = String(maxId + 1);
     addSession(id, activeWorkspace.id, activeWorkspace.path, undefined, { ...runner });
     setActiveSession(id);
     setExpandedSession(id);
     focusSession(id);
-
-    if ("__TAURI_INTERNALS__" in window) {
-      await invoke("clear_deleted_items", {
-        sessionIds: [id],
-        workspaceIds: [],
-        sessionRefs: [{ sessionId: id, workspaceId: activeWorkspace.id }],
-        workspaceRefs: [],
-      }).catch(() => {});
-      await invoke("remember_session_workdir", {
-        sessionId: id,
-        workdir: activeWorkspace.path,
-      }).catch(() => {});
-      try {
-        const result = await invoke<{
-          worktree_path: string;
-          branch: string;
-          base_branch: string;
-        } | null>("setup_session_worktree", {
-          workdir: activeWorkspace.path,
-          sessionId: id,
-        });
-        if (result) {
-          await invoke("remember_session_workdir", {
-            sessionId: id,
-            workdir: result.worktree_path,
-          }).catch(() => {});
-          useSessionStore.getState().updateSession(id, {
-            workdir: result.worktree_path,
-            worktreePath: result.worktree_path,
-            branchName: result.branch,
-            baseBranch: result.base_branch,
-          });
-        }
-      } catch {}
-    }
-
     markWorktreeReady(id);
   };
 

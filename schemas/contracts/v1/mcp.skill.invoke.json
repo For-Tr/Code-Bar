@@ -1,0 +1,29 @@
+{
+  "input": {
+    "sessionId": "sess_123",
+    "stepId": "step_001",
+    "skill": "contracts.generate",
+    "input": {
+      "target": "domain"
+    }
+  },
+  "output": {
+    "summary": "Generated shared contract artifacts",
+    "result": {
+      "files": [
+        "crates/codebar-contracts/src/domain.rs",
+        "packages/contracts/src/domain.ts"
+      ]
+    },
+    "artifacts": [
+      {
+        "type": "file",
+        "uri": "file:///workspace/repo/crates/codebar-contracts/src/domain.rs"
+      },
+      {
+        "type": "file",
+        "uri": "file:///workspace/repo/packages/contracts/src/domain.ts"
+      }
+    ]
+  }
+}

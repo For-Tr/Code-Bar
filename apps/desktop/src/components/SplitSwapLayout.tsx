@@ -13,6 +13,7 @@ import { useAppI18n } from "../i18n";
 import { PtyTerminal } from "./PtyTerminal";
 import { SessionDetail } from "./SessionDetail";
 import { UsageWidgetCard } from "./UsageWidgetCard";
+import { OrchestrationPanel } from "./OrchestrationPanel";
 import {
   useSettingsStore,
   type SplitWidgetCanvasItem,
@@ -95,6 +96,12 @@ type SplitDisplayItem =
       kind: "usage";
       title: string;
       widget: Extract<SplitWidgetCanvasItem, { type: "usage" }>;
+    }
+  | {
+      id: string;
+      kind: "orchestration";
+      title: string;
+      widget: Extract<SplitWidgetCanvasItem, { type: "orchestration" }>;
     };
 
 interface SplitSwapContextValue {
@@ -251,6 +258,10 @@ function SplitSwapItemPortal({
     return createPortal(<TerminalWidgetBody itemId={item.id} />, container, item.id);
   }
 
+  if (item.kind === "orchestration") {
+    return createPortal(<OrchestrationPanel />, container, item.id);
+  }
+
   return createPortal(<UsageWidgetCard />, container, item.id);
 }
 
@@ -292,6 +303,15 @@ export function SplitSwapProvider({
           id: item.id,
           kind: "terminal",
           title: terminalTitle || t("split.terminal"),
+          widget: item,
+        });
+        return;
+      }
+      if (item.type === "orchestration") {
+        next.set(item.id, {
+          id: item.id,
+          kind: "orchestration",
+          title: "Orchestration",
           widget: item,
         });
         return;
@@ -554,7 +574,7 @@ export function SplitDetailHost() {
       }}>
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ fontSize: 10, color: "var(--ci-text-dim)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-            {item.kind === "session-detail" ? t("split.detailTitleSession") : item.kind === "terminal" ? t("split.detailTitleTerminal") : t("split.detailTitleWidget")}
+            {item.kind === "session-detail" ? t("split.detailTitleSession") : item.kind === "terminal" ? t("split.detailTitleTerminal") : item.kind === "orchestration" ? "Orchestration" : t("split.detailTitleWidget")}
           </div>
           <div style={{
             marginTop: 2,

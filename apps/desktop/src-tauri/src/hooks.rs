@@ -4,8 +4,9 @@ use std::path::PathBuf;
 
 use serde_json::{Map, Value};
 use serde::Serialize;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
+use crate::provider_hook_bridge::{forward_provider_hook_to_daemon, HookBridgeProvider};
 use crate::provider_sessions::emit_provider_session_bound;
 use crate::session_lifecycle::{
     emit_session_lifecycle, HookSource, SessionLifecycleSignal, SessionRoutingHint,
@@ -1112,6 +1113,16 @@ fn dispatch_hook_event(app: &tauri::AppHandle, source: HookSource, json: &Value)
     match source {
         HookSource::ClaudeCode => match event_name {
             "UserPromptSubmit" => {
+                if let Some(provider_session_id) = forward_provider_hook_to_daemon(HookBridgeProvider::ClaudeCode, json) {
+                    let _ = app.emit(
+                        "provider-session-bound",
+                        serde_json::json!({
+                            "session_id": routing.code_bar_session_id.clone(),
+                            "runner_type": "claude-code",
+                            "provider_session_id": provider_session_id,
+                        }),
+                    );
+                }
                 emit_provider_session_bound(app, &routing, json);
                 emit_session_lifecycle(app, routing, SessionLifecycleSignal::Running);
             }
@@ -1169,6 +1180,16 @@ fn dispatch_hook_event(app: &tauri::AppHandle, source: HookSource, json: &Value)
                 }
             }
             "UserPromptSubmit" => {
+                if let Some(provider_session_id) = forward_provider_hook_to_daemon(HookBridgeProvider::Codex, json) {
+                    let _ = app.emit(
+                        "provider-session-bound",
+                        serde_json::json!({
+                            "session_id": routing.code_bar_session_id.clone(),
+                            "runner_type": "codex",
+                            "provider_session_id": provider_session_id,
+                        }),
+                    );
+                }
                 emit_provider_session_bound(app, &routing, json);
                 emit_session_lifecycle(app, routing, SessionLifecycleSignal::Running);
             }
