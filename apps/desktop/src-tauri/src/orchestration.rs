@@ -61,6 +61,42 @@ pub struct WorkflowDiagnosticsUpdatedEvent {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct WorkflowActionAppliedEvent {
+    pub action: String,
+    pub task_id: String,
+    pub session_id: Option<String>,
+    pub step_id: Option<String>,
+    pub approval_id: Option<String>,
+    pub reason: Option<String>,
+    pub revision: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkflowExecutionRequestedEvent {
+    pub action: String,
+    pub task_id: String,
+    pub session_id: String,
+    pub step_id: Option<String>,
+    pub lease_token: Option<String>,
+    pub prompt: Option<String>,
+    pub revision: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkflowAutoContinueDecisionEvent {
+    pub state: String,
+    pub reason: String,
+    pub detail: Option<String>,
+    pub task_id: String,
+    pub session_id: Option<String>,
+    pub step_id: Option<String>,
+    pub revision: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WorkflowNextActionResponse {
     pub task_id: String,
     pub next_action: TaskDagNextAction,
@@ -154,6 +190,25 @@ pub fn orchestration_claim_step(
             },
         )
     };
+    emit_action_applied(
+        &app,
+        &runtime,
+        "claim",
+        &task_id,
+        Some(input.session_id.as_str()),
+        Some(response.step_id.as_str()),
+        None,
+        None,
+    );
+    decide_and_emit_execution_handoff(
+        &app,
+        &runtime,
+        "claim",
+        &task_id,
+        Some(input.session_id.as_str()),
+        Some(response.step_id.as_str()),
+        Some(response.lease_token.as_str()),
+    );
     emit_snapshot_events(&app, &runtime, &task_id, Some(input.session_id.as_str()))?;
     Ok(response)
 }
@@ -184,6 +239,16 @@ pub fn orchestration_update_step_progress(
             .map(|session| session.task_id.clone())
             .ok_or_else(|| "session not found".to_string())?
     };
+    emit_action_applied(
+        &app,
+        &runtime,
+        "update_progress",
+        &task_id,
+        Some(input.session_id.as_str()),
+        Some(input.step_id.as_str()),
+        None,
+        None,
+    );
     emit_snapshot_events(&app, &runtime, &task_id, Some(input.session_id.as_str()))
 }
 
@@ -193,9 +258,9 @@ pub fn orchestration_complete_step(
     runtime: State<'_, OrchestrationRuntime>,
     input: CompleteWorkflowStepRequest,
 ) -> Result<(), String> {
-    let task_id = {
+    let (task_id, next_step_id) = {
         let mut state = runtime.state.lock().map_err(|e| e.to_string())?;
-        runtime
+        let result = runtime
             .engine
             .complete_step(
                 &mut state,
@@ -206,12 +271,32 @@ pub fn orchestration_complete_step(
                 &now_ts(),
             )
             .map_err(|e| e.to_string())?;
-        state
+        let task_id = state
             .sessions
             .get(&input.session_id)
             .map(|session| session.task_id.clone())
-            .ok_or_else(|| "session not found".to_string())?
+            .ok_or_else(|| "session not found".to_string())?;
+        (task_id, result.next_step_id)
     };
+    emit_action_applied(
+        &app,
+        &runtime,
+        "complete",
+        &task_id,
+        Some(input.session_id.as_str()),
+        Some(input.step_id.as_str()),
+        None,
+        None,
+    );
+    decide_and_emit_execution_handoff(
+        &app,
+        &runtime,
+        "complete",
+        &task_id,
+        Some(input.session_id.as_str()),
+        next_step_id.as_deref(),
+        None,
+    );
     emit_snapshot_events(&app, &runtime, &task_id, Some(input.session_id.as_str()))
 }
 
@@ -239,6 +324,16 @@ pub fn orchestration_block_step(
             .map(|session| session.task_id.clone())
             .ok_or_else(|| "session not found".to_string())?
     };
+    emit_action_applied(
+        &app,
+        &runtime,
+        "block",
+        &task_id,
+        Some(input.session_id.as_str()),
+        Some(input.step_id.as_str()),
+        None,
+        Some(input.reason.as_str()),
+    );
     emit_snapshot_events(&app, &runtime, &task_id, Some(input.session_id.as_str()))
 }
 
@@ -296,6 +391,25 @@ pub fn orchestration_resolve_approval(
         approval.resolved_at = Some(now_ts());
         approval.task_id.clone()
     };
+    emit_action_applied(
+        &app,
+        &runtime,
+        "resolve_approval",
+        &task_id,
+        input.session_id.as_deref(),
+        None,
+        Some(input.approval_id.as_str()),
+        None,
+    );
+    decide_and_emit_execution_handoff(
+        &app,
+        &runtime,
+        "resolve_approval",
+        &task_id,
+        input.session_id.as_deref(),
+        None,
+        None,
+    );
     emit_snapshot_events(&app, &runtime, &task_id, input.session_id.as_deref())
 }
 
@@ -422,8 +536,136 @@ fn sync_desktop_session_into_orchestrator(
         },
     );
 
+    ensure_open_session_plan(state, input, &task_id, session_id, worktree_id.as_deref(), &now);
     ensure_task_attach_event(state, &task_id, session_id, &now, input.provider_session_id.clone());
     Ok(task_id)
+}
+
+fn ensure_open_session_plan(
+    state: &mut OrchestrationState,
+    input: &AttachWorkflowSessionRequest,
+    task_id: &str,
+    session_id: &str,
+    _worktree_id: Option<&str>,
+    now: &str,
+) {
+    let plan_id = format!("plan-{session_id}");
+    let step_id = format!("step-{session_id}-open");
+
+    state.plans.insert(
+        plan_id.clone(),
+        task_orchestrator::Plan {
+            id: plan_id.clone(),
+            task_id: task_id.to_string(),
+            mode: PlanMode::Open,
+            status: PlanStatus::Active,
+            created_at: now.to_string(),
+            updated_at: now.to_string(),
+        },
+    );
+
+    if let Some(task) = state.tasks.get_mut(task_id) {
+        task.active_plan_id = Some(plan_id.clone());
+        task.updated_at = now.to_string();
+    }
+
+    let provider = map_provider_from_contract(input.provider.clone());
+    let current_status = input.session_status.as_deref();
+    let existing_step = state.steps.get(&step_id).cloned();
+    let preserved_status = existing_step.as_ref().map(|step| step.status);
+    let preserved_lease_owner = existing_step.as_ref().and_then(|step| step.lease_owner_session_id.clone());
+    let preserved_lease_token = existing_step.as_ref().and_then(|step| step.lease_token.clone());
+    let preserved_lease_expires_at = existing_step.as_ref().and_then(|step| step.lease_expires_at.clone());
+
+    let step_status = derive_open_step_status(
+        preserved_status,
+        preserved_lease_owner.as_deref(),
+        current_status,
+    );
+
+    state.steps.insert(
+        step_id.clone(),
+        PlanStep {
+            id: step_id.clone(),
+            plan_id: plan_id.clone(),
+            title: input
+                .current_task
+                .clone()
+                .filter(|value| !value.trim().is_empty())
+                .or_else(|| input.session_name.clone())
+                .unwrap_or_else(|| "Continue attached session".into()),
+            description: Some(build_open_step_description(input)),
+            status: step_status,
+            depends_on: vec![],
+            parallelizable: false,
+            required_skills: vec![],
+            allowed_providers: Some(vec![provider]),
+            lease_owner_session_id: preserved_lease_owner,
+            lease_token: preserved_lease_token,
+            lease_expires_at: preserved_lease_expires_at,
+            created_at: existing_step
+                .as_ref()
+                .map(|step| step.created_at.clone())
+                .unwrap_or_else(|| now.to_string()),
+            updated_at: now.to_string(),
+        },
+    );
+
+    if let Some(session) = state.sessions.get_mut(session_id) {
+        session.current_step_id = if matches!(
+            step_status,
+            PlanStepStatus::Pending | PlanStepStatus::Claimed | PlanStepStatus::Running
+        ) {
+            Some(step_id)
+        } else {
+            None
+        };
+        session.updated_at = now.to_string();
+    }
+}
+
+fn derive_open_step_status(
+    existing_status: Option<PlanStepStatus>,
+    lease_owner_session_id: Option<&str>,
+    session_status: Option<&str>,
+) -> PlanStepStatus {
+    if matches!(existing_status, Some(PlanStepStatus::Completed | PlanStepStatus::Blocked)) {
+        return existing_status.unwrap();
+    }
+
+    if lease_owner_session_id.is_some()
+        || matches!(existing_status, Some(PlanStepStatus::Claimed | PlanStepStatus::Running))
+    {
+        return existing_status.unwrap_or(PlanStepStatus::Running);
+    }
+
+    match session_status.unwrap_or_default() {
+        "done" => PlanStepStatus::Completed,
+        "error" => PlanStepStatus::Blocked,
+        _ => PlanStepStatus::Pending,
+    }
+}
+
+fn build_open_step_description(input: &AttachWorkflowSessionRequest) -> String {
+    let mut parts = Vec::new();
+    if let Some(branch) = input.branch_name.as_deref().filter(|value| !value.trim().is_empty()) {
+        parts.push(format!("branch {branch}"));
+    }
+    if let Some(base_branch) = input.base_branch.as_deref().filter(|value| !value.trim().is_empty()) {
+        parts.push(format!("base {base_branch}"));
+    }
+    if let Some(worktree_path) = input
+        .worktree_path
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        parts.push(format!("worktree {worktree_path}"));
+    }
+    if parts.is_empty() {
+        "Continue work in attached session.".into()
+    } else {
+        format!("Continue work in attached session from {}.", parts.join(", "))
+    }
 }
 
 fn ensure_task_attach_event(
@@ -461,6 +703,132 @@ fn ensure_task_attach_event(
         ]),
         created_at: now.to_string(),
     });
+}
+
+fn emit_auto_continue_decision(
+    app: &AppHandle,
+    runtime: &OrchestrationRuntime,
+    state: &str,
+    reason: &str,
+    detail: Option<String>,
+    task_id: &str,
+    session_id: Option<&str>,
+    step_id: Option<&str>,
+) {
+    let event = WorkflowAutoContinueDecisionEvent {
+        state: state.to_string(),
+        reason: reason.to_string(),
+        detail,
+        task_id: task_id.to_string(),
+        session_id: session_id.map(ToOwned::to_owned),
+        step_id: step_id.map(ToOwned::to_owned),
+        revision: runtime.current_revision(),
+    };
+    let _ = app.emit("workflow-auto-continue-decision", event);
+}
+
+fn emit_execution_requested(
+    app: &AppHandle,
+    runtime: &OrchestrationRuntime,
+    action: &str,
+    task_id: &str,
+    session_id: &str,
+    step_id: Option<&str>,
+    lease_token: Option<&str>,
+    prompt: Option<String>,
+) {
+    let event = WorkflowExecutionRequestedEvent {
+        action: action.to_string(),
+        task_id: task_id.to_string(),
+        session_id: session_id.to_string(),
+        step_id: step_id.map(ToOwned::to_owned),
+        lease_token: lease_token.map(ToOwned::to_owned),
+        prompt,
+        revision: runtime.current_revision(),
+    };
+    let _ = app.emit("workflow-execution-requested", event);
+}
+
+fn decide_and_emit_execution_handoff(
+    app: &AppHandle,
+    runtime: &OrchestrationRuntime,
+    action: &str,
+    task_id: &str,
+    session_id: Option<&str>,
+    step_id: Option<&str>,
+    lease_token: Option<&str>,
+) {
+    let Some(session_id) = session_id else {
+        emit_auto_continue_decision(
+            app,
+            runtime,
+            "stopped",
+            "session_missing",
+            Some("No session is attached for execution handoff.".into()),
+            task_id,
+            None,
+            step_id,
+        );
+        return;
+    };
+
+    let prompt = build_workflow_execution_prompt(runtime, session_id, step_id);
+    if prompt.is_none() {
+        emit_auto_continue_decision(
+            app,
+            runtime,
+            "stopped",
+            "prompt_unavailable",
+            Some("No runnable next action could be converted into a prompt.".into()),
+            task_id,
+            Some(session_id),
+            step_id,
+        );
+        return;
+    }
+
+    emit_auto_continue_decision(
+        app,
+        runtime,
+        "continued",
+        "next_step_ready",
+        Some("A runnable next step was resolved and handed off for execution.".into()),
+        task_id,
+        Some(session_id),
+        step_id,
+    );
+    emit_execution_requested(
+        app,
+        runtime,
+        action,
+        task_id,
+        session_id,
+        step_id,
+        lease_token,
+        prompt,
+    );
+}
+
+fn emit_action_applied(
+    app: &AppHandle,
+    runtime: &OrchestrationRuntime,
+    action: &str,
+    task_id: &str,
+    session_id: Option<&str>,
+    step_id: Option<&str>,
+    approval_id: Option<&str>,
+    reason: Option<&str>,
+) {
+    let event = WorkflowActionAppliedEvent {
+        action: action.to_string(),
+        task_id: task_id.to_string(),
+        session_id: session_id.map(ToOwned::to_owned),
+        step_id: step_id.map(ToOwned::to_owned),
+        approval_id: approval_id.map(ToOwned::to_owned),
+        reason: reason.map(ToOwned::to_owned),
+        revision: runtime.current_revision(),
+    };
+    let _ = app.emit("workflow-action-applied", event);
 }
 
 fn emit_snapshot_events(
@@ -649,7 +1017,7 @@ fn project_nodes(
                 }),
                 latest_progress_summary: step.lease_token.as_ref().map(|_| "Leased for execution".to_string()),
                 recommended_next_actions: next_actions,
-                metadata: Some(step_runtime_metadata(step)),
+                metadata: Some(step_runtime_metadata(step, active_session, task)),
             }),
         }));
     }
@@ -783,7 +1151,11 @@ fn project_diagnostics(
     diagnostics
 }
 
-fn step_runtime_metadata(step: &PlanStep) -> WorkflowMetadata {
+fn step_runtime_metadata(
+    step: &PlanStep,
+    active_session: Option<&Session>,
+    task: &Task,
+) -> WorkflowMetadata {
     let mut metadata = BTreeMap::new();
     metadata.insert("updatedAt".into(), Value::String(step.updated_at.clone()));
     metadata.insert(
@@ -797,6 +1169,20 @@ fn step_runtime_metadata(step: &PlanStep) -> WorkflowMetadata {
                 .collect(),
         ),
     );
+    if step.id.contains("-open") {
+        metadata.insert("synthetic".into(), Value::Bool(true));
+        metadata.insert(
+            "source".into(),
+            Value::String("attached_session_open_mode".into()),
+        );
+        metadata.insert("taskPrompt".into(), Value::String(task.prompt.clone()));
+        if let Some(session) = active_session {
+            metadata.insert(
+                "sessionState".into(),
+                Value::String(format!("{:?}", session.state)),
+            );
+        }
+    }
     metadata
 }
 
@@ -991,6 +1377,101 @@ fn map_session_state(state: SessionState) -> TaskDagSessionState {
         SessionState::Failed => TaskDagSessionState::Failed,
         SessionState::Cancelled | SessionState::Archived => TaskDagSessionState::Stopped,
     }
+}
+
+fn workflow_execution_context_for_session(
+    runtime: &OrchestrationRuntime,
+    session_id: &str,
+    step_id: Option<&str>,
+) -> Option<(NextActionView, Session, Task, Option<PlanStep>, Option<Worktree>)> {
+    let mut state = runtime.state.lock().ok()?;
+    let next = runtime.engine.get_next_action(&mut state, session_id, &now_ts()).ok()?;
+    let session = state.sessions.get(session_id)?.clone();
+    let task = state.tasks.get(&session.task_id)?.clone();
+    let step = step_id
+        .and_then(|id| state.steps.get(id).cloned())
+        .or_else(|| next.step.as_ref().and_then(|step| state.steps.get(&step.id).cloned()));
+    let worktree = session
+        .worktree_id
+        .as_deref()
+        .and_then(|id| state.worktrees.get(id).cloned());
+    Some((next, session, task, step, worktree))
+}
+
+fn build_workflow_execution_prompt(
+    runtime: &OrchestrationRuntime,
+    session_id: &str,
+    step_id: Option<&str>,
+) -> Option<String> {
+    let (next, session, task, step, worktree) = workflow_execution_context_for_session(runtime, session_id, step_id)?;
+    let step_view = next.step.as_ref();
+    if let Some(step_id) = step_id {
+        if step_view.map(|step| step.id.as_str()) != Some(step_id) {
+            return None;
+        }
+    }
+
+    let mut lines = Vec::new();
+    let step_title = step_view.map(|step| step.title.as_str()).or_else(|| step.as_ref().map(|item| item.title.as_str()));
+    let step_description = step_view
+        .and_then(|step| step.description.as_deref())
+        .or_else(|| step.as_ref().and_then(|item| item.description.as_deref()));
+    let is_synthetic = step
+        .as_ref()
+        .map(|item| item.id.contains("-open"))
+        .unwrap_or(false);
+
+    if is_synthetic {
+        lines.push("Continue the attached session and advance the current workflow task.".to_string());
+    } else if let Some(title) = step_title {
+        lines.push(format!("Continue the workflow by working on step \"{title}\"."));
+    } else {
+        lines.push("Continue the current workflow task.".to_string());
+    }
+
+    if let Some(description) = step_description.filter(|value| !value.trim().is_empty()) {
+        lines.push(format!("Step details: {}", description.trim()));
+    }
+    if !task.prompt.trim().is_empty() && step_title.map(|title| title.trim()) != Some(task.prompt.trim()) {
+        lines.push(format!("Task context: {}", task.prompt.trim()));
+    }
+    if !session.id.trim().is_empty() {
+        let current_focus = task.prompt.trim();
+        if !current_focus.is_empty() {
+            lines.push(format!("Current session focus: {current_focus}"));
+        }
+    }
+
+    let mut workspace_parts = Vec::new();
+    if let Some(worktree) = &worktree {
+        if let Some(branch) = worktree.branch_name.as_deref().filter(|value| !value.trim().is_empty()) {
+            workspace_parts.push(format!("branch {branch}"));
+        }
+        if let Some(base) = worktree.base_branch.as_deref().filter(|value| !value.trim().is_empty()) {
+            workspace_parts.push(format!("base {base}"));
+        }
+        if !worktree.path.trim().is_empty() {
+            workspace_parts.push(format!("worktree {}", worktree.path.trim()));
+        }
+    }
+    if !workspace_parts.is_empty() {
+        lines.push(format!("Workspace context: {}", workspace_parts.join(", ")));
+    }
+
+    if !next.active_skills.is_empty() {
+        lines.push(format!("Relevant skills: {}", next.active_skills.join(", ")));
+    }
+    if let Some(sequence) = next.recommended_sequence.as_ref().filter(|value| !value.is_empty()) {
+        let rendered = sequence
+            .iter()
+            .map(|call| call.name.clone())
+            .collect::<Vec<_>>()
+            .join(" -> ");
+        lines.push(format!("When appropriate, follow this flow: {rendered}"));
+    }
+
+    lines.push("Start executing this step and report progress through the workflow.".to_string());
+    Some(lines.join("\n"))
 }
 
 fn map_next_action(next: &NextActionView) -> TaskDagNextAction {

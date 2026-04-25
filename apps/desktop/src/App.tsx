@@ -25,6 +25,7 @@ import { useScmStore } from "./store/scmStore";
 import { useExplorerStore, type ExplorerEntry } from "./store/explorerStore";
 import { useEditorStore } from "./store/editorStore";
 import { useWorkflowStore } from "./store/workflowStore";
+import { useWorkflowExecutionStore } from "./store/workflowExecutionStore";
 
 const spring = { type: "spring" as const, stiffness: 320, damping: 28, mass: 1 };
 const MAX_FRONTEND_ERROR_LOGS = 50;
@@ -74,6 +75,12 @@ export default function App() {
   const applyWorkflowEvents = useWorkflowStore((s) => s.applyEvents);
   const applyWorkflowDiagnostics = useWorkflowStore((s) => s.applyDiagnostics);
   const syncWorkflowSession = useWorkflowStore((s) => s.syncSession);
+  const enqueueWorkflowExecutionIntent = useWorkflowExecutionStore((s) => s.enqueueIntent);
+  const markWorkflowExecutionRunning = useWorkflowExecutionStore((s) => s.markRunning);
+  const markWorkflowExecutionWaiting = useWorkflowExecutionStore((s) => s.markWaiting);
+  const markWorkflowExecutionError = useWorkflowExecutionStore((s) => s.markError);
+  const clearWorkflowExecutionIntent = useWorkflowExecutionStore((s) => s.clearIntent);
+  const setAutoContinueDecision = useWorkflowExecutionStore((s) => s.setAutoContinueDecision);
 
   const { settings, patchSettings } = useSettingsStore();
   const effectiveLocale = resolveEffectiveLocale(settings.locale);
@@ -903,6 +910,7 @@ export default function App() {
           if (s && (s.status === "running" || s.status === "waiting" || s.status === "suspended")) {
             updateSession(payload.session_id, { status: "done" });
           }
+          clearWorkflowExecutionIntent(payload.session_id);
           syncWorkflowFromSession(payload.session_id);
         }, 1200);
       }
@@ -936,21 +944,112 @@ export default function App() {
       }
     );
 
-    const u8 = listen<{ taskId: string; sessionId?: string | null; document: import("@codebar/contracts").TaskDagDocument }>(
+    const u7b = listen<{ session_id: string }>(
+      "pty-running",
+      ({ payload }) => {
+        updateSession(payload.session_id, { status: "running" });
+        markWorkflowExecutionRunning(payload.session_id);
+        queueMicrotask(() => syncWorkflowFromSession(payload.session_id));
+      }
+    );
+
+    const u7c = listen<{ session_id: string }>(
+      "pty-waiting",
+      ({ payload }) => {
+        updateSession(payload.session_id, { status: "waiting" });
+        markWorkflowExecutionWaiting(payload.session_id);
+        queueMicrotask(() => syncWorkflowFromSession(payload.session_id));
+      }
+    );
+
+    const u7d = listen<{ session_id: string; error: string }>(
+      "pty-error",
+      ({ payload }) => {
+        updateSession(payload.session_id, { status: "error", currentTask: payload.error });
+        markWorkflowExecutionError(payload.session_id);
+        queueMicrotask(() => syncWorkflowFromSession(payload.session_id));
+      }
+    );
+
+    const u8 = listen<{ action: string; taskId: string; sessionId?: string | null; stepId?: string | null; approvalId?: string | null; reason?: string | null }>(
+      "workflow-action-applied",
+      ({ payload }) => {
+        if (!payload.sessionId) return;
+        if (payload.action === "claim") {
+          updateSession(payload.sessionId, { status: "running" });
+        } else if (payload.action === "complete") {
+          updateSession(payload.sessionId, { status: "waiting" });
+        } else if (payload.action === "block") {
+          updateSession(payload.sessionId, {
+            status: "suspended",
+            currentTask: payload.reason ?? "Blocked from workflow",
+          });
+        } else if (payload.action === "resolve_approval") {
+          updateSession(payload.sessionId, { status: "running" });
+        }
+      }
+    );
+
+    const u8a = listen<{ state: "continued" | "stopped"; reason: string; detail?: string | null; sessionId?: string | null }>(
+      "workflow-auto-continue-decision",
+      ({ payload }) => {
+        if (!payload.sessionId) return;
+        setAutoContinueDecision(payload.sessionId, {
+          state: payload.state,
+          reason: payload.reason,
+          detail: payload.detail ?? undefined,
+        });
+      }
+    );
+
+    const u8b = listen<{ action: string; taskId: string; sessionId?: string | null; stepId?: string | null; leaseToken?: string | null; prompt?: string | null; revision?: string | null }>(
+      "workflow-execution-requested",
+      ({ payload }) => {
+        if (!payload.sessionId || !payload.prompt) return;
+        const accepted = enqueueWorkflowExecutionIntent({
+          sessionId: payload.sessionId,
+          stepId: payload.stepId ?? undefined,
+          action: payload.action,
+          prompt: payload.prompt,
+          leaseToken: payload.leaseToken ?? undefined,
+          revision: payload.revision ?? undefined,
+        });
+        if (!accepted.accepted) {
+          setAutoContinueDecision(payload.sessionId, {
+            state: "stopped",
+            reason: accepted.reason,
+          });
+          return;
+        }
+        const currentState = useSessionStore.getState();
+        const currentWorkbench = useWorkbenchStore.getState();
+        if (currentState.activeSessionId !== payload.sessionId) {
+          currentState.setActiveSession(payload.sessionId);
+        }
+        if (currentState.expandedSessionId !== payload.sessionId) {
+          currentState.setExpandedSession(payload.sessionId);
+        }
+        if (currentWorkbench.focusedSessionId !== payload.sessionId || currentWorkbench.centerSurface !== "session") {
+          currentWorkbench.showSessionSurface(payload.sessionId);
+        }
+      }
+    );
+
+    const u9 = listen<{ taskId: string; sessionId?: string | null; document: import("@codebar/contracts").TaskDagDocument }>(
       "workflow-snapshot-updated",
       ({ payload }) => {
         applyWorkflowSnapshotDocument(payload.taskId, payload.document, payload.sessionId ?? undefined);
       }
     );
 
-    const u9 = listen<{ taskId: string; events: import("@codebar/contracts").TaskDagEvent[] }>(
+    const u10 = listen<{ taskId: string; events: import("@codebar/contracts").TaskDagEvent[] }>(
       "workflow-events-appended",
       ({ payload }) => {
         applyWorkflowEvents(payload.taskId, payload.events);
       }
     );
 
-    const u10 = listen<{ taskId: string; diagnostics: import("@codebar/contracts").TaskDagDiagnostic[] }>(
+    const u11 = listen<{ taskId: string; diagnostics: import("@codebar/contracts").TaskDagDiagnostic[] }>(
       "workflow-diagnostics-updated",
       ({ payload }) => {
         applyWorkflowDiagnostics(payload.taskId, payload.diagnostics);
@@ -958,9 +1057,9 @@ export default function App() {
     );
 
     return () => {
-      [u1, u2, u3, u4, u5, u5b, u5c, u5d, u6, u7, u8, u9, u10].forEach((p) => p.then((f) => f()).catch(() => {}));
+      [u1, u2, u3, u4, u5, u5b, u5c, u5d, u6, u7, u7b, u7c, u7d, u8, u8a, u8b, u9, u10, u11].forEach((p) => p.then((f) => f()).catch(() => {}));
     };
-  }, [appendOutput, updateSession, setDiffFiles, setScmSnapshot, setScmStatus, setScmDiffOverride, refreshSessionDiff, applyWorkflowSnapshotDocument, applyWorkflowEvents, applyWorkflowDiagnostics, syncWorkflowFromSession]);
+  }, [appendOutput, updateSession, setDiffFiles, setScmSnapshot, setScmStatus, setScmDiffOverride, refreshSessionDiff, applyWorkflowSnapshotDocument, applyWorkflowEvents, applyWorkflowDiagnostics, syncWorkflowFromSession, enqueueWorkflowExecutionIntent, markWorkflowExecutionRunning, markWorkflowExecutionWaiting, markWorkflowExecutionError, clearWorkflowExecutionIntent, setAutoContinueDecision]);
 
   // ── 会话切换时主动拉一次 Diff（覆盖非 running / 外部改动场景）──
   useEffect(() => {

@@ -48,8 +48,23 @@ export function StepNode({ data, selected }: { data: WorkflowGraphNodeData; sele
         ))}
       </div>
       {node.runtime?.currentSession ? (
-        <div style={{ marginTop: 10, fontSize: 11, color: "var(--ci-text-dim)" }}>
-          Session: {node.runtime.currentSession.state}
+        <div style={{ marginTop: 10, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+          <div style={{ fontSize: 11, color: "var(--ci-text-dim)" }}>
+            Session: {node.runtime.currentSession.state}
+          </div>
+          {typeof node.runtime.metadata?.executionState === "string" ? (
+            <span
+              style={{
+                padding: "2px 8px",
+                borderRadius: 999,
+                fontSize: 10,
+                background: "var(--ci-btn-ghost-bg)",
+                color: "var(--ci-text-dim)",
+              }}
+            >
+              {node.runtime.metadata.executionState}
+            </span>
+          ) : null}
         </div>
       ) : null}
       {node.runtime?.activeApproval ? (

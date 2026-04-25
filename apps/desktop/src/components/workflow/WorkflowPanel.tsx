@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from "react";
 import type { ClaudeSession } from "../../store/sessionStore";
 import { useWorkspacesSorted } from "../../store/workspaceStore";
+import { useWorkflowExecutionStore } from "../../store/workflowExecutionStore";
 import { useWorkflowStore, selectWorkflowNodeById } from "../../store/workflowStore";
 import { WorkflowDetailSheet } from "./WorkflowDetailSheet";
 import { WorkflowGraph } from "./WorkflowGraph";
@@ -25,6 +26,11 @@ export function WorkflowPanel({ session }: { session: ClaudeSession | null }) {
   const completeStep = useWorkflowStore((s) => s.completeStep);
   const blockStep = useWorkflowStore((s) => s.blockStep);
   const resolveApproval = useWorkflowStore((s) => s.resolveApproval);
+  const pendingActionByStepId = useWorkflowStore((s) => s.pendingActionByStepId);
+  const pendingApprovalIds = useWorkflowStore((s) => s.pendingApprovalIds);
+  const executionState = useWorkflowExecutionStore((s) => (session ? s.executionStateBySessionId[session.id] ?? null : null));
+  const activeExecutionIntent = useWorkflowExecutionStore((s) => (session ? s.activeIntentBySessionId[session.id] ?? null : null));
+  const autoContinueDecision = useWorkflowExecutionStore((s) => (session ? s.lastAutoContinueDecisionBySessionId[session.id] ?? null : null));
 
   const workspace = workspaces.find((item) => item.id === session?.workspaceId) ?? null;
 
@@ -51,7 +57,27 @@ export function WorkflowPanel({ session }: { session: ClaudeSession | null }) {
   const document = taskId ? snapshotsByTaskId[taskId] : undefined;
   const events = taskId ? eventsByTaskId[taskId] ?? [] : [];
   const diagnostics = taskId ? diagnosticsByTaskId[taskId] ?? [] : [];
-  const node = useMemo(() => selectWorkflowNodeById(document, selectedNodeId), [document, selectedNodeId]);
+  const documentWithExecutionState = useMemo(() => {
+    if (!document || !session || !executionState) return document;
+    return {
+      ...document,
+      nodes: document.nodes.map((item) => {
+        if (item.kind !== "step") return item;
+        if (item.runtime?.currentSession?.id !== session.id) return item;
+        return {
+          ...item,
+          runtime: {
+            ...item.runtime,
+            metadata: {
+              ...(item.runtime?.metadata ?? {}),
+              executionState,
+            },
+          },
+        };
+      }),
+    };
+  }, [document, executionState, session]);
+  const node = useMemo(() => selectWorkflowNodeById(documentWithExecutionState, selectedNodeId), [documentWithExecutionState, selectedNodeId]);
 
   if (!session) {
     return <EmptyState text="Choose a session to inspect workflow orchestration." />;
@@ -74,15 +100,37 @@ export function WorkflowPanel({ session }: { session: ClaudeSession | null }) {
 
   return (
     <div style={{ display: "flex", height: "100%", minHeight: 0, background: "var(--ci-bg)" }}>
-      <div style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
-        <WorkflowGraph document={document} selectedNodeId={selectedNodeId} onSelectNode={setSelectedNode} />
+      <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 14px", borderBottom: "1px solid var(--ci-toolbar-border)", background: "var(--ci-panel-bg)" }}>
+          <div style={{ fontSize: 11, color: "var(--ci-text-dim)" }}>
+            Workflow execution
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {executionState ? (
+              <span style={executionBadgeStyle(executionState)}>
+                {executionState === "waiting" && activeExecutionIntent ? "auto-continuing" : executionState}
+              </span>
+            ) : null}
+            {activeExecutionIntent ? (
+              <span style={{ fontSize: 11, color: "var(--ci-text-dim)" }}>{activeExecutionIntent.action}</span>
+            ) : null}
+            {autoContinueDecision ? (
+              <span style={{ fontSize: 11, color: "var(--ci-text-dim)" }}>
+                {autoContinueDecision.state === "continued" ? "continued" : "stopped"} · {autoContinueDecision.reason}
+              </span>
+            ) : null}
+          </div>
+        </div>
+        <div style={{ flex: 1, minHeight: 0 }}>
+          <WorkflowGraph document={documentWithExecutionState ?? document} selectedNodeId={selectedNodeId} onSelectNode={setSelectedNode} />
+        </div>
       </div>
       <WorkflowDetailSheet
         node={node}
         onClose={() => setSelectedNode(null)}
         onClaim={(stepId) => void claimStep(session.id, stepId)}
         onComplete={(stepId) => void completeStep(session.id, stepId)}
-        onBlock={(stepId) => void blockStep(session.id, stepId, "Blocked from workflow surface")}
+        onBlock={(stepId) => void blockStep(session.id, stepId, `Blocked ${stepId} from workflow surface`)}
         onResolveApproval={(approvalId) => void resolveApproval(approvalId, session.id)}
         diagnostics={filteredDiagnostics}
         events={filteredEvents}
@@ -92,9 +140,36 @@ export function WorkflowPanel({ session }: { session: ClaudeSession | null }) {
           canBlockStep: document.capabilities.canBlockStep,
           canResolveApproval: document.capabilities.canResolveApproval,
         }}
+        pendingAction={node && node.kind === "step" ? pendingActionByStepId[node.stepId] ?? null : null}
+        approvalPending={node && node.kind === "approval_gate" ? pendingApprovalIds[node.approvalRequest.id] ?? false : false}
+        executionState={executionState}
+        activeExecutionAction={activeExecutionIntent?.action ?? null}
+        autoContinueDecision={autoContinueDecision}
       />
     </div>
   );
+}
+
+function executionBadgeStyle(state: string) {
+  const palette: Record<string, { background: string; color: string; border: string }> = {
+    queued: { background: "var(--ci-btn-ghost-bg)", color: "var(--ci-text-dim)", border: "1px solid var(--ci-toolbar-border)" },
+    dispatching: { background: "var(--ci-accent-bg)", color: "var(--ci-accent)", border: "1px solid var(--ci-accent-bdr)" },
+    sent: { background: "var(--ci-accent-bg)", color: "var(--ci-accent)", border: "1px solid var(--ci-accent-bdr)" },
+    running: { background: "var(--ci-green-bg)", color: "var(--ci-green-dark)", border: "1px solid var(--ci-green-bdr)" },
+    waiting: { background: "var(--ci-yellow-bg)", color: "var(--ci-yellow-dark)", border: "1px solid var(--ci-yellow-bdr)" },
+    error: { background: "var(--ci-deleted-bg)", color: "var(--ci-deleted-text)", border: "1px solid var(--ci-border-med)" },
+  };
+  return {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 88,
+    borderRadius: 999,
+    padding: "4px 10px",
+    fontSize: 11,
+    fontWeight: 600,
+    ...(palette[state] ?? palette.queued),
+  };
 }
 
 function EmptyState({ text }: { text: string }) {

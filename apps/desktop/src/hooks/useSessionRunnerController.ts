@@ -13,6 +13,7 @@ import {
   hasNativeResumeBinding,
   switchRunnerForSession,
 } from "../services/runnerCommands";
+import { useWorkflowExecutionStore } from "../store/workflowExecutionStore";
 
 export function useSessionRunnerController({
   sessionId,
@@ -26,6 +27,9 @@ export function useSessionRunnerController({
   const session = useSessionStore((s) => s.sessions.find((x) => x.id === sessionId));
   const worktreeReady = useSessionStore((s) => s.worktreeReadyIds.has(sessionId));
   const { updateSession } = useSessionStore();
+  const pendingExecutionIntent = useWorkflowExecutionStore((s) => s.pendingIntentBySessionId[sessionId] ?? null);
+  const beginWorkflowExecutionDispatch = useWorkflowExecutionStore((s) => s.beginDispatch);
+  const markWorkflowExecutionSent = useWorkflowExecutionStore((s) => s.markSent);
   const { settings } = useSettingsStore();
 
   const [pendingQuery, setPendingQuery] = useState("");
@@ -231,6 +235,25 @@ export function useSessionRunnerController({
       setPtyEverActive(true);
     }
   }, [querySent, worktreeReady, isResumeLaunch, ptyEverActive]);
+
+  useEffect(() => {
+    const canConsumeIntent = !querySent || session?.status === "waiting";
+    if (!isOpen || !pendingExecutionIntent || !canConsumeIntent) return;
+    const activeIntent = beginWorkflowExecutionDispatch(sessionId);
+    if (!activeIntent) return;
+    setPendingQuery(activeIntent.prompt);
+    handleSubmitQuery(activeIntent.prompt);
+    markWorkflowExecutionSent(sessionId);
+  }, [
+    beginWorkflowExecutionDispatch,
+    handleSubmitQuery,
+    isOpen,
+    markWorkflowExecutionSent,
+    pendingExecutionIntent,
+    querySent,
+    session?.status,
+    sessionId,
+  ]);
 
   useEffect(() => {
     if (!supportsPromptLaunch) {

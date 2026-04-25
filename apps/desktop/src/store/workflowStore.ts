@@ -1,4 +1,6 @@
 import { create } from "zustand";
+import { useSessionStore } from "./sessionStore";
+import { useWorkbenchStore } from "./workbenchStore";
 import type {
   ClaimWorkflowStepResponse,
   GetWorkflowSnapshotResponse,
@@ -29,6 +31,8 @@ interface WorkflowStore {
   loadingTaskIds: Record<string, boolean>;
   errorByTaskId: Record<string, string | null>;
   activeLeaseByStepId: Record<string, ClaimWorkflowStepResponse>;
+  pendingActionByStepId: Record<string, string | null>;
+  pendingApprovalIds: Record<string, boolean>;
 
   setSelectedTask: (taskId: string | null, sessionId?: string | null) => void;
   setSelectedNode: (nodeId: string | null) => void;
@@ -85,6 +89,8 @@ export const useWorkflowStore = create<WorkflowStore>()((set, get) => ({
   loadingTaskIds: {},
   errorByTaskId: {},
   activeLeaseByStepId: {},
+  pendingActionByStepId: {},
+  pendingApprovalIds: {},
 
   setSelectedTask: (taskId, sessionId) => set({
     selectedTaskId: taskId,
@@ -203,45 +209,132 @@ export const useWorkflowStore = create<WorkflowStore>()((set, get) => ({
   },
 
   claimStep: async (sessionId, stepId) => {
-    const result = await claimWorkflowStep({ sessionId, stepId });
+    const optimisticStepId = stepId ?? "__next__";
     set((state) => ({
-      activeLeaseByStepId: {
-        ...state.activeLeaseByStepId,
-        [result.stepId]: result,
+      pendingActionByStepId: {
+        ...state.pendingActionByStepId,
+        [optimisticStepId]: "claim",
       },
     }));
-    const taskId = get().selectedTaskId;
-    if (taskId) {
-      await get().refreshWorkflow(taskId, sessionId);
+    const currentDocument = (() => {
+      const taskId = get().taskIdBySessionId[sessionId] ?? get().selectedTaskId;
+      return taskId ? get().snapshotsByTaskId[taskId] : undefined;
+    })();
+    const currentNode = stepId && currentDocument
+      ? currentDocument.nodes.find((node) => node.kind === "step" && node.stepId === stepId)
+      : undefined;
+    useSessionStore.getState().updateSession(sessionId, {
+      status: "running",
+      currentTask: currentNode && currentNode.kind === "step" ? currentNode.label : undefined,
+    });
+    useWorkbenchStore.getState().focusSession(sessionId);
+    try {
+      const result = await claimWorkflowStep({ sessionId, stepId });
+      set((state) => ({
+        activeLeaseByStepId: {
+          ...state.activeLeaseByStepId,
+          [result.stepId]: result,
+        },
+      }));
+      const taskId = get().taskIdBySessionId[sessionId] ?? get().selectedTaskId;
+      if (taskId) {
+        await get().refreshWorkflow(taskId, sessionId);
+      }
+    } finally {
+      set((state) => ({
+        pendingActionByStepId: {
+          ...state.pendingActionByStepId,
+          [optimisticStepId]: null,
+        },
+      }));
     }
   },
 
   completeStep: async (sessionId, stepId) => {
+    set((state) => ({
+      pendingActionByStepId: {
+        ...state.pendingActionByStepId,
+        [stepId]: "complete",
+      },
+    }));
     const lease = get().activeLeaseByStepId[stepId];
-    await completeWorkflowStep({
-      sessionId,
-      stepId,
-      leaseToken: lease?.leaseToken,
+    useSessionStore.getState().updateSession(sessionId, {
+      status: "waiting",
+      currentTask: "Completed workflow step",
     });
-    const taskId = get().selectedTaskId;
-    if (taskId) {
-      await get().refreshWorkflow(taskId, sessionId);
+    try {
+      await completeWorkflowStep({
+        sessionId,
+        stepId,
+        leaseToken: lease?.leaseToken,
+      });
+      const taskId = get().taskIdBySessionId[sessionId] ?? get().selectedTaskId;
+      if (taskId) {
+        await get().refreshWorkflow(taskId, sessionId);
+      }
+    } finally {
+      set((state) => ({
+        pendingActionByStepId: {
+          ...state.pendingActionByStepId,
+          [stepId]: null,
+        },
+      }));
     }
   },
 
   blockStep: async (sessionId, stepId, reason) => {
-    await blockWorkflowStep({ sessionId, stepId, reason });
-    const taskId = get().selectedTaskId;
-    if (taskId) {
-      await get().refreshWorkflow(taskId, sessionId);
+    set((state) => ({
+      pendingActionByStepId: {
+        ...state.pendingActionByStepId,
+        [stepId]: "block",
+      },
+    }));
+    useSessionStore.getState().updateSession(sessionId, {
+      status: "suspended",
+      currentTask: reason,
+    });
+    try {
+      await blockWorkflowStep({ sessionId, stepId, reason });
+      const taskId = get().taskIdBySessionId[sessionId] ?? get().selectedTaskId;
+      if (taskId) {
+        await get().refreshWorkflow(taskId, sessionId);
+      }
+    } finally {
+      set((state) => ({
+        pendingActionByStepId: {
+          ...state.pendingActionByStepId,
+          [stepId]: null,
+        },
+      }));
     }
   },
 
   resolveApproval: async (approvalId, sessionId) => {
-    await resolveWorkflowApproval({ approvalId, decision: "approve", sessionId });
-    const taskId = get().selectedTaskId;
-    if (taskId) {
-      await get().refreshWorkflow(taskId, sessionId);
+    set((state) => ({
+      pendingApprovalIds: {
+        ...state.pendingApprovalIds,
+        [approvalId]: true,
+      },
+    }));
+    if (sessionId) {
+      useSessionStore.getState().updateSession(sessionId, {
+        status: "running",
+      });
+      useWorkbenchStore.getState().focusSession(sessionId);
+    }
+    try {
+      await resolveWorkflowApproval({ approvalId, decision: "approve", sessionId });
+      const taskId = sessionId ? get().taskIdBySessionId[sessionId] ?? get().selectedTaskId : get().selectedTaskId;
+      if (taskId) {
+        await get().refreshWorkflow(taskId, sessionId);
+      }
+    } finally {
+      set((state) => ({
+        pendingApprovalIds: {
+          ...state.pendingApprovalIds,
+          [approvalId]: false,
+        },
+      }));
     }
   },
 
@@ -252,7 +345,7 @@ export const useWorkflowStore = create<WorkflowStore>()((set, get) => ({
       stepId,
       summary: nextAction.nextAction.label ?? "Updated from workflow surface",
     });
-    const taskId = get().selectedTaskId;
+    const taskId = get().taskIdBySessionId[sessionId] ?? get().selectedTaskId;
     if (taskId) {
       await get().refreshWorkflow(taskId, sessionId);
     }

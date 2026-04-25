@@ -12,6 +12,11 @@ export function WorkflowDetailSheet({
   diagnostics,
   events,
   capabilities,
+  pendingAction,
+  approvalPending,
+  executionState,
+  activeExecutionAction,
+  autoContinueDecision,
 }: {
   node: TaskDagNode | null;
   onClose: () => void;
@@ -27,6 +32,11 @@ export function WorkflowDetailSheet({
     canBlockStep: boolean;
     canResolveApproval: boolean;
   };
+  pendingAction?: string | null;
+  approvalPending?: boolean;
+  executionState?: string | null;
+  activeExecutionAction?: string | null;
+  autoContinueDecision?: { state: "continued" | "stopped"; reason: string; detail?: string } | null;
 }) {
   if (!node) return null;
 
@@ -63,17 +73,28 @@ export function WorkflowDetailSheet({
           <>
             {node.description ? <div style={{ fontSize: 11, lineHeight: 1.6, color: "var(--ci-text-dim)" }}>{node.description}</div> : null}
             <div style={{ fontSize: 11, color: "var(--ci-text-dim)" }}>Status: {node.status}</div>
+            {executionState ? (
+              <div style={{ fontSize: 11, color: "var(--ci-text-dim)" }}>
+                Execution: {executionState === "waiting" && activeExecutionAction ? "auto-continuing" : executionState}{activeExecutionAction ? ` · ${activeExecutionAction}` : ""}
+              </div>
+            ) : null}
+            {autoContinueDecision ? (
+              <div style={{ fontSize: 11, color: "var(--ci-text-dim)" }}>
+                Auto-continue: {autoContinueDecision.state} · {autoContinueDecision.reason}
+                {autoContinueDecision.detail ? ` · ${autoContinueDecision.detail}` : ""}
+              </div>
+            ) : null}
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button disabled={!capabilities.canClaimStep} onClick={() => onClaim(node.stepId)} style={actionButtonStyle("accent", !capabilities.canClaimStep)}>Claim</button>
-              <button disabled={!capabilities.canCompleteStep} onClick={() => onComplete(node.stepId)} style={actionButtonStyle("default", !capabilities.canCompleteStep)}>Complete</button>
-              <button disabled={!capabilities.canBlockStep} onClick={() => onBlock(node.stepId)} style={actionButtonStyle("danger", !capabilities.canBlockStep)}>Block</button>
+              <button disabled={!capabilities.canClaimStep || pendingAction === "claim"} onClick={() => onClaim(node.stepId)} style={actionButtonStyle("accent", !capabilities.canClaimStep || pendingAction === "claim")}>Claim</button>
+              <button disabled={!capabilities.canCompleteStep || pendingAction === "complete"} onClick={() => onComplete(node.stepId)} style={actionButtonStyle("default", !capabilities.canCompleteStep || pendingAction === "complete")}>Complete</button>
+              <button disabled={!capabilities.canBlockStep || pendingAction === "block"} onClick={() => onBlock(node.stepId)} style={actionButtonStyle("danger", !capabilities.canBlockStep || pendingAction === "block")}>Block</button>
             </div>
           </>
         ) : null}
 
         {isApproval ? (
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button disabled={!capabilities.canResolveApproval} onClick={() => onResolveApproval(node.approvalRequest.id)} style={actionButtonStyle("accent", !capabilities.canResolveApproval)}>Approve</button>
+            <button disabled={!capabilities.canResolveApproval || approvalPending} onClick={() => onResolveApproval(node.approvalRequest.id)} style={actionButtonStyle("accent", !capabilities.canResolveApproval || approvalPending)}>Approve</button>
           </div>
         ) : null}
 
