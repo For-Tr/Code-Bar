@@ -114,23 +114,47 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" > release.json
+          max_attempts=5
+          for attempt in $(seq 1 "$max_attempts"); do
+            if ! release_json="$(gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --json assets,url 2>/dev/null)"; then
+              if [ "$attempt" -eq "$max_attempts" ]; then
+                echo "Failed to resolve release ${GITHUB_REF_NAME} after ${max_attempts} attempts." >&2
+                exit 1
+              fi
+              echo "Release not ready yet (attempt ${attempt}/${max_attempts}), retrying..."
+              sleep 3
+              continue
+            fi
 
-          windows_url="$(jq -r '.assets[] | select(.name == "code-bar-windows-x64.msi") | .browser_download_url' release.json | head -n1)"
-          mac_arm_url="$(jq -r '.assets[] | select(.name == "code-bar-macos-apple-silicon.dmg") | .browser_download_url' release.json | head -n1)"
-          mac_intel_url="$(jq -r '.assets[] | select(.name == "code-bar-macos-intel.dmg") | .browser_download_url' release.json | head -n1)"
+            printf '%s\n' "$release_json" > release.json
+            missing_asset=""
+            for asset in code-bar-windows-x64.msi code-bar-macos-apple-silicon.dmg code-bar-macos-intel.dmg; do
+              if ! jq -e --arg name "$asset" '.assets[] | select(.name == $name)' release.json >/dev/null; then
+                missing_asset="$asset"
+                break
+              fi
+            done
 
-          if [ -z "$windows_url" ] || [ -z "$mac_arm_url" ] || [ -z "$mac_intel_url" ]; then
-            echo "Failed to resolve one or more release assets." >&2
-            echo "Assets found:" >&2
-            jq -r '.assets[].name' release.json >&2
-            exit 1
-          fi
+            if [ -z "$missing_asset" ]; then
+              break
+            fi
 
+            if [ "$attempt" -eq "$max_attempts" ]; then
+              echo "Missing release asset after ${max_attempts} attempts: $missing_asset" >&2
+              echo "Assets found:" >&2
+              jq -r '.assets[].name' release.json >&2
+              exit 1
+            fi
+
+            echo "Asset not ready yet (${missing_asset}) (attempt ${attempt}/${max_attempts}), retrying..."
+            sleep 3
+          done
+
+          release_base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}"
           {
-            echo "windows_url=$windows_url"
-            echo "mac_arm_url=$mac_arm_url"
-            echo "mac_intel_url=$mac_intel_url"
+            echo "windows_url=${release_base}/code-bar-windows-x64.msi"
+            echo "mac_arm_url=${release_base}/code-bar-macos-apple-silicon.dmg"
+            echo "mac_intel_url=${release_base}/code-bar-macos-intel.dmg"
           } >> "$GITHUB_OUTPUT"
 
       - name: Extract tag release notes
