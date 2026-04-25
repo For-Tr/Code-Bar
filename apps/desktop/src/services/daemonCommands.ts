@@ -222,9 +222,7 @@ export function mapDaemonSessionToUiSession(input: {
     workspaceId,
     workdir,
     status: mapDaemonStateToSessionStatus(typeof input.session.state === 'string' ? input.session.state : undefined),
-    currentTask: typeof input.session.recoveryNote === 'string' && input.session.recoveryNote.trim()
-      ? input.session.recoveryNote
-      : (input.taskTitle || ''),
+    currentTask: input.taskTitle || '',
     createdAt: Date.parse(String(input.session.createdAt ?? nowIsoString())) || Date.now(),
     diffFiles: [],
     output: [],

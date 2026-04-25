@@ -88,33 +88,7 @@ pub fn map_plan_step_to_contract(step: domain::PlanStep) -> contract_domain::Pla
 }
 
 pub fn map_run_attempt_to_contract(run: domain::RunAttempt) -> contract_domain::RunAttempt {
-    contract_domain::RunAttempt {
-        id: run.id,
-        session_id: run.session_id,
-        attempt_no: run.attempt_no,
-        launcher_type: match run.launcher_type {
-            domain::RunLauncherType::Pty => contract_domain::LauncherType::Pty,
-            domain::RunLauncherType::Headless => contract_domain::LauncherType::Headless,
-        },
-        command: run.command,
-        args: run.args,
-        cwd: run.cwd,
-        pid: run.pid,
-        started_at: run.started_at,
-        ended_at: run.ended_at,
-        exit_reason: run.exit_reason.map(|reason| match reason {
-            domain::RunExitReason::Completed => contract_domain::RunExitReason::Completed,
-            domain::RunExitReason::Error => contract_domain::RunExitReason::Error,
-            domain::RunExitReason::Killed => contract_domain::RunExitReason::Killed,
-            domain::RunExitReason::Crash => contract_domain::RunExitReason::Crash,
-            domain::RunExitReason::Unknown => contract_domain::RunExitReason::Unknown,
-        }),
-        status: match run.status {
-            domain::RunStatus::Created => contract_domain::RunAttemptStatus::Created,
-            domain::RunStatus::Running => contract_domain::RunAttemptStatus::Running,
-            domain::RunStatus::Exited => contract_domain::RunAttemptStatus::Exited,
-        },
-    }
+    run
 }
 
 pub fn map_approval_request_to_contract(request: domain::ApprovalRequest) -> contract_domain::ApprovalRequest {

@@ -1,8 +1,8 @@
 use crate::domain::{
     error_envelope, ApprovalActionType, ApprovalRequest, ApprovalStatus, DomainResult, ErrorCode,
-    ErrorEnvelope, EventEntityType, EventEnvelope, EventSource, Plan, PlanStep, ProviderKind,
-    RunAttempt, RunLauncherType, RunStatus, Session, SessionLaunchMode, SessionState, Task,
-    TaskStatus, Worktree, WorktreeCleanupPolicy, WorktreeLifecycleState, WorktreeSource,
+    ErrorEnvelope, EventEntityType, EventEnvelope, EventSource, Plan, PlanStep, RunAttempt,
+    Session, SessionLaunchMode, SessionState, Task, TaskStatus, Worktree,
+    WorktreeCleanupPolicy, WorktreeLifecycleState, WorktreeSource,
 };
 use crate::ports::{
     ApprovalExecutor, ApprovalFilter, Clock, DaemonStore, EventFilter, EventRepository,
@@ -10,6 +10,7 @@ use crate::ports::{
     RuntimeLaunchSpec, SessionFilter, TaskFilter, WorktreeHost, WorktreeStrategy,
 };
 use crate::queries::{compute_next_action, NextAction};
+use codebar_contracts::domain::{LauncherType, RunAttemptStatus};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -114,10 +115,7 @@ impl TaskService {
             prompt: input.prompt,
             goal: input.goal,
             constraints: input.constraints,
-            requested_provider: input.requested_provider.map(|provider| match provider {
-                codebar_contracts::domain::ProviderKind::Claude => ProviderKind::Claude,
-                codebar_contracts::domain::ProviderKind::Codex => ProviderKind::Codex,
-            }),
+            requested_provider: input.requested_provider,
             requested_model: None,
             status: TaskStatus::Ready,
             active_plan_id: None,
@@ -211,10 +209,7 @@ impl SessionService {
             task_id: task.id.clone(),
             workspace_id: task.workspace_id.clone(),
             worktree_id: None,
-            provider: match input.provider {
-                codebar_contracts::domain::ProviderKind::Claude => ProviderKind::Claude,
-                codebar_contracts::domain::ProviderKind::Codex => ProviderKind::Codex,
-            },
+            provider: input.provider,
             provider_session_id: None,
             launch_mode: SessionLaunchMode::New,
             state: match input.worktree_strategy {
@@ -224,7 +219,6 @@ impl SessionService {
             },
             current_step_id: None,
             last_activity_at: None,
-            recovery_note: None,
             created_at: now.clone(),
             updated_at: now,
         };
@@ -437,10 +431,10 @@ impl SessionService {
         let spec = RuntimeLaunchSpec {
             session_id: session.id.clone(),
             provider: session.provider.clone(),
-            launcher_type: RunLauncherType::Pty,
+            launcher_type: LauncherType::Pty,
             command: match session.provider {
-                ProviderKind::Claude => "claude".to_string(),
-                ProviderKind::Codex => "codex".to_string(),
+                codebar_contracts::domain::ProviderKind::Claude => "claude".to_string(),
+                codebar_contracts::domain::ProviderKind::Codex => "codex".to_string(),
             },
             args: if resume {
                 session
@@ -479,9 +473,7 @@ impl SessionService {
             started_at: Some(self.ctx.clock.now()),
             ended_at: None,
             exit_reason: None,
-            status: RunStatus::Running,
-            continuity_token: Some(format!("run:{}:{}", session.id, existing.len() as u32 + 1)),
-            continuity_state: Some("live".to_string()),
+            status: RunAttemptStatus::Running,
         };
         self.ctx.store.put_run_attempt(run_attempt.clone())?;
         Ok(run_attempt)
@@ -781,17 +773,34 @@ impl RecoveryCoordinator {
                 && !self.ctx.runtime.is_session_alive(&session.id)
             {
                 session.state = SessionState::Interrupted;
-                let last_run = self.ctx.store.list_run_attempts(&session.id)?
+                let last_run = self
+                    .ctx
+                    .store
+                    .list_run_attempts(&session.id)?
                     .into_iter()
                     .max_by_key(|run| run.attempt_no);
-                session.recovery_note = Some(match last_run {
-                    Some(run) => format!(
-                        "runtime missing during recovery; last continuity token {} state {}",
-                        run.continuity_token.unwrap_or_else(|| "unknown".to_string()),
-                        run.continuity_state.unwrap_or_else(|| "unknown".to_string())
-                    ),
-                    None => "runtime missing during recovery; marked interrupted".to_string(),
-                });
+                let recovery = match last_run {
+                    Some(run) => {
+                        let continuity_token = format!("run:{}:{}", run.session_id, run.attempt_no);
+                        json!({
+                            "reason": "runtime_missing",
+                            "interrupted": true,
+                            "continuityToken": continuity_token.clone(),
+                            "continuityState": "live",
+                            "detail": format!(
+                                "runtime missing during recovery; last continuity token {} state live",
+                                continuity_token
+                            ),
+                        })
+                    }
+                    None => json!({
+                        "reason": "runtime_missing",
+                        "interrupted": true,
+                        "continuityToken": Value::Null,
+                        "continuityState": Value::Null,
+                        "detail": "runtime missing during recovery; marked interrupted",
+                    }),
+                };
                 session.updated_at = self.ctx.clock.now();
                 self.ctx.store.put_session(session.clone())?;
                 self.ctx.emit_event(
@@ -802,7 +811,7 @@ impl RecoveryCoordinator {
                     None,
                     HashMap::from([
                         (String::from("session"), json!(session.clone())),
-                        (String::from("recovery"), json!({ "reason": "runtime_missing", "interrupted": true })),
+                        (String::from("recovery"), recovery),
                     ]),
                 )?;
                 recovered.push(session);
@@ -840,8 +849,16 @@ impl DiagnosticsService {
                 ..EventFilter::default()
             })?;
         let recovery_summary = session_id
-            .and_then(|session_id| self.ctx.store.get_session(session_id).ok().flatten())
-            .and_then(|session| session.recovery_note)
+            .and_then(|target_session_id| {
+                events
+                    .iter()
+                    .rev()
+                    .find(|event| event.event_type == "session.recovered" && event.entity_id == target_session_id)
+                    .and_then(|event| event.payload.get("recovery"))
+                    .and_then(|recovery| recovery.get("detail"))
+                    .and_then(|detail| detail.as_str())
+                    .map(ToString::to_string)
+            })
             .unwrap_or_default();
         let summary = if recovery_summary.is_empty() {
             format!(
@@ -929,11 +946,12 @@ fn not_found(_code: impl Into<String>, message: impl Into<String>) -> ErrorEnvel
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::{PlanMode, PlanStatus, ProviderKind, TrustLevel, VcsType, Workspace};
+    use crate::domain::{PlanMode, PlanStatus, TrustLevel, VcsType, Workspace};
     use crate::ports::{
         EventRepository, EventFilter, IdGenerator, RuntimeHost, RuntimeLaunchResult,
         RuntimeLaunchSpec, WorktreeHost,
     };
+    use codebar_contracts::domain::RunAttemptStatus;
     use std::sync::{Arc, Mutex};
 
     #[derive(Default)]
@@ -1139,7 +1157,7 @@ mod tests {
             vcs_type: VcsType::Git,
             repo_identity: Some("repo".to_string()),
             trust_level: TrustLevel::Trusted,
-            default_provider: Some(ProviderKind::Claude),
+            default_provider: Some(codebar_contracts::domain::ProviderKind::Claude),
             created_at: "2026-04-23T00:00:00Z".to_string(),
             updated_at: "2026-04-23T00:00:00Z".to_string(),
         }).unwrap();
@@ -1213,8 +1231,7 @@ mod tests {
         }).unwrap();
         assert!(matches!(launched_session.state, SessionState::Running));
         assert_eq!(run.attempt_no, 1);
-        assert_eq!(run.continuity_state.as_deref(), Some("live"));
-        assert!(run.continuity_token.as_deref().unwrap_or_default().contains(&session.id));
+        assert_eq!(run.status, RunAttemptStatus::Running);
 
         let next_action_after = plan_service.get_next_action(&session.id).unwrap();
         assert_eq!(next_action_after.recommended_next_calls, vec!["sendSessionInput", "stopSession"]);
@@ -1300,7 +1317,21 @@ mod tests {
         let recovered = recovery.recover().unwrap();
         assert_eq!(recovered.len(), 1);
         assert!(matches!(recovered[0].state, SessionState::Interrupted));
-        assert!(recovered[0].recovery_note.as_deref().unwrap_or_default().contains("continuity token"));
+
+        let recovery_event = ctx
+            .events
+            .list_events(&EventFilter::default())
+            .unwrap()
+            .into_iter()
+            .find(|event| event.event_type == "session.recovered")
+            .expect("missing session.recovered event");
+        let recovery_detail = recovery_event
+            .payload
+            .get("recovery")
+            .and_then(|recovery| recovery.get("detail"))
+            .and_then(|detail| detail.as_str())
+            .unwrap_or_default();
+        assert!(recovery_detail.contains("continuity token"));
     }
 
     #[test]
@@ -1351,8 +1382,41 @@ mod tests {
         let ctx = test_context();
         let diagnostics = DiagnosticsService::new(ctx.clone());
         let health = HealthService::new(ctx.clone());
-        let result = diagnostics.get_diagnostics(None, None).unwrap();
+        let session = Session {
+            id: "session-1".to_string(),
+            task_id: "task-1".to_string(),
+            workspace_id: "ws-1".to_string(),
+            worktree_id: None,
+            provider: codebar_contracts::domain::ProviderKind::Claude,
+            provider_session_id: None,
+            launch_mode: SessionLaunchMode::New,
+            state: SessionState::Interrupted,
+            current_step_id: None,
+            last_activity_at: None,
+            created_at: "2026-04-23T00:00:00Z".to_string(),
+            updated_at: "2026-04-23T00:00:00Z".to_string(),
+        };
+        ctx.store.put_session(session.clone()).unwrap();
+        ctx.events
+            .publish_event(EventEnvelope::new(
+                "event-1",
+                EventEntityType::Session,
+                session.id.clone(),
+                "session.recovered",
+                EventSource::Daemon,
+                None,
+                json!({
+                    "recovery": {
+                        "detail": "runtime missing during recovery; last continuity token run:session-1:1 state live"
+                    }
+                }),
+                "2026-04-23T00:00:00Z",
+            ))
+            .unwrap();
+
+        let result = diagnostics.get_diagnostics(Some(&session.id), None).unwrap();
         assert_eq!(result.files, vec!["memory://store"]);
+        assert!(result.summary.contains("recovery:"));
         let health_summary = health.health().unwrap();
         assert!(health_summary.ready);
         assert_eq!(health_summary.pending_approvals, 0);
