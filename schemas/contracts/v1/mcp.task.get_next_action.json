@@ -1,0 +1,24 @@
+{
+  "input": {
+    "sessionId": "sess_123"
+  },
+  "output": {
+    "mode": "guided",
+    "step": {
+      "id": "step_001",
+      "title": "Freeze contracts",
+      "description": "Define shared task and session models",
+      "successCriteria": [
+        "Rust and TS types align",
+        "Snapshots updated"
+      ],
+      "leaseToken": "lease_123"
+    },
+    "activeSkills": ["contracts", "tests"],
+    "recommendedSequence": [
+      { "type": "tool", "name": "context.get_current" },
+      { "type": "tool", "name": "task.update_progress" },
+      { "type": "skill", "name": "contracts.generate" }
+    ]
+  }
+}

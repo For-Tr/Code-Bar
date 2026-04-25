@@ -1,0 +1,8 @@
+[workspace]
+members = [
+  "apps/desktop/src-tauri",
+  "crates/codebar-contracts",
+  "crates/daemon-core",
+  "crates/codebard",
+]
+resolver = "2"
