@@ -1,7 +1,8 @@
 use crate::domain::{
     ApprovalRequest, ApprovalStatus, DomainResult, EventEnvelope, Plan, PlanStep, ProviderKind,
-    RunAttempt, RunLauncherType, Session, SkillProfile, Task, TaskStatus, Worktree, Workspace,
+    RunAttempt, Session, SkillProfile, Task, TaskStatus, Worktree, Workspace,
 };
+use codebar_contracts::domain::LauncherType;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -57,7 +58,7 @@ pub struct PreparedWorktree {
 pub struct RuntimeLaunchSpec {
     pub session_id: String,
     pub provider: ProviderKind,
-    pub launcher_type: RunLauncherType,
+    pub launcher_type: LauncherType,
     pub command: String,
     pub args: Vec<String>,
     pub cwd: String,
@@ -67,7 +68,7 @@ pub struct RuntimeLaunchSpec {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeLaunchResult {
-    pub launcher_type: RunLauncherType,
+    pub launcher_type: LauncherType,
     pub command: String,
     pub args: Vec<String>,
     pub cwd: String,

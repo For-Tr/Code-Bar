@@ -265,8 +265,11 @@ impl DaemonRpc {
             }).map(|accepted| serde_json::to_value(contract_rpc::AcceptedOutput { accepted }).unwrap())),
             "writePty" => parse_write_pty_params(request.params).and_then(|(session_id, data)| self.runtime_write_pty(&session_id, &data).map(|_| json!({ "accepted": true }))),
             "resizePty" => parse_resize_pty_params(request.params).and_then(|(session_id, cols, rows)| self.runtime_resize_pty(&session_id, cols, rows).map(|_| json!({ "accepted": true }))),
-            "recordRuntimeLifecycle" => parse_params::<RuntimeLifecycleInput>(request.params).and_then(|input| self.session_service.record_runtime_lifecycle(input).map(|session| json!({ "session": session }))),
-            "bindProviderSession" => parse_bind_provider_params(request.params).and_then(|(session_id, provider_session_id)| self.bind_provider_session(&session_id, &provider_session_id).map(|session| json!({ "session": session }))),
+            "recordRuntimeLifecycle" => parse_params::<RuntimeLifecycleInput>(request.params).and_then(|input| self.session_service.record_runtime_lifecycle(input).map(|session| json!({ "session": map_session_to_contract(session) }))),
+            "bindProviderSession" => parse_bind_provider_params(request.params).and_then(|(session_id, provider_session_id)| {
+                self.bind_provider_session(&session_id, &provider_session_id)
+                    .map(|session| json!({ "session": map_session_to_contract(session) }))
+            }),
             "forwardProviderHook" => parse_provider_hook_params(request.params).and_then(|(provider, payload)| self.forward_provider_hook(&provider, payload)),
             "stopSession" => parse_params::<contract_rpc::StopSessionInput>(request.params).and_then(|input| self.stop_session(StopSessionInput {
                 session_id: input.session_id,

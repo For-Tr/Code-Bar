@@ -16,12 +16,7 @@ pub enum TrustLevel {
     Untrusted,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum ProviderKind {
-    Claude,
-    Codex,
-}
+pub type ProviderKind = codebar_contracts::domain::ProviderKind;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -62,55 +57,11 @@ pub enum TaskStatus {
     Archived,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum SessionLaunchMode {
-    New,
-    Resume,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum SessionState {
-    Draft,
-    PreparingWorkspace,
-    PreparingWorktree,
-    Ready,
-    Launching,
-    Running,
-    WaitingInput,
-    ApprovalRequired,
-    Interrupted,
-    Completed,
-    Failed,
-    Cancelled,
-    Archived,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum RunLauncherType {
-    Pty,
-    Headless,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum RunExitReason {
-    Completed,
-    Error,
-    Killed,
-    Crash,
-    Unknown,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum RunStatus {
-    Created,
-    Running,
-    Exited,
-}
+pub type SessionLaunchMode = codebar_contracts::domain::SessionLaunchMode;
+pub type SessionState = codebar_contracts::domain::SessionState;
+pub type RunLauncherType = codebar_contracts::domain::LauncherType;
+pub type RunExitReason = codebar_contracts::domain::RunExitReason;
+pub type RunStatus = codebar_contracts::domain::RunAttemptStatus;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -209,42 +160,8 @@ pub struct Task {
     pub updated_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct Session {
-    pub id: String,
-    pub task_id: String,
-    pub workspace_id: String,
-    pub worktree_id: Option<String>,
-    pub provider: ProviderKind,
-    pub provider_session_id: Option<String>,
-    pub launch_mode: SessionLaunchMode,
-    pub state: SessionState,
-    pub current_step_id: Option<String>,
-    pub last_activity_at: Option<String>,
-    pub recovery_note: Option<String>,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct RunAttempt {
-    pub id: String,
-    pub session_id: String,
-    pub attempt_no: u32,
-    pub launcher_type: RunLauncherType,
-    pub command: String,
-    pub args: Vec<String>,
-    pub cwd: String,
-    pub pid: Option<u32>,
-    pub started_at: Option<String>,
-    pub ended_at: Option<String>,
-    pub exit_reason: Option<RunExitReason>,
-    pub status: RunStatus,
-    pub continuity_token: Option<String>,
-    pub continuity_state: Option<String>,
-}
+pub type Session = codebar_contracts::domain::Session;
+pub type RunAttempt = codebar_contracts::domain::RunAttempt;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]

@@ -1,5 +1,8 @@
 use codebar_contracts::{
-    domain::{ProviderKind, Session, SessionLaunchMode, SessionState, Task, TaskStatus, VcsType, Workspace, TrustLevel},
+    domain::{
+        LauncherType, ProviderKind, RunAttempt, RunAttemptStatus, Session, SessionLaunchMode,
+        SessionState, Task, TaskStatus, TrustLevel, VcsType, Workspace,
+    },
     errors::{ErrorCode, ErrorEnvelope},
     rpc::{CreateTaskInput, SessionFileReadResult},
 };
@@ -63,6 +66,30 @@ fn snapshot_session_json() {
     let json = serde_json::to_string_pretty(&session).unwrap();
     assert!(json.contains("providerSessionId"));
     assert!(json.contains("launchMode"));
+    assert!(!json.contains("recoveryNote"));
+}
+
+#[test]
+fn snapshot_run_attempt_json() {
+    let run = RunAttempt {
+        id: "run_123".into(),
+        session_id: "sess_123".into(),
+        attempt_no: 1,
+        launcher_type: LauncherType::Pty,
+        command: "claude".into(),
+        args: vec!["--resume".into(), "ext_123".into()],
+        cwd: "/repo/.code-bar-worktrees/session-1".into(),
+        pid: Some(42),
+        started_at: Some("2026-04-24T00:00:00Z".into()),
+        ended_at: None,
+        exit_reason: None,
+        status: RunAttemptStatus::Running,
+    };
+    let json = serde_json::to_string_pretty(&run).unwrap();
+    assert!(json.contains("attemptNo"));
+    assert!(json.contains("launcherType"));
+    assert!(!json.contains("continuityToken"));
+    assert!(!json.contains("continuityState"));
 }
 
 #[test]

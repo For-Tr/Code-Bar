@@ -167,6 +167,63 @@ async fn approval_and_recovery_flow_work() {
 }
 
 #[tokio::test]
+async fn rpc_session_outputs_use_contract_shape() {
+    let root = temp_root("rpc-session-shape");
+    let daemon = build_daemon(root.clone()).unwrap();
+    let workspace = workspace(&root);
+    fs::create_dir_all(&workspace.root_path).unwrap();
+    daemon.upsert_workspace(workspace.clone()).unwrap();
+
+    let task = daemon
+        .create_task(CreateTaskInput {
+            workspace_id: workspace.id.clone(),
+            title: "Shape task".to_string(),
+            prompt: "Check session shapes".to_string(),
+            goal: None,
+            constraints: None,
+            requested_provider: Some(codebar_contracts::domain::ProviderKind::Claude),
+        })
+        .unwrap();
+    let session = daemon
+        .create_session(CreateSessionInput {
+            task_id: task.id.clone(),
+            provider: codebar_contracts::domain::ProviderKind::Claude,
+            worktree_strategy: codebar_contracts::rpc::WorktreeStrategy::NewManaged,
+        })
+        .unwrap();
+
+    let bind_response = daemon.handle_request(RpcRequest {
+        id: Some("bind-1".to_string()),
+        method: "bindProviderSession".to_string(),
+        params: json!({
+            "sessionId": session.id,
+            "providerSessionId": "ext_123",
+        }),
+    });
+    assert!(bind_response.ok);
+    let bind_payload = bind_response.result.unwrap();
+    let bind_session = bind_payload.get("session").unwrap();
+    assert_eq!(bind_session.get("providerSessionId"), Some(&json!("ext_123")));
+    assert!(bind_session.get("recoveryNote").is_none());
+
+    let session_id = String::from(bind_session.get("id").and_then(|v| v.as_str()).unwrap_or_default());
+    let lifecycle_response = daemon.handle_request(RpcRequest {
+        id: Some("lifecycle-1".to_string()),
+        method: "recordRuntimeLifecycle".to_string(),
+        params: json!({
+            "sessionId": session_id,
+            "eventType": "running",
+            "message": "runtime started",
+        }),
+    });
+    assert!(lifecycle_response.ok);
+    let lifecycle_payload = lifecycle_response.result.unwrap();
+    let lifecycle_session = lifecycle_payload.get("session").unwrap();
+    assert_eq!(lifecycle_session.get("state"), Some(&json!("running")));
+    assert!(lifecycle_session.get("recoveryNote").is_none());
+}
+
+#[tokio::test]
 async fn next_action_and_rpc_roundtrip_work() {
     let root = temp_root("rpc-roundtrip");
     let daemon = build_daemon(root.clone()).unwrap();

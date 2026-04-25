@@ -1,4 +1,4 @@
-import type { Session, Task, Workspace } from "../src/domain";
+import type { RunAttempt, Session, Task, Workspace } from "../src/domain";
 import type { ErrorEnvelope } from "../src/errors";
 import type { CreateTaskInput, SessionFileReadResult } from "../src/rpc";
 
@@ -33,6 +33,17 @@ const session: Session = {
   updatedAt: "2026-04-24T00:00:00Z",
 };
 
+const runAttempt: RunAttempt = {
+  id: "run_123",
+  sessionId: session.id,
+  attemptNo: 1,
+  launcherType: "pty",
+  command: "claude",
+  args: ["resume", "ext_123"],
+  cwd: "/repo/.code-bar-worktrees/session-1",
+  status: "running",
+};
+
 const error: ErrorEnvelope = {
   code: "APPROVAL_REQUIRED",
   message: "approval needed",
@@ -53,4 +64,4 @@ const fileRead: SessionFileReadResult = {
   missing: false,
 };
 
-void { session, error, createTaskInput, fileRead };
+void { session, runAttempt, error, createTaskInput, fileRead };
