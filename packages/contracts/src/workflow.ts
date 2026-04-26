@@ -2,6 +2,7 @@ export type WorkflowMetadata = Record<string, unknown>;
 
 export type TaskDagNodeKind = "task_root" | "step" | "approval_gate";
 export type TaskDagEdgeKind = "depends_on" | "spawns_approval";
+export type WorkflowLifecycle = "draft" | "in_review" | "confirmed" | "running";
 export type TaskDagProvider = "claude_code" | "codex";
 export type TaskDagStepStatus = "idle" | "ready" | "running" | "blocked" | "waiting_input" | "completed" | "failed";
 export type TaskDagSessionState = "idle" | "created" | "launching" | "running" | "waiting_input" | "paused" | "completed" | "failed" | "stopped";
@@ -15,6 +16,7 @@ export interface TaskDagTask {
   prompt: string;
   goal?: string;
   status: string;
+  lifecycle?: WorkflowLifecycle;
   workspaceId: string;
   activeSessionId?: string;
   activePlanId?: string;
@@ -123,6 +125,10 @@ export interface TaskDagCapabilities {
   canAttachSession: boolean;
   canLaunchSession: boolean;
   canSendSessionInput: boolean;
+  canSubmitForReview?: boolean;
+  canConfirm?: boolean;
+  canCreateSession?: boolean;
+  canStartWorkflow?: boolean;
 }
 
 export interface TaskDagDocument {
@@ -259,4 +265,64 @@ export interface AttachWorkflowSessionResponse {
   taskId: string;
   sessionId?: string;
   document: TaskDagDocument;
+}
+
+export interface WorkflowTaskSummary {
+  taskId: string;
+  workspaceId: string;
+  title: string;
+  status: string;
+  lifecycle: WorkflowLifecycle;
+  activeSessionId?: string;
+  updatedAt?: string;
+}
+
+export interface ListWorkflowTasksRequest {
+  workspaceId?: string;
+  lifecycle?: WorkflowLifecycle[];
+}
+
+export interface ListWorkflowTasksResponse {
+  tasks: WorkflowTaskSummary[];
+}
+
+export interface CreateWorkflowDraftRequest {
+  workspaceId: string;
+  title: string;
+  prompt: string;
+  goal?: string;
+  provider?: TaskDagProvider;
+}
+
+export interface CreateWorkflowDraftResponse {
+  taskId: string;
+  document: TaskDagDocument;
+}
+
+export interface SubmitWorkflowReviewRequest {
+  taskId: string;
+}
+
+export interface SubmitWorkflowReviewResponse {
+  taskId: string;
+  lifecycle: WorkflowLifecycle;
+}
+
+export interface ConfirmWorkflowRequest {
+  taskId: string;
+}
+
+export interface ConfirmWorkflowResponse {
+  taskId: string;
+  lifecycle: WorkflowLifecycle;
+}
+
+export interface StartWorkflowRequest {
+  taskId: string;
+  sessionId: string;
+}
+
+export interface StartWorkflowResponse {
+  taskId: string;
+  lifecycle: WorkflowLifecycle;
 }

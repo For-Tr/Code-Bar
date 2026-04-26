@@ -150,14 +150,21 @@ function normalizeSplitWidgetTerminalTab(tab: unknown, index: number): SplitWidg
   };
 }
 
+function normalizeWidgetType(type: SplitWidgetCanvasItem["type"], id: string): SplitWidgetCanvasItem["type"] {
+  if (type === "usage" && id.startsWith("orchestration-widget-")) return "orchestration";
+  if (type === "orchestration" && id.startsWith("usage-widget-")) return "usage";
+  return type;
+}
+
 function normalizeSplitWidgetCanvasItem(item: unknown): SplitWidgetCanvasItem | null {
   if (!item || typeof item !== "object") return null;
   const candidate = item as Partial<SplitWidgetCanvasItem>;
   if (candidate.type !== "terminal" && candidate.type !== "usage" && candidate.type !== "orchestration") return null;
   if (!candidate.id || typeof candidate.id !== "string") return null;
+  const normalizedType = normalizeWidgetType(candidate.type, candidate.id);
   const base = {
     id: candidate.id,
-    type: candidate.type,
+    type: normalizedType,
     col: typeof candidate.col === "number" && Number.isFinite(candidate.col) ? Math.max(1, Math.round(candidate.col)) : 1,
     row: typeof candidate.row === "number" && Number.isFinite(candidate.row) ? Math.max(1, Math.round(candidate.row)) : 1,
     colSpan: typeof candidate.colSpan === "number" && Number.isFinite(candidate.colSpan) ? Math.max(12, Math.round(candidate.colSpan)) : 18,
@@ -165,7 +172,7 @@ function normalizeSplitWidgetCanvasItem(item: unknown): SplitWidgetCanvasItem | 
     visible: candidate.visible !== false,
   };
 
-  if (candidate.type === "terminal") {
+  if (normalizedType === "terminal") {
     const terminalCandidate = item as Partial<SplitWidgetTerminalItem>;
     const tabs = Array.isArray(terminalCandidate.tabs)
       ? terminalCandidate.tabs
@@ -183,10 +190,28 @@ function normalizeSplitWidgetCanvasItem(item: unknown): SplitWidgetCanvasItem | 
     };
   }
 
+  if (normalizedType === "orchestration") {
+    return {
+      ...base,
+      type: "orchestration",
+    };
+  }
+
   return {
     ...base,
     type: "usage",
   };
+}
+
+function dedupeCanvasItemsById(items: SplitWidgetCanvasItem[]): SplitWidgetCanvasItem[] {
+  const seen = new Set<string>();
+  const deduped: SplitWidgetCanvasItem[] = [];
+  for (const item of items) {
+    if (seen.has(item.id)) continue;
+    seen.add(item.id);
+    deduped.push(item);
+  }
+  return deduped;
 }
 
 export function normalizeSplitWidgetCanvas(canvas: unknown): SplitWidgetCanvas {
@@ -194,7 +219,7 @@ export function normalizeSplitWidgetCanvas(canvas: unknown): SplitWidgetCanvas {
   const items = Array.isArray(candidate.items)
     ? candidate.items.map(normalizeSplitWidgetCanvasItem).filter((item): item is SplitWidgetCanvasItem => item !== null)
     : [];
-  const normalizedItems = items.length > 0 ? [...items] : [];
+  const normalizedItems = dedupeCanvasItemsById(items);
 
   if (!normalizedItems.some((item) => item.type === "terminal")) {
     normalizedItems.unshift(createDefaultTerminalWidget());
@@ -214,7 +239,11 @@ export function normalizeSplitWidgetCanvas(canvas: unknown): SplitWidgetCanvas {
       : 12,
     items: normalizedItems,
     filledSnapshot: Array.isArray(candidate.filledSnapshot)
-      ? candidate.filledSnapshot.map(normalizeSplitWidgetCanvasItem).filter((item): item is SplitWidgetCanvasItem => item !== null)
+      ? dedupeCanvasItemsById(
+        candidate.filledSnapshot
+          .map(normalizeSplitWidgetCanvasItem)
+          .filter((item): item is SplitWidgetCanvasItem => item !== null)
+      )
       : null,
   };
 }

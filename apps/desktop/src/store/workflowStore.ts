@@ -8,28 +8,44 @@ import type {
   TaskDagDocument,
   TaskDagEvent,
   TaskDagNode,
+  WorkflowLifecycle,
+  WorkflowTaskSummary,
 } from "@codebar/contracts";
 import {
   attachWorkflowSession,
   blockWorkflowStep,
   claimWorkflowStep,
   completeWorkflowStep,
+  confirmWorkflow,
+  createWorkflowDraft,
   getWorkflowNextAction,
   getWorkflowSnapshot,
+  listWorkflowTasks,
   resolveWorkflowApproval,
+  startWorkflow,
+  submitWorkflowReview,
   updateWorkflowProgress,
 } from "../services/orchestrationCommands";
+import {
+  createSession as createTaskSession,
+  prepareWorktree,
+  type DaemonSessionSummary,
+} from "../services/daemonCommands";
 
 interface WorkflowStore {
   snapshotsByTaskId: Record<string, TaskDagDocument>;
   eventsByTaskId: Record<string, TaskDagEvent[]>;
   diagnosticsByTaskId: Record<string, TaskDagDiagnostic[]>;
+  taskSummariesByTaskId: Record<string, WorkflowTaskSummary>;
+  workflowTaskIdsByWorkspaceId: Record<string, string[]>;
   taskIdBySessionId: Record<string, string>;
   selectedTaskId: string | null;
   selectedSessionId: string | null;
   selectedNodeId: string | null;
   loadingTaskIds: Record<string, boolean>;
+  loadingWorkspaceIds: Record<string, boolean>;
   errorByTaskId: Record<string, string | null>;
+  errorByWorkspaceId: Record<string, string | null>;
   activeLeaseByStepId: Record<string, ClaimWorkflowStepResponse>;
   pendingActionByStepId: Record<string, string | null>;
   pendingApprovalIds: Record<string, boolean>;
@@ -40,6 +56,18 @@ interface WorkflowStore {
   applySnapshotDocument: (taskId: string, document: TaskDagDocument, sessionId?: string | null) => void;
   applyEvents: (taskId: string, events: TaskDagEvent[]) => void;
   applyDiagnostics: (taskId: string, diagnostics: TaskDagDiagnostic[]) => void;
+  listWorkspaceTasks: (workspaceId: string) => Promise<void>;
+  createDraftTask: (input: {
+    workspaceId: string;
+    title: string;
+    prompt: string;
+    goal?: string;
+    provider?: "claude_code" | "codex";
+  }) => Promise<string>;
+  submitForReview: (taskId: string) => Promise<void>;
+  confirmTask: (taskId: string) => Promise<void>;
+  startTask: (taskId: string, sessionId: string) => Promise<void>;
+  ensureSessionForTask: (taskId: string, provider: "claude" | "codex") => Promise<DaemonSessionSummary>;
   refreshWorkflow: (taskId: string, sessionId?: string | null) => Promise<void>;
   attachSessionAndLoad: (input: {
     provider: "claude_code" | "codex";
@@ -76,18 +104,39 @@ interface WorkflowStore {
   blockStep: (sessionId: string, stepId: string, reason: string) => Promise<void>;
   resolveApproval: (approvalId: string, sessionId?: string) => Promise<void>;
   refreshNextActionProgress: (sessionId: string, stepId: string) => Promise<void>;
+  getTaskLifecycle: (taskId: string) => WorkflowLifecycle;
+}
+
+function resolveTaskLifecycle(document: TaskDagDocument | undefined): WorkflowLifecycle {
+  const lifecycle = document?.task.lifecycle;
+  if (lifecycle === "draft" || lifecycle === "in_review" || lifecycle === "confirmed" || lifecycle === "running") {
+    return lifecycle;
+  }
+  const status = document?.task.status;
+  if (status === "draft") return "draft";
+  if (status === "ready") return "confirmed";
+  if (status === "active") return "running";
+  return "in_review";
+}
+
+function canRunActions(lifecycle: WorkflowLifecycle) {
+  return lifecycle === "running";
 }
 
 export const useWorkflowStore = create<WorkflowStore>()((set, get) => ({
   snapshotsByTaskId: {},
   eventsByTaskId: {},
   diagnosticsByTaskId: {},
+  taskSummariesByTaskId: {},
+  workflowTaskIdsByWorkspaceId: {},
   taskIdBySessionId: {},
   selectedTaskId: null,
   selectedSessionId: null,
   selectedNodeId: null,
   loadingTaskIds: {},
+  loadingWorkspaceIds: {},
   errorByTaskId: {},
+  errorByWorkspaceId: {},
   activeLeaseByStepId: {},
   pendingActionByStepId: {},
   pendingApprovalIds: {},
@@ -104,6 +153,24 @@ export const useWorkflowStore = create<WorkflowStore>()((set, get) => ({
     snapshotsByTaskId: {
       ...state.snapshotsByTaskId,
       [response.document.task.id]: response.document,
+    },
+    taskSummariesByTaskId: {
+      ...state.taskSummariesByTaskId,
+      [response.document.task.id]: {
+        taskId: response.document.task.id,
+        workspaceId: response.document.task.workspaceId,
+        title: response.document.task.title,
+        status: response.document.task.status,
+        lifecycle: resolveTaskLifecycle(response.document),
+        activeSessionId: response.document.task.activeSessionId,
+      },
+    },
+    workflowTaskIdsByWorkspaceId: {
+      ...state.workflowTaskIdsByWorkspaceId,
+      [response.document.task.workspaceId]: Array.from(new Set([
+        ...(state.workflowTaskIdsByWorkspaceId[response.document.task.workspaceId] ?? []),
+        response.document.task.id,
+      ])),
     },
     eventsByTaskId: {
       ...state.eventsByTaskId,
@@ -135,6 +202,24 @@ export const useWorkflowStore = create<WorkflowStore>()((set, get) => ({
       ...state.snapshotsByTaskId,
       [taskId]: document,
     },
+    taskSummariesByTaskId: {
+      ...state.taskSummariesByTaskId,
+      [taskId]: {
+        taskId,
+        workspaceId: document.task.workspaceId,
+        title: document.task.title,
+        status: document.task.status,
+        lifecycle: resolveTaskLifecycle(document),
+        activeSessionId: document.task.activeSessionId,
+      },
+    },
+    workflowTaskIdsByWorkspaceId: {
+      ...state.workflowTaskIdsByWorkspaceId,
+      [document.task.workspaceId]: Array.from(new Set([
+        ...(state.workflowTaskIdsByWorkspaceId[document.task.workspaceId] ?? []),
+        taskId,
+      ])),
+    },
     taskIdBySessionId: sessionId ? {
       ...state.taskIdBySessionId,
       [sessionId]: taskId,
@@ -157,6 +242,87 @@ export const useWorkflowStore = create<WorkflowStore>()((set, get) => ({
       [taskId]: diagnostics,
     },
   })),
+
+  listWorkspaceTasks: async (workspaceId) => {
+    set((state) => ({
+      loadingWorkspaceIds: {
+        ...state.loadingWorkspaceIds,
+        [workspaceId]: true,
+      },
+      errorByWorkspaceId: {
+        ...state.errorByWorkspaceId,
+        [workspaceId]: null,
+      },
+    }));
+    try {
+      const response = await listWorkflowTasks({ workspaceId });
+      set((state) => {
+        const summaryMap = { ...state.taskSummariesByTaskId };
+        for (const task of response.tasks) {
+          summaryMap[task.taskId] = task;
+        }
+        return {
+          taskSummariesByTaskId: summaryMap,
+          workflowTaskIdsByWorkspaceId: {
+            ...state.workflowTaskIdsByWorkspaceId,
+            [workspaceId]: response.tasks.map((task) => task.taskId),
+          },
+          loadingWorkspaceIds: {
+            ...state.loadingWorkspaceIds,
+            [workspaceId]: false,
+          },
+          errorByWorkspaceId: {
+            ...state.errorByWorkspaceId,
+            [workspaceId]: null,
+          },
+        };
+      });
+    } catch (error) {
+      set((state) => ({
+        loadingWorkspaceIds: {
+          ...state.loadingWorkspaceIds,
+          [workspaceId]: false,
+        },
+        errorByWorkspaceId: {
+          ...state.errorByWorkspaceId,
+          [workspaceId]: error instanceof Error ? error.message : String(error),
+        },
+      }));
+    }
+  },
+
+  createDraftTask: async (input) => {
+    const response = await createWorkflowDraft(input);
+    get().applySnapshotDocument(response.taskId, response.document);
+    return response.taskId;
+  },
+
+  submitForReview: async (taskId) => {
+    await submitWorkflowReview({ taskId });
+    const sessionId = get().selectedSessionId;
+    await get().refreshWorkflow(taskId, sessionId);
+  },
+
+  confirmTask: async (taskId) => {
+    await confirmWorkflow({ taskId });
+    const sessionId = get().selectedSessionId;
+    await get().refreshWorkflow(taskId, sessionId);
+  },
+
+  startTask: async (taskId, sessionId) => {
+    await startWorkflow({ taskId, sessionId });
+    await get().refreshWorkflow(taskId, sessionId);
+  },
+
+  ensureSessionForTask: async (taskId, provider) => {
+    const created = await createTaskSession({
+      taskId,
+      provider,
+      worktreeStrategy: "new_managed",
+    });
+    await prepareWorktree({ sessionId: created.session.id, strategy: "new_managed" });
+    return created.session;
+  },
 
   refreshWorkflow: async (taskId, sessionId) => {
     set((state) => ({
@@ -216,10 +382,17 @@ export const useWorkflowStore = create<WorkflowStore>()((set, get) => ({
         [optimisticStepId]: "claim",
       },
     }));
-    const currentDocument = (() => {
-      const taskId = get().taskIdBySessionId[sessionId] ?? get().selectedTaskId;
-      return taskId ? get().snapshotsByTaskId[taskId] : undefined;
-    })();
+    const currentTaskId = get().taskIdBySessionId[sessionId] ?? get().selectedTaskId;
+    const currentDocument = currentTaskId ? get().snapshotsByTaskId[currentTaskId] : undefined;
+    if (!canRunActions(resolveTaskLifecycle(currentDocument))) {
+      set((state) => ({
+        pendingActionByStepId: {
+          ...state.pendingActionByStepId,
+          [optimisticStepId]: null,
+        },
+      }));
+      return;
+    }
     const currentNode = stepId && currentDocument
       ? currentDocument.nodes.find((node) => node.kind === "step" && node.stepId === stepId)
       : undefined;
@@ -349,6 +522,11 @@ export const useWorkflowStore = create<WorkflowStore>()((set, get) => ({
     if (taskId) {
       await get().refreshWorkflow(taskId, sessionId);
     }
+  },
+
+  getTaskLifecycle: (taskId) => {
+    const snapshot = get().snapshotsByTaskId[taskId];
+    return resolveTaskLifecycle(snapshot);
   },
 }));
 

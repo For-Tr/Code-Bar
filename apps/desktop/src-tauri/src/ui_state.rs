@@ -204,7 +204,7 @@ impl DeletedWorkspaceRef {
         }
 
         match self.path.as_deref() {
-            Some(expected) => path.map(|value| value.trim_end_matches('/')) == Some(expected),
+            Some(expected) => normalize_path(path.map(|value| value.to_string())).as_deref() == Some(expected),
             None => true,
         }
     }

@@ -27,6 +27,29 @@ function mapRunnerTypeToProvider(runnerType: RunnerType): 'claude' | 'codex' {
   return runnerType === 'claude-code' ? 'claude' : 'codex'
 }
 
+export type DaemonSessionSummary = Session
+
+export async function createSession(input: {
+  taskId: string
+  provider: 'claude' | 'codex'
+  worktreeStrategy: 'reuse' | 'new_managed' | 'ask'
+}) {
+  return invoke<CreateSessionOutput>('daemon_request', {
+    method: 'createSession',
+    params: input,
+  })
+}
+
+export async function prepareWorktree(input: {
+  sessionId: string
+  strategy: 'reuse' | 'new_managed'
+}) {
+  return invoke<PrepareWorktreeOutput>('daemon_request', {
+    method: 'prepareWorktree',
+    params: input,
+  })
+}
+
 function mapDaemonStateToSessionStatus(state: string | undefined): SessionStatus {
   switch (state) {
     case 'running':

@@ -1,8 +1,9 @@
-import type { TaskDagDiagnostic, TaskDagEvent, TaskDagNode } from "@codebar/contracts";
+import type { TaskDagDiagnostic, TaskDagEvent, TaskDagNode, WorkflowLifecycle } from "@codebar/contracts";
 import { WorkflowDiagnosticsPanel } from "./WorkflowDiagnosticsPanel";
 import { WorkflowEventTimeline } from "./WorkflowEventTimeline";
 
 export function WorkflowDetailSheet({
+  lifecycle,
   node,
   onClose,
   onClaim,
@@ -18,6 +19,7 @@ export function WorkflowDetailSheet({
   activeExecutionAction,
   autoContinueDecision,
 }: {
+  lifecycle: WorkflowLifecycle;
   node: TaskDagNode | null;
   onClose: () => void;
   onClaim: (stepId: string) => void;
@@ -42,6 +44,7 @@ export function WorkflowDetailSheet({
 
   const isStep = node.kind === "step";
   const isApproval = node.kind === "approval_gate";
+  const canExecute = lifecycle === "running";
 
   return (
     <div
@@ -73,6 +76,11 @@ export function WorkflowDetailSheet({
           <>
             {node.description ? <div style={{ fontSize: 11, lineHeight: 1.6, color: "var(--ci-text-dim)" }}>{node.description}</div> : null}
             <div style={{ fontSize: 11, color: "var(--ci-text-dim)" }}>Status: {node.status}</div>
+            {!canExecute ? (
+              <div style={{ fontSize: 11, color: "var(--ci-text-dim)" }}>
+                Execution controls unlock when lifecycle is running.
+              </div>
+            ) : null}
             {executionState ? (
               <div style={{ fontSize: 11, color: "var(--ci-text-dim)" }}>
                 Execution: {executionState === "waiting" && activeExecutionAction ? "auto-continuing" : executionState}{activeExecutionAction ? ` · ${activeExecutionAction}` : ""}
@@ -85,16 +93,16 @@ export function WorkflowDetailSheet({
               </div>
             ) : null}
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button disabled={!capabilities.canClaimStep || pendingAction === "claim"} onClick={() => onClaim(node.stepId)} style={actionButtonStyle("accent", !capabilities.canClaimStep || pendingAction === "claim")}>Claim</button>
-              <button disabled={!capabilities.canCompleteStep || pendingAction === "complete"} onClick={() => onComplete(node.stepId)} style={actionButtonStyle("default", !capabilities.canCompleteStep || pendingAction === "complete")}>Complete</button>
-              <button disabled={!capabilities.canBlockStep || pendingAction === "block"} onClick={() => onBlock(node.stepId)} style={actionButtonStyle("danger", !capabilities.canBlockStep || pendingAction === "block")}>Block</button>
+              <button disabled={!canExecute || !capabilities.canClaimStep || pendingAction === "claim"} onClick={() => onClaim(node.stepId)} style={actionButtonStyle("accent", !canExecute || !capabilities.canClaimStep || pendingAction === "claim")}>Claim</button>
+              <button disabled={!canExecute || !capabilities.canCompleteStep || pendingAction === "complete"} onClick={() => onComplete(node.stepId)} style={actionButtonStyle("default", !canExecute || !capabilities.canCompleteStep || pendingAction === "complete")}>Complete</button>
+              <button disabled={!canExecute || !capabilities.canBlockStep || pendingAction === "block"} onClick={() => onBlock(node.stepId)} style={actionButtonStyle("danger", !canExecute || !capabilities.canBlockStep || pendingAction === "block")}>Block</button>
             </div>
           </>
         ) : null}
 
         {isApproval ? (
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button disabled={!capabilities.canResolveApproval || approvalPending} onClick={() => onResolveApproval(node.approvalRequest.id)} style={actionButtonStyle("accent", !capabilities.canResolveApproval || approvalPending)}>Approve</button>
+            <button disabled={!canExecute || !capabilities.canResolveApproval || approvalPending} onClick={() => onResolveApproval(node.approvalRequest.id)} style={actionButtonStyle("accent", !canExecute || !capabilities.canResolveApproval || approvalPending)}>Approve</button>
           </div>
         ) : null}
 
@@ -102,6 +110,21 @@ export function WorkflowDetailSheet({
           <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--ci-text-dim)" }}>
             Events
           </div>
+          {lifecycle === "draft" ? (
+            <div style={{ marginTop: 6, fontSize: 11, color: "var(--ci-text-dim)" }}>
+              Draft stage: refine the plan before submitting for review.
+            </div>
+          ) : null}
+          {lifecycle === "in_review" ? (
+            <div style={{ marginTop: 6, fontSize: 11, color: "var(--ci-text-dim)" }}>
+              Review stage: inspect graph, events, and diagnostics before confirmation.
+            </div>
+          ) : null}
+          {lifecycle === "confirmed" ? (
+            <div style={{ marginTop: 6, fontSize: 11, color: "var(--ci-text-dim)" }}>
+              Confirmed stage: attach or create a session, then explicitly start.
+            </div>
+          ) : null}
           <div style={{ marginTop: 10 }}>
             <WorkflowEventTimeline events={events} />
           </div>

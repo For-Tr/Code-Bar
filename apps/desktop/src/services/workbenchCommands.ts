@@ -9,10 +9,13 @@ export function showSessionSurface(sessionId: string | null) {
   useWorkbenchStore.getState().showSessionSurface(sessionId);
 }
 
-export function showWorkflow(sessionId: string) {
-  useSessionStore.getState().setActiveSession(sessionId);
-  useSessionStore.getState().setExpandedSession(sessionId);
-  useWorkbenchStore.getState().showWorkflow(sessionId);
+export function showWorkflow(sessionId?: string | null, taskId?: string | null) {
+  const nextSessionId = sessionId ?? null;
+  if (nextSessionId) {
+    useSessionStore.getState().setActiveSession(nextSessionId);
+    useSessionStore.getState().setExpandedSession(nextSessionId);
+  }
+  useWorkbenchStore.getState().showWorkflow(nextSessionId, taskId ?? null);
 }
 
 export function showExplorer(sessionId: string) {

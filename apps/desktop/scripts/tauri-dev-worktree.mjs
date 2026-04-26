@@ -60,10 +60,28 @@ async function findAvailablePortPair(startPort) {
   throw new Error(`Unable to find a free dev/HMR port pair starting from ${startPort}`);
 }
 
+function withToolingPath(env) {
+  const pathKey = Object.keys(env).find((key) => key.toLowerCase() === "path") || "PATH";
+  const currentPath = env[pathKey] || "";
+  const extras = process.platform === "win32"
+    ? []
+    : [
+        path.join(process.env.HOME || "", ".cargo", "bin"),
+        "/opt/homebrew/bin",
+        "/opt/homebrew/sbin",
+        "/usr/local/bin",
+      ].filter(Boolean);
+
+  env[pathKey] = [...extras, ...currentPath.split(path.delimiter).filter(Boolean)]
+    .filter((value, index, list) => list.indexOf(value) === index)
+    .join(path.delimiter);
+  return env;
+}
+
 function spawnPnpm(args, env) {
   const child = spawn(process.platform === "win32" ? "pnpm.cmd" : "pnpm", args, {
     cwd: appRoot,
-    env,
+    env: withToolingPath({ ...env }),
     stdio: "inherit",
   });
 

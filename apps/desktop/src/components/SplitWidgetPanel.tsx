@@ -707,14 +707,20 @@ export function SplitWidgetPanel() {
       flexDirection: "column",
       background: isGlass ? "var(--ci-toolbar-bg)" : "linear-gradient(180deg, var(--ci-toolbar-bg) 0%, var(--ci-surface) 100%)",
     }}>
-      <div style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 10,
-        padding: "8px 10px 6px",
-        background: "transparent",
-      }}>
+      <div
+        data-tauri-drag-region
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 10,
+          padding: "8px 10px 6px",
+          background: "transparent",
+          cursor: "grab",
+          userSelect: "none",
+          WebkitUserSelect: "none",
+        }}
+      >
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 10, color: "var(--ci-text-dim)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>
             {t("app.split.widgets")}

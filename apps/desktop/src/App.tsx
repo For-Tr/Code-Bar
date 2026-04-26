@@ -1091,7 +1091,7 @@ export default function App() {
   }, [activeSession?.id, refreshSessionDiff]);
 
   useEffect(() => {
-    if (sidebarSection === "sessions") return;
+    if (sidebarSection === "sessions" || sidebarSection === "workflow") return;
     if (workbenchSession) return;
     useWorkbenchStore.getState().resetWorkbenchMode();
   }, [sidebarSection, workbenchSession]);
@@ -1277,7 +1277,17 @@ export default function App() {
           }}>
             <Settings />
 
-            {!isSubPageOpen && (
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                flex: 1,
+                minHeight: 0,
+                opacity: isSubPageOpen ? 0 : 1,
+                pointerEvents: isSubPageOpen ? "none" : "auto",
+                visibility: isSubPageOpen ? "hidden" : "visible",
+              }}
+            >
               <SplitSwapProvider
                 sessionDetailEmptyState={
                   <div style={{
@@ -1428,7 +1438,7 @@ export default function App() {
                   )}
                 </div>
               </SplitSwapProvider>
-            )}
+            </div>
           </div>
         </motion.div>
       </div>

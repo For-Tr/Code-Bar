@@ -112,6 +112,8 @@ pub fn send_notification_with_callback(
     sound: Option<bool>,
     session_id: Option<String>,
 ) -> Result<(), String> {
+    use tauri::Manager;
+
     if !crate::integration_control::notifications_and_hooks_enabled(&app) {
         eprintln!("[notification] skipped because notifications and hooks are disabled");
         return Ok(());
@@ -128,7 +130,6 @@ pub fn send_notification_with_callback(
     // 非 macOS 平台降级到 tauri-plugin-notification
     #[cfg(not(target_os = "macos"))]
     {
-        use tauri::Manager;
         use tauri_plugin_notification::NotificationExt;
         let _ = subtitle; // 避免 unused warning
         let _ = play_sound;

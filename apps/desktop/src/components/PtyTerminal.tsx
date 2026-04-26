@@ -22,6 +22,8 @@ interface Props {
   onNotification?: (title: string, message: string, notification_type: string) => void; // CLI hook 通知回调
   // 额外注入的环境变量，供 daemon 侧 runtime 启动时使用（如 CODE_BAR_* context 信息）
   env?: [string, string][];
+  // 仅 CLI 主终端在 Windows 下启用 Ctrl+C / Ctrl+V 文本复制粘贴
+  enableWindowsCtrlCv?: boolean;
 }
 
 // ── xterm 主题定义 ─────────────────────────────────────────────
@@ -104,6 +106,12 @@ function getClampedTerminalSize(term: Terminal) {
   };
 }
 
+function writePtyData(sessionId: string, data: string) {
+  const bytes = new TextEncoder().encode(data);
+  const b64 = btoa(String.fromCharCode(...bytes));
+  return invoke("daemon_write_pty", { sessionId, data: b64 });
+}
+
 function wheelDeltaToLines(event: WheelEvent, rows: number): number {
   if (event.deltaY === 0) return 0;
 
@@ -134,6 +142,7 @@ export function PtyTerminal({
   onError,
   onNotification,
   env,
+  enableWindowsCtrlCv = false,
 }: Props) {
   const { t } = useAppI18n();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -154,6 +163,7 @@ export function PtyTerminal({
 
     const { termTheme, termBg } = getTerminalLook(theme);
     const { fontSize, lineHeight } = getTerminalMetrics();
+    const isWindows = navigator.userAgent.toLowerCase().includes("windows");
 
     const term = new Terminal({
       theme: termTheme,
@@ -193,11 +203,40 @@ export function PtyTerminal({
 
     container.addEventListener("wheel", wheelHandler, { passive: false });
 
+    if (isWindows && enableWindowsCtrlCv) {
+      term.attachCustomKeyEventHandler((event: KeyboardEvent) => {
+        if (event.type !== "keydown" || !event.ctrlKey || event.altKey || event.metaKey) {
+          return true;
+        }
+
+        const key = event.key.toLowerCase();
+        if (key === "c") {
+          if (!term.hasSelection()) return true;
+          event.preventDefault();
+          event.stopPropagation();
+          void navigator.clipboard.writeText(term.getSelection()).catch(() => {});
+          return false;
+        }
+
+        if (key === "v") {
+          event.preventDefault();
+          event.stopPropagation();
+          void navigator.clipboard.readText()
+            .then((text) => {
+              if (!text) return;
+              return writePtyData(sessionId, text);
+            })
+            .catch(() => {});
+          return false;
+        }
+
+        return true;
+      });
+    }
+
     // 键盘输入 → 发给 PTY（base64 编码）
     term.onData((data: string) => {
-      const bytes = new TextEncoder().encode(data);
-      const b64 = btoa(String.fromCharCode(...bytes));
-      invoke("daemon_write_pty", { sessionId, data: b64 }).catch(() => {});
+      writePtyData(sessionId, data).catch(() => {});
     });
 
     return () => {

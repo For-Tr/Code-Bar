@@ -180,7 +180,32 @@ pub fn resolve_path_from_workdir(workdir: &str, path: &str) -> PathBuf {
 }
 
 pub fn normalize_expanded_path(path: &str) -> String {
-    expand_path(path).trim_end_matches('/').to_string()
+    let mut normalized = expand_path(path).trim().replace('\\', "/");
+    if normalized == "/" {
+        return "/".to_string();
+    }
+
+    loop {
+        if !normalized.ends_with('/') {
+            break;
+        }
+
+        #[cfg(windows)]
+        if normalized.len() == 3 && normalized.as_bytes()[1] == b':' {
+            break;
+        }
+
+        if normalized.len() <= 1 {
+            break;
+        }
+
+        normalized.pop();
+    }
+
+    #[cfg(windows)]
+    normalized.make_ascii_lowercase();
+
+    normalized
 }
 
 fn provider_storage_spec(

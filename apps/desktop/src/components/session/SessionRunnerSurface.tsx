@@ -120,6 +120,7 @@ export function SessionRunnerSurface({
           onRunning={handlePtyRunning}
           onError={handlePtyError}
           env={contextEnv}
+          enableWindowsCtrlCv
         />
       </div>
     </>

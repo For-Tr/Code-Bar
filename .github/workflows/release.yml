@@ -30,7 +30,7 @@ jobs:
             gh release create "${GITHUB_REF_NAME}" \
               --repo "${GITHUB_REPOSITORY}" \
               --title "Code Bar ${GITHUB_REF_NAME}" \
-              --notes "Building release assets... / 正在构建发布资源… / جارٍ إنشاء ملفات الإصدار…" \
+              --notes "Building release assets... / 正在构建发布资源…" \
               --latest
             release_url="$(gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --json url --jq .url)"
           fi
@@ -114,23 +114,69 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" > release.json
+          max_attempts=5
+          for attempt in $(seq 1 "$max_attempts"); do
+            if ! release_json="$(gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --json assets,url 2>/dev/null)"; then
+              if [ "$attempt" -eq "$max_attempts" ]; then
+                echo "Failed to resolve release ${GITHUB_REF_NAME} after ${max_attempts} attempts." >&2
+                exit 1
+              fi
+              echo "Release not ready yet (attempt ${attempt}/${max_attempts}), retrying..."
+              sleep 3
+              continue
+            fi
 
-          windows_url="$(jq -r '.assets[] | select(.name == "code-bar-windows-x64.msi") | .browser_download_url' release.json | head -n1)"
-          mac_arm_url="$(jq -r '.assets[] | select(.name == "code-bar-macos-apple-silicon.dmg") | .browser_download_url' release.json | head -n1)"
-          mac_intel_url="$(jq -r '.assets[] | select(.name == "code-bar-macos-intel.dmg") | .browser_download_url' release.json | head -n1)"
+            printf '%s\n' "$release_json" > release.json
+            missing_asset=""
+            for asset in code-bar-windows-x64.msi code-bar-macos-apple-silicon.dmg code-bar-macos-intel.dmg; do
+              if ! jq -e --arg name "$asset" '.assets[] | select(.name == $name)' release.json >/dev/null; then
+                missing_asset="$asset"
+                break
+              fi
+            done
 
-          if [ -z "$windows_url" ] || [ -z "$mac_arm_url" ] || [ -z "$mac_intel_url" ]; then
-            echo "Failed to resolve one or more release assets." >&2
-            echo "Assets found:" >&2
-            jq -r '.assets[].name' release.json >&2
-            exit 1
+            if [ -z "$missing_asset" ]; then
+              break
+            fi
+
+            if [ "$attempt" -eq "$max_attempts" ]; then
+              echo "Missing release asset after ${max_attempts} attempts: $missing_asset" >&2
+              echo "Assets found:" >&2
+              jq -r '.assets[].name' release.json >&2
+              exit 1
+            fi
+
+            echo "Asset not ready yet (${missing_asset}) (attempt ${attempt}/${max_attempts}), retrying..."
+            sleep 3
+          done
+
+          release_base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}"
+          {
+            echo "windows_url=${release_base}/code-bar-windows-x64.msi"
+            echo "mac_arm_url=${release_base}/code-bar-macos-apple-silicon.dmg"
+            echo "mac_intel_url=${release_base}/code-bar-macos-intel.dmg"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Extract tag release notes
+        id: tag_notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag_type="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${GITHUB_REF_NAME}" --jq '.object.type' 2>/dev/null || true)"
+          notes=""
+
+          if [ "$tag_type" = "tag" ]; then
+            tag_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${GITHUB_REF_NAME}" --jq '.object.sha')"
+            notes="$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${tag_sha}" --jq '.message')"
           fi
 
+          normalized="$(printf '%s\n' "$notes" | awk -v tag="$GITHUB_REF_NAME" 'NR == 1 && $0 == tag { next } { print }')"
+          normalized="$(printf '%s\n' "$normalized" | sed '/^$/N;/^\n$/D')"
+
           {
-            echo "windows_url=$windows_url"
-            echo "mac_arm_url=$mac_arm_url"
-            echo "mac_intel_url=$mac_intel_url"
+            echo "notes<<EOF"
+            printf '%s\n' "$normalized"
+            echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
       - name: Update release body
@@ -140,17 +186,22 @@ jobs:
           WINDOWS_URL: ${{ steps.links.outputs.windows_url }}
           MAC_ARM_URL: ${{ steps.links.outputs.mac_arm_url }}
           MAC_INTEL_URL: ${{ steps.links.outputs.mac_intel_url }}
+          TAG_NOTES: ${{ steps.tag_notes.outputs.notes }}
         run: |
           cat <<EOF > release-notes.md
-          ## Downloads / 下载 / التنزيلات
+          ## Highlights
+
+          ${TAG_NOTES:-No additional release notes were provided for this tag.}
+
+          ## Downloads / 下载
 
           - [Windows x64 MSI](${WINDOWS_URL})
           - [macOS Apple Silicon (M-series)](${MAC_ARM_URL})
           - [macOS Intel](${MAC_INTEL_URL})
 
-          ## Release Page / 发布页 / صفحة الإصدار
+          ## Release Page / 发布页
 
-          - [All assets / 全部资源 / كل الملفات](${RELEASE_URL})
+          - [All assets / 全部资源](${RELEASE_URL})
           EOF
 
           gh release edit "${GITHUB_REF_NAME}" \
@@ -165,13 +216,20 @@ jobs:
           WINDOWS_URL: ${{ steps.links.outputs.windows_url }}
           MAC_ARM_URL: ${{ steps.links.outputs.mac_arm_url }}
           MAC_INTEL_URL: ${{ steps.links.outputs.mac_intel_url }}
+          TAG_NOTES: ${{ steps.tag_notes.outputs.notes }}
         run: |
           {
-            echo "## Release Download Links / 发布下载链接 / روابط تنزيل الإصدار"
+            echo "## Release Download Links / 发布下载链接"
             echo
+            if [ -n "${TAG_NOTES//[[:space:]]/}" ]; then
+              echo "### Highlights"
+              echo
+              printf '%s\n' "$TAG_NOTES"
+              echo
+            fi
             echo "- [Windows x64 MSI](${WINDOWS_URL})"
             echo "- [macOS Apple Silicon (M-series)](${MAC_ARM_URL})"
             echo "- [macOS Intel](${MAC_INTEL_URL})"
             echo
-            echo "- [Release page / 发布页 / صفحة الإصدار](${RELEASE_URL})"
+            echo "- [Release page / 发布页](${RELEASE_URL})"
           } >> "$GITHUB_STEP_SUMMARY"
