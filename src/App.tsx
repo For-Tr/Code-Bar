@@ -1107,6 +1107,8 @@ export default function App() {
 
             <div
               style={{
+                display: "flex",
+                flexDirection: "column",
                 flex: 1,
                 minHeight: 0,
                 opacity: isSubPageOpen ? 0 : 1,
