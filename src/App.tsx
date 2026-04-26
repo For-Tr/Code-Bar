@@ -1105,7 +1105,15 @@ export default function App() {
           }}>
             <Settings />
 
-            {!isSubPageOpen && (
+            <div
+              style={{
+                flex: 1,
+                minHeight: 0,
+                opacity: isSubPageOpen ? 0 : 1,
+                pointerEvents: isSubPageOpen ? "none" : "auto",
+                visibility: isSubPageOpen ? "hidden" : "visible",
+              }}
+            >
               <SplitSwapProvider
                 sessionDetailEmptyState={
                   <div style={{
@@ -1256,7 +1264,7 @@ export default function App() {
                   )}
                 </div>
               </SplitSwapProvider>
-            )}
+            </div>
           </div>
         </motion.div>
       </div>
