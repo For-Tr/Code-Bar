@@ -1,9 +1,9 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use serde_json::Value;
 use time::{
     format_description::well_known::Rfc3339, OffsetDateTime,
 };
-
 use crate::{
     model::{
         ClaimStepResult, CompleteStepResult, ErrorEnvelope, JsonMap, OrchestrationState,
@@ -128,8 +128,8 @@ impl StepLeaseManager {
         step_id: &str,
         lease_token: Option<&str>,
         now: &str,
-        _summary: &str,
-        _details: Option<&JsonMap>,
+        summary: &str,
+        details: Option<&JsonMap>,
     ) -> Result<(), ErrorEnvelope> {
         self.reap_expired(state, now);
         validate_step_access(state, session_id, step_id, lease_token, now)?;
@@ -141,6 +141,8 @@ impl StepLeaseManager {
         if step.status == PlanStepStatus::Claimed {
             step.status = PlanStepStatus::Running;
         }
+        step.progress_summary = Some(summary.to_string());
+        step.progress_details = details.cloned().map(|value| Value::Object(value.into_iter().collect()));
         step.updated_at = now.to_string();
 
         if let Some(session) = state.sessions.get_mut(session_id) {
@@ -160,7 +162,7 @@ impl StepLeaseManager {
         step_id: &str,
         lease_token: Option<&str>,
         now: &str,
-        _outputs: Option<&JsonMap>,
+        outputs: Option<&JsonMap>,
         next_step_id: Option<String>,
     ) -> Result<CompleteStepResult, ErrorEnvelope> {
         self.reap_expired(state, now);
@@ -174,6 +176,8 @@ impl StepLeaseManager {
         step.lease_owner_session_id = None;
         step.lease_token = None;
         step.lease_expires_at = None;
+        step.outputs = outputs.cloned().map(|value| Value::Object(value.into_iter().collect()));
+        step.blocked_reason = None;
         step.updated_at = now.to_string();
 
         let task_id = state
@@ -229,7 +233,7 @@ impl StepLeaseManager {
         session_id: &str,
         step_id: &str,
         now: &str,
-        _reason: &str,
+        reason: &str,
     ) -> Result<(), ErrorEnvelope> {
         self.reap_expired(state, now);
         let step = state
@@ -252,6 +256,7 @@ impl StepLeaseManager {
         step.lease_owner_session_id = None;
         step.lease_token = None;
         step.lease_expires_at = None;
+        step.blocked_reason = Some(reason.to_string());
         step.updated_at = now.to_string();
 
         if let Some(task_id) = state.step_task_id(step_id) {

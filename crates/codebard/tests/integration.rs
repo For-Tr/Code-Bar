@@ -3,7 +3,13 @@ use codebard::wiring::build_daemon;
 use daemon_core::domain::{ApprovalActionType, ProviderKind, TrustLevel, VcsType, Workspace};
 use daemon_core::ports::WorktreeStrategy;
 use daemon_core::services::{CreateSessionInput, CreateTaskInput, LaunchSessionInput, PrepareWorktreeInput, ResolveApprovalInput};
-use codebar_contracts::rpc::{ApprovalDecision, ApprovalStatus};
+use codebar_contracts::rpc::{ApprovalStatus, BindProviderSessionOutput, RecordRuntimeLifecycleOutput};
+use codebar_contracts::workflow::{
+    AttachWorkflowSessionRequest, AttachWorkflowSessionResponse, BlockWorkflowStepRequest,
+    ClaimWorkflowStepRequest, ClaimWorkflowStepResponse, CompleteWorkflowStepRequest,
+    CompleteWorkflowStepResponse, GetWorkflowSnapshotRequest, GetWorkflowSnapshotResponse,
+    UpdateWorkflowProgressRequest,
+};
 use serde_json::json;
 use std::fs;
 use std::path::PathBuf;
@@ -201,12 +207,10 @@ async fn rpc_session_outputs_use_contract_shape() {
         }),
     });
     assert!(bind_response.ok);
-    let bind_payload = bind_response.result.unwrap();
-    let bind_session = bind_payload.get("session").unwrap();
-    assert_eq!(bind_session.get("providerSessionId"), Some(&json!("ext_123")));
-    assert!(bind_session.get("recoveryNote").is_none());
+    let bind_payload: BindProviderSessionOutput = serde_json::from_value(bind_response.result.unwrap()).unwrap();
+    assert_eq!(bind_payload.session.provider_session_id.as_deref(), Some("ext_123"));
 
-    let session_id = String::from(bind_session.get("id").and_then(|v| v.as_str()).unwrap_or_default());
+    let session_id = bind_payload.session.id.clone();
     let lifecycle_response = daemon.handle_request(RpcRequest {
         id: Some("lifecycle-1".to_string()),
         method: "recordRuntimeLifecycle".to_string(),
@@ -217,10 +221,156 @@ async fn rpc_session_outputs_use_contract_shape() {
         }),
     });
     assert!(lifecycle_response.ok);
-    let lifecycle_payload = lifecycle_response.result.unwrap();
-    let lifecycle_session = lifecycle_payload.get("session").unwrap();
-    assert_eq!(lifecycle_session.get("state"), Some(&json!("running")));
-    assert!(lifecycle_session.get("recoveryNote").is_none());
+    let lifecycle_payload: RecordRuntimeLifecycleOutput = serde_json::from_value(lifecycle_response.result.unwrap()).unwrap();
+    assert_eq!(lifecycle_payload.session.state, codebar_contracts::domain::SessionState::Running);
+}
+
+#[tokio::test]
+async fn workflow_rpc_roundtrip_persists_runtime_fields() {
+    let root = temp_root("workflow-rpc");
+    let daemon = build_daemon(root.clone()).unwrap();
+    let workspace = workspace(&root);
+    fs::create_dir_all(&workspace.root_path).unwrap();
+    daemon.upsert_workspace(workspace.clone()).unwrap();
+
+    let task = daemon
+        .create_task(CreateTaskInput {
+            workspace_id: workspace.id.clone(),
+            title: "Workflow task".to_string(),
+            prompt: "Exercise workflow RPC".to_string(),
+            goal: None,
+            constraints: None,
+            requested_provider: Some(codebar_contracts::domain::ProviderKind::Claude),
+        })
+        .unwrap();
+    let session = daemon
+        .create_session(CreateSessionInput {
+            task_id: task.id.clone(),
+            provider: codebar_contracts::domain::ProviderKind::Claude,
+            worktree_strategy: codebar_contracts::rpc::WorktreeStrategy::NewManaged,
+        })
+        .unwrap();
+    let worktree = daemon
+        .prepare_worktree(PrepareWorktreeInput {
+            session_id: session.id.clone(),
+            strategy: codebar_contracts::rpc::WorktreeStrategy::NewManaged,
+        })
+        .unwrap();
+
+    let attach = daemon
+        .attach_workflow_session(AttachWorkflowSessionRequest {
+            provider: codebar_contracts::workflow::TaskDagProvider::ClaudeCode,
+            session_id: Some(session.id.clone()),
+            provider_session_id: None,
+            cwd: Some(worktree.path.clone()),
+            worktree_path: Some(worktree.path.clone()),
+            workspace_id: Some(workspace.id.clone()),
+            workspace_name: Some(workspace.display_name.clone()),
+            workspace_path: Some(workspace.root_path.clone()),
+            session_name: Some("Workflow Session".to_string()),
+            current_task: Some(task.prompt.clone()),
+            branch_name: worktree.branch_name.clone(),
+            base_branch: worktree.base_branch.clone(),
+            session_status: Some("idle".to_string()),
+        })
+        .unwrap();
+    assert_eq!(attach.task_id, task.id);
+
+    let snapshot = daemon
+        .get_workflow_snapshot(GetWorkflowSnapshotRequest {
+            task_id: task.id.clone(),
+            session_id: Some(session.id.clone()),
+            include_events: Some(true),
+            include_diagnostics: Some(true),
+        })
+        .unwrap();
+    let step_id = snapshot
+        .document
+        .nodes
+        .iter()
+        .find_map(|node| match node {
+            codebar_contracts::workflow::TaskDagNode::Step(step) => Some(step.step_id.clone()),
+            _ => None,
+        })
+        .expect("step id");
+
+    let claim: ClaimWorkflowStepResponse = daemon
+        .claim_workflow_step(ClaimWorkflowStepRequest {
+            session_id: session.id.clone(),
+            step_id: Some(step_id.clone()),
+        })
+        .unwrap();
+
+    daemon
+        .update_workflow_progress(UpdateWorkflowProgressRequest {
+            session_id: session.id.clone(),
+            step_id: step_id.clone(),
+            lease_token: Some(claim.lease_token.clone()),
+            summary: "halfway".to_string(),
+            details: Some(std::collections::BTreeMap::from([(
+                "percent".to_string(),
+                json!(50),
+            )])),
+        })
+        .unwrap();
+
+    let complete: CompleteWorkflowStepResponse = daemon
+        .complete_workflow_step(CompleteWorkflowStepRequest {
+            session_id: session.id.clone(),
+            step_id: step_id.clone(),
+            lease_token: Some(claim.lease_token.clone()),
+            outputs: Some(std::collections::BTreeMap::from([(
+                "artifact".to_string(),
+                json!("done"),
+            )])),
+        })
+        .unwrap();
+    assert!(complete.next_step_id.is_none());
+
+    let snapshot: GetWorkflowSnapshotResponse = daemon
+        .get_workflow_snapshot(GetWorkflowSnapshotRequest {
+            task_id: task.id.clone(),
+            session_id: Some(session.id.clone()),
+            include_events: Some(true),
+            include_diagnostics: Some(true),
+        })
+        .unwrap();
+    let step_node = snapshot
+        .document
+        .nodes
+        .iter()
+        .find_map(|node| match node {
+            codebar_contracts::workflow::TaskDagNode::Step(step) if step.step_id == claim.step_id => Some(step),
+            _ => None,
+        })
+        .expect("step node");
+    assert_eq!(step_node.runtime.as_ref().and_then(|runtime| runtime.latest_progress_summary.as_deref()), Some("halfway"));
+    assert_eq!(
+        step_node
+            .runtime
+            .as_ref()
+            .and_then(|runtime| runtime.progress_details.as_ref())
+            .and_then(|details| details.get("percent"))
+            .and_then(|value| value.as_i64()),
+        Some(50)
+    );
+    assert_eq!(
+        step_node
+            .runtime
+            .as_ref()
+            .and_then(|runtime| runtime.outputs.as_ref())
+            .and_then(|outputs| outputs.get("artifact"))
+            .and_then(|value| value.as_str()),
+        Some("done")
+    );
+
+    daemon
+        .block_workflow_step(BlockWorkflowStepRequest {
+            session_id: session.id.clone(),
+            step_id: claim.step_id.clone(),
+            reason: "needs input".to_string(),
+        })
+        .unwrap_or(());
 }
 
 #[tokio::test]
@@ -252,7 +402,7 @@ async fn next_action_and_rpc_roundtrip_work() {
     let next_action = daemon.get_next_action(&session.id).unwrap();
     assert_eq!(
         next_action["recommendedNextCalls"],
-        json!(["prepareWorktree"])
+        json!(["task.get_next_action"])
     );
 
     #[cfg(unix)]

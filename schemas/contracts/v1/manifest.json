@@ -3,6 +3,31 @@
   "version": "v1",
   "schemas": [
     {
+      "name": "domain",
+      "rustModule": "codebar_contracts::domain",
+      "tsModule": "@codebar/contracts/domain"
+    },
+    {
+      "name": "errors",
+      "rustModule": "codebar_contracts::errors",
+      "tsModule": "@codebar/contracts/errors"
+    },
+    {
+      "name": "events",
+      "rustModule": "codebar_contracts::events",
+      "tsModule": "@codebar/contracts/events"
+    },
+    {
+      "name": "mcp",
+      "rustModule": "codebar_contracts::mcp",
+      "tsModule": "@codebar/contracts/mcp"
+    },
+    {
+      "name": "rpc",
+      "rustModule": "codebar_contracts::rpc",
+      "tsModule": "@codebar/contracts/rpc"
+    },
+    {
       "name": "workflow",
       "rustModule": "codebar_contracts::workflow",
       "tsModule": "@codebar/contracts/workflow"

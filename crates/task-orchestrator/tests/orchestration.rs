@@ -86,6 +86,10 @@ fn base_state(mode: PlanMode) -> OrchestrationState {
         lease_owner_session_id: None,
         lease_token: None,
         lease_expires_at: None,
+        progress_summary: None,
+        progress_details: None,
+        outputs: None,
+        blocked_reason: None,
         created_at: ts(1),
         updated_at: ts(1),
     };
@@ -102,6 +106,10 @@ fn base_state(mode: PlanMode) -> OrchestrationState {
         lease_owner_session_id: None,
         lease_token: None,
         lease_expires_at: None,
+        progress_summary: None,
+        progress_details: None,
+        outputs: None,
+        blocked_reason: None,
         created_at: ts(2),
         updated_at: ts(2),
     };
@@ -118,6 +126,10 @@ fn base_state(mode: PlanMode) -> OrchestrationState {
         lease_owner_session_id: None,
         lease_token: None,
         lease_expires_at: None,
+        progress_summary: None,
+        progress_details: None,
+        outputs: None,
+        blocked_reason: None,
         created_at: ts(3),
         updated_at: ts(3),
     };
@@ -260,11 +272,20 @@ fn depends_on_strictly_unlocks_followup_after_completion() {
             "session-1",
             "step-a",
             Some(&claim.lease_token),
-            None,
+            Some(&BTreeMap::from([("artifact".into(), serde_json::Value::String("done".into()))])),
             &ts(12),
         )
         .expect("complete");
 
+    let step = state.steps.get("step-a").expect("step-a");
+    assert_eq!(step.progress_summary.as_deref(), Some("started"));
+    assert_eq!(
+        step.outputs
+            .as_ref()
+            .and_then(|value| value.get("artifact"))
+            .and_then(|value| value.as_str()),
+        Some("done")
+    );
     assert_eq!(completed.next_step_id.as_deref(), Some("step-b"));
     let next = engine
         .get_next_action(&mut state, "session-1", &ts(12))
@@ -291,6 +312,10 @@ fn blocked_step_pauses_only_related_subgraph() {
             lease_owner_session_id: None,
             lease_token: None,
             lease_expires_at: None,
+            progress_summary: None,
+            progress_details: None,
+            outputs: None,
+            blocked_reason: None,
             created_at: ts(1),
             updated_at: ts(1),
         },
@@ -300,6 +325,9 @@ fn blocked_step_pauses_only_related_subgraph() {
     engine
         .block_step(&mut state, "session-1", "step-a", "waiting on API", &ts(10))
         .expect("block");
+
+    let blocked = state.steps.get("step-a").expect("step-a");
+    assert_eq!(blocked.blocked_reason.as_deref(), Some("waiting on API"));
 
     let next = engine
         .get_next_action(&mut state, "session-1", &ts(10))
@@ -351,6 +379,37 @@ fn pending_approval_prevents_new_step_selection() {
         .expect("next action");
 
     assert!(next.step.is_none());
+}
+
+#[test]
+fn update_progress_persists_details() {
+    let mut state = base_state(PlanMode::Guided);
+    let engine = Engine::default();
+
+    let claim = engine
+        .claim_step(&mut state, "session-1", Some("step-a"), &ts(10))
+        .expect("claim");
+    engine
+        .update_progress(
+            &mut state,
+            "session-1",
+            "step-a",
+            Some(&claim.lease_token),
+            "started",
+            Some(&BTreeMap::from([("percent".into(), serde_json::Value::from(50))])),
+            &ts(11),
+        )
+        .expect("progress");
+
+    let step = state.steps.get("step-a").expect("step-a");
+    assert_eq!(step.progress_summary.as_deref(), Some("started"));
+    assert_eq!(
+        step.progress_details
+            .as_ref()
+            .and_then(|value| value.get("percent"))
+            .and_then(|value| value.as_i64()),
+        Some(50)
+    );
 }
 
 #[test]

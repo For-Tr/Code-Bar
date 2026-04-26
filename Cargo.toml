@@ -2,7 +2,9 @@
 resolver = "2"
 members = [
   "apps/desktop/src-tauri",
-  "crates/task-orchestrator",
   "crates/codebar-contracts",
+  "crates/daemon-core",
+  "crates/codebard",
+  "crates/task-orchestrator",
 ]
 default-members = ["apps/desktop/src-tauri"]

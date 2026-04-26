@@ -430,7 +430,6 @@ export function SessionList() {
   } = useSessionStore();
   const { activeWorkspaceId } = useWorkspaceStore();
   const focusSession = useWorkbenchStore((s) => s.focusSession);
-  const workspaces = useWorkspaceStore((s) => s.workspaces);
   const activeWorkspace = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === activeWorkspaceId)
   );

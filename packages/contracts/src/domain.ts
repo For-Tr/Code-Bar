@@ -109,6 +109,10 @@ export interface PlanStep {
   leaseOwnerSessionId?: string;
   leaseToken?: string;
   leaseExpiresAt?: string;
+  progressSummary?: string;
+  progressDetails?: Record<string, unknown>;
+  outputs?: Record<string, unknown>;
+  blockedReason?: string;
   createdAt: string;
   updatedAt: string;
 }

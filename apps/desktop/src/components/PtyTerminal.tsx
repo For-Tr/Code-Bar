@@ -379,8 +379,6 @@ export function PtyTerminal({
       const fit = fitRef.current;
       const term = termRef.current;
       if (fit) fit.fit();
-      const cols = Math.max(term?.cols ?? 80, 40);
-      const rows = Math.max(term?.rows ?? 24, 12);
       const launchArgs = buildLaunchArgs();
       const prompt = initialPromptRef.current?.trim();
 
@@ -424,8 +422,6 @@ export function PtyTerminal({
     const fit = fitRef.current;
     const term = termRef.current;
     if (fit) fit.fit();
-    const cols = Math.max(term?.cols ?? 80, 40);
-    const rows = Math.max(term?.rows ?? 24, 12);
     startingRef.current = true;
     const launchToken = launchTokenRef.current + 1;
     launchTokenRef.current = launchToken;

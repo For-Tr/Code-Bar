@@ -1,4 +1,4 @@
-import type { ApprovalActionType, Plan, PlanMode, PlanStep, ProviderKind, RunAttempt, Session, Task, TaskStatus, Worktree } from "./domain";
+import type { ApprovalActionType, Plan, PlanMode, PlanStep, ProviderKind, RunAttempt, Session, Task, TaskStatus, Worktree, Workspace } from "./domain";
 import type { EventEntityType, EventEnvelope } from "./events";
 
 export type ApprovalStatus = "pending" | "approved" | "rejected" | "expired";
@@ -135,6 +135,11 @@ export interface UpdateTaskInput {
   status?: TaskStatus;
 }
 export interface UpdateTaskOutput { task: Task }
+export interface UpsertWorkspaceInput { workspace: Workspace }
+export interface GetSessionInput { sessionId: string }
+export interface GetSessionOutput { session: Session }
+export interface ListSessionsInput { taskId?: string; workspaceId?: string; sessionId?: string }
+export interface ListSessionsOutput { sessions: Session[] }
 export interface CreateSessionInput { taskId: string; provider: ProviderKind; worktreeStrategy: WorktreeStrategy }
 export interface CreateSessionOutput { session: Session }
 export interface LaunchSessionInput { sessionId: string }
@@ -143,6 +148,14 @@ export interface ResumeSessionInput { sessionId: string }
 export interface ResumeSessionOutput { session: Session; run: RunAttempt }
 export interface SendSessionInputInput { sessionId: string; text: string }
 export interface AcceptedOutput { accepted: true }
+export interface WritePtyInput { sessionId: string; data: string }
+export interface ResizePtyInput { sessionId: string; cols: number; rows: number }
+export interface RecordRuntimeLifecycleInput { sessionId: string; eventType: string; message?: string }
+export interface RecordRuntimeLifecycleOutput { session: Session }
+export interface BindProviderSessionInput { sessionId: string; providerSessionId: string }
+export interface BindProviderSessionOutput { session: Session }
+export interface ForwardProviderHookInput { provider: string; payload: Record<string, unknown> }
+export interface ForwardProviderHookOutput { providerSessionId?: string }
 export interface StopSessionInput { sessionId: string; reason?: string }
 export interface PrepareWorktreeInput { sessionId: string; strategy: Exclude<WorktreeStrategy, "ask"> }
 export interface PrepareWorktreeOutput { worktree: Worktree }
@@ -161,7 +174,21 @@ export interface ListApprovalRequestsInput { sessionId?: string; taskId?: string
 export interface ListApprovalRequestsOutput { requests: ApprovalRequest[] }
 export interface ResolveApprovalInput { approvalRequestId: string; decision: ApprovalDecision }
 export interface ResolveApprovalOutput { request: ApprovalRequest }
+export interface RequestApprovalInput {
+  sessionId: string;
+  actionType: ApprovalActionType;
+  title: string;
+  description: string;
+  payload?: Record<string, unknown>;
+}
+export interface RequestApprovalOutput { approval: ApprovalRequest }
 export interface ListEventsInput { entityType?: EventEntityType; entityId?: string; since?: string; limit?: number }
 export interface ListEventsOutput { events: EventEnvelope[] }
 export interface GetDiagnosticsInput { sessionId?: string; taskId?: string }
 export interface GetDiagnosticsOutput { summary: string; files: string[] }
+export interface HealthCheckOutput {
+  summary: string;
+  ready: boolean;
+  pendingApprovals: number;
+  runningSessions: number;
+}

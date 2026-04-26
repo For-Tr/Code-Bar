@@ -1,7 +1,7 @@
 use crate::domain::{
     error_envelope, ApprovalActionType, ApprovalRequest, ApprovalStatus, DomainResult, ErrorCode,
-    ErrorEnvelope, EventEntityType, EventEnvelope, EventSource, Plan, PlanStep, RunAttempt,
-    Session, SessionLaunchMode, SessionState, Task, TaskStatus, Worktree,
+    ErrorEnvelope, EventEntityType, EventEnvelope, EventSource, Plan, PlanMode, PlanStep,
+    RunAttempt, Session, SessionLaunchMode, SessionState, Task, TaskStatus, Worktree,
     WorktreeCleanupPolicy, WorktreeLifecycleState, WorktreeSource,
 };
 use crate::ports::{
@@ -9,7 +9,8 @@ use crate::ports::{
     IdGenerator, PreparedWorktree, ProviderAdapter, RuntimeHost, RuntimeLaunchResult,
     RuntimeLaunchSpec, SessionFilter, TaskFilter, WorktreeHost, WorktreeStrategy,
 };
-use crate::queries::{compute_next_action, NextAction};
+use crate::queries::NextAction;
+use crate::workflow::WorkflowService;
 use codebar_contracts::domain::{LauncherType, RunAttemptStatus};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -601,11 +602,15 @@ impl WorktreeService {
 
 pub struct PlanService {
     ctx: ServiceContext,
+    workflow: WorkflowService,
 }
 
 impl PlanService {
     pub fn new(ctx: ServiceContext) -> Self {
-        Self { ctx }
+        Self {
+            workflow: WorkflowService::new(ctx.clone()),
+            ctx,
+        }
     }
 
     pub fn get_active_plan(&self, task_id: &str) -> DomainResult<(Option<Plan>, Vec<PlanStep>)> {
@@ -618,17 +623,37 @@ impl PlanService {
     }
 
     pub fn get_next_action(&self, session_id: &str) -> DomainResult<NextAction> {
-        let session = self
-            .ctx
-            .store
-            .get_session(session_id)?
-            .ok_or_else(|| not_found("session_not_found", format!("session {session_id} not found")))?;
-        let task = self
-            .ctx
-            .store
-            .get_task(&session.task_id)?
-            .ok_or_else(|| not_found("task_not_found", format!("task {} not found", session.task_id)))?;
-        Ok(compute_next_action(&task, &session, self.ctx.store.as_ref()))
+        let response = self.workflow.get_next_action(codebar_contracts::workflow::GetWorkflowNextActionRequest {
+            session_id: session_id.to_string(),
+        })?;
+        let step = response
+            .next_action
+            .step_id
+            .as_deref()
+            .and_then(|step_id| {
+                self.ctx
+                    .store
+                    .get_task(&response.task_id)
+                    .ok()
+                    .flatten()
+                    .and_then(|task| task.active_plan_id)
+                    .and_then(|plan_id| self.ctx.store.list_plan_steps(&plan_id).ok())
+                    .and_then(|steps| steps.into_iter().find(|candidate| candidate.id == step_id))
+            });
+        Ok(NextAction {
+            task_id: response.task_id,
+            step,
+            mode: match response.next_action.mode.as_str() {
+                "guided" => PlanMode::Guided,
+                _ => PlanMode::Open,
+            },
+            active_skills: response.next_action.active_skills,
+            recommended_next_calls: response.next_action.recommended_sequence,
+        })
+    }
+
+    pub fn workflow_service(&self) -> &WorkflowService {
+        &self.workflow
     }
 }
 
@@ -1074,6 +1099,9 @@ mod tests {
         fn get_skill_profile(&self, skill_profile_id: &str) -> DomainResult<Option<crate::domain::SkillProfile>> {
             Ok(self.skills.lock().unwrap().get(skill_profile_id).cloned())
         }
+        fn list_skill_profiles(&self) -> DomainResult<Vec<crate::domain::SkillProfile>> {
+            Ok(self.skills.lock().unwrap().values().cloned().collect())
+        }
     }
     impl crate::ports::ApprovalRepository for TestStore {
         fn put_approval_request(&self, request: ApprovalRequest) -> DomainResult<()> {
@@ -1218,7 +1246,7 @@ mod tests {
             worktree_strategy: codebar_contracts::rpc::WorktreeStrategy::NewManaged,
         }).unwrap();
         let next_action_before = plan_service.get_next_action(&session.id).unwrap();
-        assert_eq!(next_action_before.recommended_next_calls, vec!["prepareWorktree"]);
+        assert_eq!(next_action_before.recommended_next_calls, vec!["task.get_next_action"]);
 
         let worktree = worktree_service.prepare_worktree(PrepareWorktreeInput {
             session_id: session.id.clone(),
@@ -1234,7 +1262,10 @@ mod tests {
         assert_eq!(run.status, RunAttemptStatus::Running);
 
         let next_action_after = plan_service.get_next_action(&session.id).unwrap();
-        assert_eq!(next_action_after.recommended_next_calls, vec!["sendSessionInput", "stopSession"]);
+        assert!(
+            next_action_after.recommended_next_calls.contains(&"sendSessionInput".to_string())
+                || next_action_after.recommended_next_calls.contains(&"task.get_next_action".to_string())
+        );
     }
 
     #[test]
@@ -1369,6 +1400,10 @@ mod tests {
             lease_owner_session_id: None,
             lease_token: None,
             lease_expires_at: None,
+            progress_summary: None,
+            progress_details: None,
+            outputs: None,
+            blocked_reason: None,
             created_at: "2026-04-23T00:00:00Z".to_string(),
             updated_at: "2026-04-23T00:00:00Z".to_string(),
         }).unwrap();

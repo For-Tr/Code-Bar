@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -263,6 +264,10 @@ pub struct PlanStep {
     pub lease_owner_session_id: Option<String>,
     pub lease_token: Option<String>,
     pub lease_expires_at: Option<String>,
+    pub progress_summary: Option<String>,
+    pub progress_details: Option<Value>,
+    pub outputs: Option<Value>,
+    pub blocked_reason: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }

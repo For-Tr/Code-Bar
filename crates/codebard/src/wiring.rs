@@ -11,6 +11,7 @@ use daemon_core::services::{
     ApprovalService, DiagnosticsService, EventService, HealthService, PlanService,
     RecoveryCoordinator, ServiceContext, SessionService, TaskService, WorktreeService,
 };
+use daemon_core::workflow::WorkflowService;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -51,6 +52,7 @@ pub fn build_daemon(root: PathBuf) -> Result<DaemonRpc, String> {
         event_service: EventService::new(ctx.clone()),
         diagnostics_service: DiagnosticsService::new(ctx.clone()),
         health_service: HealthService::new(ctx.clone()),
+        workflow_service: WorkflowService::new(ctx.clone()),
         recovery: RecoveryCoordinator::new(ctx),
     })
 }

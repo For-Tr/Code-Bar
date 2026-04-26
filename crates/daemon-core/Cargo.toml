@@ -5,5 +5,6 @@ edition = "2021"
 
 [dependencies]
 codebar-contracts = { path = "../codebar-contracts" }
+task-orchestrator = { path = "../task-orchestrator" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

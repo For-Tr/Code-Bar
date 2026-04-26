@@ -131,6 +131,7 @@ pub trait PlanRepository: Send + Sync {
 pub trait SkillProfileRepository: Send + Sync {
     fn put_skill_profile(&self, profile: SkillProfile) -> DomainResult<()>;
     fn get_skill_profile(&self, skill_profile_id: &str) -> DomainResult<Option<SkillProfile>>;
+    fn list_skill_profiles(&self) -> DomainResult<Vec<SkillProfile>>;
 }
 
 pub trait ApprovalRepository: Send + Sync {

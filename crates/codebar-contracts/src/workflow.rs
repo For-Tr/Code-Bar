@@ -162,6 +162,12 @@ pub struct TaskDagStepRuntime {
     #[serde(default)]
     pub latest_progress_summary: Option<String>,
     #[serde(default)]
+    pub progress_details: Option<WorkflowMetadata>,
+    #[serde(default)]
+    pub outputs: Option<WorkflowMetadata>,
+    #[serde(default)]
+    pub blocked_reason: Option<String>,
+    #[serde(default)]
     pub recommended_next_actions: Vec<String>,
     #[serde(default)]
     pub metadata: Option<WorkflowMetadata>,
@@ -313,6 +319,19 @@ pub struct TaskDagNextAction {
     pub recommended_sequence: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GetWorkflowNextActionRequest {
+    pub session_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct GetWorkflowNextActionResponse {
+    pub task_id: String,
+    pub next_action: TaskDagNextAction,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct GetWorkflowSnapshotRequest {
@@ -372,6 +391,13 @@ pub struct CompleteWorkflowStepRequest {
     pub outputs: Option<WorkflowMetadata>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CompleteWorkflowStepResponse {
+    #[serde(default)]
+    pub next_step_id: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct BlockWorkflowStepRequest {
@@ -385,6 +411,14 @@ pub struct BlockWorkflowStepRequest {
 pub struct ResolveWorkflowApprovalRequest {
     pub approval_id: String,
     pub decision: String,
+    #[serde(default)]
+    pub session_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolveWorkflowApprovalResponse {
+    pub task_id: String,
     #[serde(default)]
     pub session_id: Option<String>,
 }
@@ -417,4 +451,13 @@ pub struct AttachWorkflowSessionRequest {
     pub base_branch: Option<String>,
     #[serde(default)]
     pub session_status: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachWorkflowSessionResponse {
+    pub task_id: String,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    pub document: TaskDagDocument,
 }

@@ -9,6 +9,7 @@ mod integration_control;
 mod keystore;
 mod notification;
 mod orchestration;
+mod provider_hook_bridge;
 mod provider_sessions;
 mod pty;
 mod runner;
@@ -74,7 +75,6 @@ pub fn run() {
         .manage(PtyMasterMap::default())
         .manage(PtySessionMetaMap::default())
         .manage(GitWatcherMap::default())
-        .manage(orchestration::OrchestrationRuntime::default())
         .manage(PopupVisible::new(false))
         .manage(PreExpandPos::new())
         .manage(RestoringLock::new())

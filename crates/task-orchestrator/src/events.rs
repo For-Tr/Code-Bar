@@ -105,6 +105,7 @@ pub fn step_progress_updated(
     step_id: &str,
     created_at: &str,
     summary: &str,
+    details: Option<&BTreeMap<String, Value>>,
 ) -> EventEnvelope {
     event(
         format!("evt-step-progress-{step_id}-{created_at}"),
@@ -116,11 +117,23 @@ pub fn step_progress_updated(
         payload([
             ("stepId", Value::String(step_id.to_string())),
             ("summary", Value::String(summary.to_string())),
+            (
+                "details",
+                details
+                    .cloned()
+                    .map(|value| Value::Object(value.into_iter().collect()))
+                    .unwrap_or(Value::Null),
+            ),
         ]),
     )
 }
 
-pub fn step_completed(session_id: &str, step_id: &str, created_at: &str) -> EventEnvelope {
+pub fn step_completed(
+    session_id: &str,
+    step_id: &str,
+    created_at: &str,
+    outputs: Option<&BTreeMap<String, Value>>,
+) -> EventEnvelope {
     event(
         format!("evt-step-completed-{step_id}-{created_at}"),
         EventEntityType::Session,
@@ -128,7 +141,16 @@ pub fn step_completed(session_id: &str, step_id: &str, created_at: &str) -> Even
         "step.completed",
         EventSource::Daemon,
         created_at,
-        payload([("stepId", Value::String(step_id.to_string()))]),
+        payload([
+            ("stepId", Value::String(step_id.to_string())),
+            (
+                "outputs",
+                outputs
+                    .cloned()
+                    .map(|value| Value::Object(value.into_iter().collect()))
+                    .unwrap_or(Value::Null),
+            ),
+        ]),
     )
 }
 

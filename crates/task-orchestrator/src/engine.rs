@@ -116,7 +116,7 @@ impl Engine {
         )?;
         state
             .events
-            .push(events::step_progress_updated(session_id, step_id, now, summary));
+            .push(events::step_progress_updated(session_id, step_id, now, summary, details));
         Ok(())
     }
 
@@ -156,7 +156,7 @@ impl Engine {
 
         state
             .events
-            .push(events::step_completed(session_id, step_id, now));
+            .push(events::step_completed(session_id, step_id, now, outputs));
 
         Ok(CompleteStepResult {
             next_step_id: next_step_id.or(provisional.next_step_id),

@@ -199,7 +199,7 @@ export const useWorkflowStore = create<WorkflowStore>()((set, get) => ({
       branchName: input.branchName ?? undefined,
       baseBranch: input.baseBranch ?? undefined,
       sessionStatus: input.sessionStatus ?? undefined,
-    }) as { taskId: string; sessionId?: string | null; document: TaskDagDocument };
+    });
     get().applySnapshotDocument(response.taskId, response.document, response.sessionId ?? undefined);
     await get().refreshWorkflow(response.taskId, response.sessionId ?? undefined);
   },

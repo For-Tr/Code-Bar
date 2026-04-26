@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{
-    domain::{ApprovalRequest, Plan, PlanMode, PlanStep, ProviderKind, Session, Task, Worktree},
+    domain::{ApprovalActionType, ApprovalRequest, Plan, PlanMode, PlanStep, ProviderKind, Session, Task, Worktree, Workspace},
     events::EventEnvelope,
 };
 
@@ -207,6 +207,38 @@ pub struct UpdateTaskOutput {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub struct UpsertWorkspaceInput {
+    pub workspace: Workspace,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GetSessionInput {
+    pub session_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GetSessionOutput {
+    pub session: Session,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ListSessionsInput {
+    pub task_id: Option<String>,
+    pub workspace_id: Option<String>,
+    pub session_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ListSessionsOutput {
+    pub sessions: Vec<Session>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateSessionInput {
     pub task_id: String,
     pub provider: ProviderKind,
@@ -246,6 +278,61 @@ pub struct SendSessionInputInput {
 #[serde(rename_all = "camelCase")]
 pub struct AcceptedOutput {
     pub accepted: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct WritePtyInput {
+    pub session_id: String,
+    pub data: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ResizePtyInput {
+    pub session_id: String,
+    pub cols: u16,
+    pub rows: u16,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordRuntimeLifecycleInput {
+    pub session_id: String,
+    pub event_type: String,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordRuntimeLifecycleOutput {
+    pub session: Session,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BindProviderSessionInput {
+    pub session_id: String,
+    pub provider_session_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BindProviderSessionOutput {
+    pub session: Session,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ForwardProviderHookInput {
+    pub provider: String,
+    pub payload: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ForwardProviderHookOutput {
+    pub provider_session_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -330,6 +417,22 @@ pub struct ResolveApprovalOutput {
     pub request: ApprovalRequest,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RequestApprovalInput {
+    pub session_id: String,
+    pub action_type: ApprovalActionType,
+    pub title: String,
+    pub description: String,
+    pub payload: Option<Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RequestApprovalOutput {
+    pub approval: ApprovalRequest,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ListEventsInput {
@@ -357,6 +460,15 @@ pub struct GetDiagnosticsInput {
 pub struct GetDiagnosticsOutput {
     pub summary: String,
     pub files: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct HealthCheckOutput {
+    pub summary: String,
+    pub ready: bool,
+    pub pending_approvals: usize,
+    pub running_sessions: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

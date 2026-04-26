@@ -5,192 +5,30 @@ use serde_json::Value;
 
 pub type JsonMap = BTreeMap<String, Value>;
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "lowercase")]
-pub enum Provider {
-    Claude,
-    Codex,
-}
+pub type Provider = codebar_contracts::domain::ProviderKind;
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "snake_case")]
-pub enum VcsType {
-    Git,
-    #[serde(rename = "none")]
-    NoVcs,
-}
+pub type VcsType = codebar_contracts::domain::VcsType;
+pub type TrustLevel = codebar_contracts::domain::TrustLevel;
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "snake_case")]
-pub enum TrustLevel {
-    Trusted,
-    Untrusted,
-}
+pub type WorktreeSource = codebar_contracts::domain::WorktreeSource;
+pub type WorktreeLifecycleState = codebar_contracts::domain::WorktreeLifecycleState;
+pub type CleanupPolicy = codebar_contracts::domain::WorktreeCleanupPolicy;
+pub type TaskStatus = codebar_contracts::domain::TaskStatus;
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "snake_case")]
-pub enum WorktreeSource {
-    Existing,
-    Managed,
-}
+pub type SessionLaunchMode = codebar_contracts::domain::SessionLaunchMode;
+pub type SessionState = codebar_contracts::domain::SessionState;
+pub type LauncherType = codebar_contracts::domain::LauncherType;
+pub type ExitReason = codebar_contracts::domain::RunExitReason;
+pub type RunStatus = codebar_contracts::domain::RunAttemptStatus;
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "snake_case")]
-pub enum WorktreeLifecycleState {
-    Preparing,
-    Ready,
-    InUse,
-    CleanupPending,
-    Removed,
-    Error,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "snake_case")]
-pub enum CleanupPolicy {
-    Manual,
-    AutoOnTaskDone,
-    Keep,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "snake_case")]
-pub enum TaskStatus {
-    Draft,
-    Ready,
-    Active,
-    Blocked,
-    Completed,
-    Failed,
-    Cancelled,
-    Archived,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "snake_case")]
-pub enum SessionLaunchMode {
-    New,
-    Resume,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "snake_case")]
-pub enum SessionState {
-    Draft,
-    PreparingWorkspace,
-    PreparingWorktree,
-    Ready,
-    Launching,
-    Running,
-    WaitingInput,
-    ApprovalRequired,
-    Interrupted,
-    Completed,
-    Failed,
-    Cancelled,
-    Archived,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "snake_case")]
-pub enum LauncherType {
-    Pty,
-    Headless,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "snake_case")]
-pub enum ExitReason {
-    Completed,
-    Error,
-    Killed,
-    Crash,
-    Unknown,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "snake_case")]
-pub enum RunStatus {
-    Created,
-    Running,
-    Exited,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "snake_case")]
-pub enum PlanMode {
-    Guided,
-    Open,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "snake_case")]
-pub enum PlanStatus {
-    Draft,
-    Active,
-    Completed,
-    Cancelled,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "snake_case")]
-pub enum PlanStepStatus {
-    Pending,
-    Claimed,
-    Running,
-    Blocked,
-    Completed,
-    Cancelled,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "snake_case")]
-pub enum SkillProfileSource {
-    Workspace,
-    Worktree,
-    Task,
-    Step,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "snake_case")]
-pub enum ApprovalActionType {
-    Write,
-    Delete,
-    GitPush,
-    DangerousBash,
-    ExternalSideEffect,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "snake_case")]
-pub enum ApprovalStatus {
-    Pending,
-    Approved,
-    Rejected,
-    Expired,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "snake_case")]
-pub enum EventEntityType {
-    Task,
-    Session,
-    Run,
-    Worktree,
-    Approval,
-    ToolCall,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "snake_case")]
-pub enum EventSource {
-    Desktop,
-    Daemon,
-    Mcp,
-    Provider,
-    Launcher,
-}
+pub type PlanMode = codebar_contracts::domain::PlanMode;
+pub type PlanStatus = codebar_contracts::domain::PlanStatus;
+pub type PlanStepStatus = codebar_contracts::domain::PlanStepStatus;
+pub type SkillProfileSource = codebar_contracts::domain::SkillProfileSource;
+pub type ApprovalActionType = codebar_contracts::domain::ApprovalActionType;
+pub type ApprovalStatus = codebar_contracts::rpc::ApprovalStatus;
+pub type EventEntityType = codebar_contracts::events::EventEntityType;
+pub type EventSource = codebar_contracts::events::EventSource;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
@@ -199,164 +37,14 @@ pub enum RecommendedCallType {
     Tool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct Workspace {
-    pub id: String,
-    pub display_name: String,
-    pub root_path: String,
-    pub vcs_type: VcsType,
-    #[serde(default)]
-    pub repo_identity: Option<String>,
-    pub trust_level: TrustLevel,
-    #[serde(default)]
-    pub default_provider: Option<Provider>,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct Worktree {
-    pub id: String,
-    pub workspace_id: String,
-    pub path: String,
-    #[serde(default)]
-    pub branch_name: Option<String>,
-    #[serde(default)]
-    pub base_branch: Option<String>,
-    pub source: WorktreeSource,
-    pub lifecycle_state: WorktreeLifecycleState,
-    pub cleanup_policy: CleanupPolicy,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct Task {
-    pub id: String,
-    pub workspace_id: String,
-    pub title: String,
-    pub prompt: String,
-    #[serde(default)]
-    pub goal: Option<String>,
-    #[serde(default)]
-    pub constraints: Option<Vec<String>>,
-    #[serde(default)]
-    pub requested_provider: Option<Provider>,
-    #[serde(default)]
-    pub requested_model: Option<String>,
-    pub status: TaskStatus,
-    #[serde(default)]
-    pub active_plan_id: Option<String>,
-    #[serde(default)]
-    pub active_skill_profile_id: Option<String>,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct Session {
-    pub id: String,
-    pub task_id: String,
-    pub workspace_id: String,
-    #[serde(default)]
-    pub worktree_id: Option<String>,
-    pub provider: Provider,
-    #[serde(default)]
-    pub provider_session_id: Option<String>,
-    pub launch_mode: SessionLaunchMode,
-    pub state: SessionState,
-    #[serde(default)]
-    pub current_step_id: Option<String>,
-    #[serde(default)]
-    pub last_activity_at: Option<String>,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct RunAttempt {
-    pub id: String,
-    pub session_id: String,
-    pub attempt_no: u32,
-    pub launcher_type: LauncherType,
-    pub command: String,
-    pub args: Vec<String>,
-    pub cwd: String,
-    #[serde(default)]
-    pub pid: Option<u32>,
-    #[serde(default)]
-    pub started_at: Option<String>,
-    #[serde(default)]
-    pub ended_at: Option<String>,
-    #[serde(default)]
-    pub exit_reason: Option<ExitReason>,
-    pub status: RunStatus,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct Plan {
-    pub id: String,
-    pub task_id: String,
-    pub mode: PlanMode,
-    pub status: PlanStatus,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct PlanStep {
-    pub id: String,
-    pub plan_id: String,
-    pub title: String,
-    #[serde(default)]
-    pub description: Option<String>,
-    pub status: PlanStepStatus,
-    #[serde(default)]
-    pub depends_on: Vec<String>,
-    pub parallelizable: bool,
-    #[serde(default)]
-    pub required_skills: Vec<String>,
-    #[serde(default)]
-    pub allowed_providers: Option<Vec<Provider>>,
-    #[serde(default)]
-    pub lease_owner_session_id: Option<String>,
-    #[serde(default)]
-    pub lease_token: Option<String>,
-    #[serde(default)]
-    pub lease_expires_at: Option<String>,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct SkillProfile {
-    pub id: String,
-    pub name: String,
-    pub source: SkillProfileSource,
-    #[serde(default)]
-    pub workspace_id: Option<String>,
-    #[serde(default)]
-    pub worktree_id: Option<String>,
-    #[serde(default)]
-    pub task_id: Option<String>,
-    #[serde(default)]
-    pub step_id: Option<String>,
-    pub allowed_skills: Vec<String>,
-    #[serde(default)]
-    pub preferred_skills: Option<Vec<String>>,
-    #[serde(default)]
-    pub forbidden_skills: Option<Vec<String>>,
-    pub created_at: String,
-    pub updated_at: String,
-}
+pub type Workspace = codebar_contracts::domain::Workspace;
+pub type Worktree = codebar_contracts::domain::Worktree;
+pub type Task = codebar_contracts::domain::Task;
+pub type Session = codebar_contracts::domain::Session;
+pub type RunAttempt = codebar_contracts::domain::RunAttempt;
+pub type Plan = codebar_contracts::domain::Plan;
+pub type PlanStep = codebar_contracts::domain::PlanStep;
+pub type SkillProfile = codebar_contracts::domain::SkillProfile;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]

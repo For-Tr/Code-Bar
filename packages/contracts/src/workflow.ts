@@ -60,6 +60,9 @@ export interface TaskDagStepRuntime {
   activeApproval?: TaskDagApprovalRequest;
   lease?: TaskDagLease;
   latestProgressSummary?: string;
+  progressDetails?: WorkflowMetadata;
+  outputs?: WorkflowMetadata;
+  blockedReason?: string;
   recommendedNextActions: string[];
   metadata?: WorkflowMetadata;
 }
@@ -167,6 +170,15 @@ export interface TaskDagNextAction {
   recommendedSequence: string[];
 }
 
+export interface GetWorkflowNextActionRequest {
+  sessionId: string;
+}
+
+export interface GetWorkflowNextActionResponse {
+  taskId: string;
+  nextAction: TaskDagNextAction;
+}
+
 export interface GetWorkflowSnapshotRequest {
   taskId: string;
   sessionId?: string;
@@ -206,6 +218,10 @@ export interface CompleteWorkflowStepRequest {
   outputs?: WorkflowMetadata;
 }
 
+export interface CompleteWorkflowStepResponse {
+  nextStepId?: string;
+}
+
 export interface BlockWorkflowStepRequest {
   sessionId: string;
   stepId: string;
@@ -215,6 +231,11 @@ export interface BlockWorkflowStepRequest {
 export interface ResolveWorkflowApprovalRequest {
   approvalId: string;
   decision: string;
+  sessionId?: string;
+}
+
+export interface ResolveWorkflowApprovalResponse {
+  taskId: string;
   sessionId?: string;
 }
 
@@ -232,4 +253,10 @@ export interface AttachWorkflowSessionRequest {
   branchName?: string;
   baseBranch?: string;
   sessionStatus?: string;
+}
+
+export interface AttachWorkflowSessionResponse {
+  taskId: string;
+  sessionId?: string;
+  document: TaskDagDocument;
 }

@@ -1,4 +1,20 @@
 import { invoke } from '@tauri-apps/api/core'
+import type {
+  BindProviderSessionOutput,
+  CreateSessionOutput,
+  CreateTaskOutput,
+  GetDiagnosticsOutput,
+  GetNextActionOutput,
+  HealthCheckOutput,
+  LaunchSessionOutput,
+  ListApprovalRequestsOutput,
+  ListSessionsOutput,
+  PrepareWorktreeOutput,
+  RecordRuntimeLifecycleOutput,
+  RequestApprovalOutput,
+  ResolveApprovalOutput,
+  Session,
+} from '@codebar/contracts'
 import type { RunnerType } from '../store/settingsStore'
 import type { ClaudeSession, SessionStatus } from '../store/sessionStore'
 import type { Workspace as UiWorkspace } from '../store/workspaceStore'
@@ -36,7 +52,7 @@ export async function ensureDaemonReady() {
 }
 
 export async function daemonHealthCheck() {
-  return invoke<Record<string, unknown>>('daemon_health_check')
+  return invoke<HealthCheckOutput>('daemon_health_check')
 }
 
 export async function syncWorkspaceToDaemon(workspace: UiWorkspace) {
@@ -63,16 +79,18 @@ export async function createDaemonSession(input: {
   prompt?: string
 }) {
   await syncWorkspaceToDaemon(input.workspace)
-  const taskResponse = await invoke<{ task: { id: string } }>('daemon_request', {
+  const title = input.title?.trim() || `Session ${Date.now()}`
+  const prompt = input.prompt?.trim() || 'Awaiting first prompt'
+  const taskResponse = await invoke<CreateTaskOutput>('daemon_request', {
     method: 'createTask',
     params: {
       workspaceId: input.workspace.id,
-      title: input.title?.trim() || `Session ${Date.now()}`,
-      prompt: input.prompt?.trim() || '',
+      title,
+      prompt,
       requestedProvider: mapRunnerTypeToProvider(input.runnerType),
     },
   })
-  const sessionResponse = await invoke<{ session: { id: string } }>('daemon_request', {
+  const sessionResponse = await invoke<CreateSessionOutput>('daemon_request', {
     method: 'createSession',
     params: {
       taskId: taskResponse.task.id,
@@ -80,7 +98,7 @@ export async function createDaemonSession(input: {
       worktreeStrategy: 'new_managed',
     },
   })
-  const worktreeResponse = await invoke<{ worktree?: { path?: string; branchName?: string; baseBranch?: string } }>('daemon_request', {
+  const worktreeResponse = await invoke<PrepareWorktreeOutput>('daemon_request', {
     method: 'prepareWorktree',
     params: {
       sessionId: sessionResponse.session.id,
@@ -96,14 +114,14 @@ export async function createDaemonSession(input: {
 }
 
 export async function launchDaemonSession(sessionId: string) {
-  return invoke<Record<string, unknown>>('daemon_request', {
+  return invoke<LaunchSessionOutput>('daemon_request', {
     method: 'launchSession',
     params: { sessionId },
   })
 }
 
 export async function resumeDaemonSession(sessionId: string) {
-  return invoke<Record<string, unknown>>('daemon_request', {
+  return invoke<LaunchSessionOutput>('daemon_request', {
     method: 'resumeSession',
     params: { sessionId },
   })
@@ -121,7 +139,7 @@ export async function recordDaemonRuntimeLifecycle(
   eventType: 'running' | 'waiting' | 'error' | 'exit',
   message?: string
 ) {
-  return invoke<Record<string, unknown>>('daemon_request', {
+  return invoke<RecordRuntimeLifecycleOutput>('daemon_request', {
     method: 'recordRuntimeLifecycle',
     params: { sessionId, eventType, message: message ?? null },
   })
@@ -135,34 +153,28 @@ export async function stopDaemonSession(sessionId: string) {
 }
 
 export async function listDaemonSessions() {
-  return invoke<{ sessions: Array<Record<string, unknown>> }>('daemon_request', {
+  return invoke<ListSessionsOutput>('daemon_request', {
     method: 'listSessions',
     params: {},
   })
 }
 
 export async function getDaemonNextAction(sessionId: string) {
-  return invoke<{
-    taskId: string
-    mode: string
-    step?: { id?: string; title?: string; description?: string } | null
-    activeSkills: string[]
-    recommendedNextCalls: string[]
-  }>('daemon_request', {
+  return invoke<GetNextActionOutput>('daemon_request', {
     method: 'getNextAction',
     params: { sessionId },
   })
 }
 
 export async function listDaemonApprovals(sessionId: string) {
-  return invoke<{ requests: Array<Record<string, unknown>> }>('daemon_request', {
+  return invoke<ListApprovalRequestsOutput>('daemon_request', {
     method: 'listApprovalRequests',
     params: { sessionId, status: ['pending'] },
   })
 }
 
 export async function resolveDaemonApproval(approvalRequestId: string, decision: 'approved' | 'rejected') {
-  return invoke<{ request: Record<string, unknown> }>('daemon_request', {
+  return invoke<ResolveApprovalOutput>('daemon_request', {
     method: 'resolveApproval',
     params: { approvalRequestId, decision },
   })
@@ -175,7 +187,7 @@ export async function requestDangerousSessionAction(input: {
   description: string
   payload?: Record<string, unknown>
 }) {
-  return invoke<{ approval: Record<string, unknown> }>('daemon_request', {
+  return invoke<RequestApprovalOutput>('daemon_request', {
     method: 'requestApproval',
     params: {
       sessionId: input.sessionId,
@@ -188,21 +200,21 @@ export async function requestDangerousSessionAction(input: {
 }
 
 export async function getDaemonDiagnostics(sessionId: string, taskId?: string) {
-  return invoke<{ summary: string; files: string[] }>('daemon_request', {
+  return invoke<GetDiagnosticsOutput>('daemon_request', {
     method: 'getDiagnostics',
     params: { sessionId, taskId: taskId ?? null },
   })
 }
 
 export async function bindProviderSession(sessionId: string, providerSessionId: string) {
-  return invoke<Record<string, unknown>>('daemon_bind_provider_session', {
+  return invoke<BindProviderSessionOutput>('daemon_bind_provider_session', {
     sessionId,
     providerSessionId,
   })
 }
 
 export function mapDaemonSessionToUiSession(input: {
-  session: Record<string, unknown>
+  session: Session
   taskTitle?: string
   worktreeById?: Record<string, Record<string, unknown>>
   workspacePathById: Record<string, string>

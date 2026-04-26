@@ -538,6 +538,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "codebard"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "codebar-contracts",
+ "daemon-core",
+ "portable-pty",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "combine"
 version = "4.6.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -725,6 +738,7 @@ dependencies = [
  "codebar-contracts",
  "serde",
  "serde_json",
+ "task-orchestrator",
 ]
 
 [[package]]
@@ -4288,6 +4302,7 @@ checksum = "61c41af27dd6d1e27b1b16b489db798443478cef1f06a660c96db617ba5de3b1"
 name = "task-orchestrator"
 version = "0.1.0"
 dependencies = [
+ "codebar-contracts",
  "serde",
  "serde_json",
  "time",

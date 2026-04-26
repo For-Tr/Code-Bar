@@ -8,10 +8,8 @@ use crate::provider_adapter::{NormalizedProviderEvent, RealProviderAdapter};
 use crate::storage::FileStore;
 use codebar_contracts::errors::{ErrorCode, ErrorEnvelope};
 use codebar_contracts::rpc as contract_rpc;
-use daemon_core::domain::{
-    ApprovalActionType, ApprovalRequest, DomainResult, EventEnvelope, Plan,
-    PlanStep, Session, Task, Worktree, Workspace,
-};
+use codebar_contracts::workflow as workflow_contract;
+use daemon_core::domain::{ApprovalRequest, DomainResult, EventEnvelope, Plan, PlanStep, Session, Task, Worktree, Workspace};
 use daemon_core::ports::{ApprovalFilter, EventFilter, EventRepository, SessionFilter, TaskFilter, WorkspaceRepository};
 use daemon_core::services::{
     ApprovalService, CreateSessionInput, CreateTaskInput, DiagnosticsService, EventService,
@@ -19,6 +17,7 @@ use daemon_core::services::{
     ResolveApprovalInput, ResumeSessionInput, RuntimeLifecycleInput, SendSessionInputInput,
     SessionService, StopSessionInput, TaskService, UpdateTaskInput, WorktreeService,
 };
+use daemon_core::workflow::WorkflowService;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
@@ -37,6 +36,7 @@ pub struct DaemonRpc {
     pub event_service: EventService,
     pub diagnostics_service: DiagnosticsService,
     pub health_service: HealthService,
+    pub workflow_service: WorkflowService,
     pub recovery: RecoveryCoordinator,
 }
 
@@ -149,9 +149,9 @@ impl DaemonRpc {
         for event in &events {
             self.emit_normalized_provider_event(event);
         }
-        Ok(json!({
-            "providerSessionId": provider_session_id,
-        }))
+        Ok(serde_json::to_value(contract_rpc::ForwardProviderHookOutput {
+            provider_session_id,
+        }).unwrap())
     }
 
     fn emit_normalized_provider_event(&self, event: &NormalizedProviderEvent) {
@@ -190,6 +190,72 @@ impl DaemonRpc {
         }))
     }
 
+    pub fn get_workflow_snapshot(
+        &self,
+        input: workflow_contract::GetWorkflowSnapshotRequest,
+    ) -> DomainResult<workflow_contract::GetWorkflowSnapshotResponse> {
+        self.workflow_service.get_snapshot(input)
+    }
+
+    pub fn get_workflow_next_action(
+        &self,
+        input: workflow_contract::GetWorkflowNextActionRequest,
+    ) -> DomainResult<workflow_contract::GetWorkflowNextActionResponse> {
+        self.workflow_service.get_next_action(input)
+    }
+
+    pub fn claim_workflow_step(
+        &self,
+        input: workflow_contract::ClaimWorkflowStepRequest,
+    ) -> DomainResult<workflow_contract::ClaimWorkflowStepResponse> {
+        self.workflow_service.claim_step(input)
+    }
+
+    pub fn update_workflow_progress(
+        &self,
+        input: workflow_contract::UpdateWorkflowProgressRequest,
+    ) -> DomainResult<()> {
+        self.workflow_service.update_progress(input)
+    }
+
+    pub fn complete_workflow_step(
+        &self,
+        input: workflow_contract::CompleteWorkflowStepRequest,
+    ) -> DomainResult<workflow_contract::CompleteWorkflowStepResponse> {
+        self.workflow_service.complete_step(input)
+    }
+
+    pub fn block_workflow_step(
+        &self,
+        input: workflow_contract::BlockWorkflowStepRequest,
+    ) -> DomainResult<()> {
+        self.workflow_service.block_step(input)
+    }
+
+    pub fn attach_workflow_session(
+        &self,
+        input: workflow_contract::AttachWorkflowSessionRequest,
+    ) -> DomainResult<workflow_contract::AttachWorkflowSessionResponse> {
+        self.workflow_service.attach_session(input)
+    }
+
+    pub fn resolve_workflow_approval(
+        &self,
+        input: workflow_contract::ResolveWorkflowApprovalRequest,
+    ) -> DomainResult<workflow_contract::ResolveWorkflowApprovalResponse> {
+        let request = self.approval_service.resolve_request(ResolveApprovalInput {
+            approval_request_id: input.approval_id,
+            decision: match input.decision.as_str() {
+                "approve" | "approved" => daemon_core::domain::ApprovalStatus::Approved,
+                _ => daemon_core::domain::ApprovalStatus::Rejected,
+            },
+        })?;
+        Ok(workflow_contract::ResolveWorkflowApprovalResponse {
+            task_id: request.task_id,
+            session_id: Some(request.session_id),
+        })
+    }
+
     pub fn list_approval_requests(&self, filter: ApprovalFilter) -> DomainResult<Vec<ApprovalRequest>> {
         self.approval_service.list_requests(filter)
     }
@@ -223,8 +289,35 @@ impl DaemonRpc {
     pub fn handle_request(&self, request: RpcRequest) -> RpcResponse {
         let id = request.id.clone();
         let result = match request.method.as_str() {
-            "health.check" => self.health_check(),
-            "upsertWorkspace" => parse_workspace_params(request.params).and_then(|workspace| self.upsert_workspace(workspace).map(|_| json!({ "accepted": true }))),
+            "health.check" => self.health_check().and_then(|value| {
+                let output = contract_rpc::HealthCheckOutput {
+                    summary: value.get("summary").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                    ready: value.get("ready").and_then(|v| v.as_bool()).unwrap_or(false),
+                    pending_approvals: value.get("pendingApprovals").and_then(|v| v.as_u64()).unwrap_or_default() as usize,
+                    running_sessions: value.get("runningSessions").and_then(|v| v.as_u64()).unwrap_or_default() as usize,
+                };
+                Ok(serde_json::to_value(output).unwrap())
+            }),
+            "upsertWorkspace" => parse_params::<contract_rpc::UpsertWorkspaceInput>(request.params).and_then(|input| {
+                let workspace = daemon_core::domain::Workspace {
+                    id: input.workspace.id,
+                    display_name: input.workspace.display_name,
+                    root_path: input.workspace.root_path,
+                    vcs_type: match input.workspace.vcs_type {
+                        codebar_contracts::domain::VcsType::Git => daemon_core::domain::VcsType::Git,
+                        codebar_contracts::domain::VcsType::None => daemon_core::domain::VcsType::None,
+                    },
+                    repo_identity: input.workspace.repo_identity,
+                    trust_level: match input.workspace.trust_level {
+                        codebar_contracts::domain::TrustLevel::Trusted => daemon_core::domain::TrustLevel::Trusted,
+                        codebar_contracts::domain::TrustLevel::Untrusted => daemon_core::domain::TrustLevel::Untrusted,
+                    },
+                    default_provider: input.workspace.default_provider,
+                    created_at: input.workspace.created_at,
+                    updated_at: input.workspace.updated_at,
+                };
+                self.upsert_workspace(workspace).map(|_| serde_json::to_value(contract_rpc::AcceptedOutput { accepted: true }).unwrap())
+            }),
             "createTask" => parse_params::<contract_rpc::CreateTaskInput>(request.params).and_then(|input| self.create_task(CreateTaskInput {
                 workspace_id: input.workspace_id,
                 title: input.title,
@@ -251,8 +344,12 @@ impl DaemonRpc {
                 provider: input.provider,
                 worktree_strategy: input.worktree_strategy,
             }).map(|session| serde_json::to_value(contract_rpc::CreateSessionOutput { session: map_session_to_contract(session) }).unwrap())),
-            "getSession" => get_required_string(&request.params, "sessionId").and_then(|session_id| self.get_session(&session_id).map(|session| json!({ "session": map_session_to_contract(session) }))),
-            "listSessions" => parse_params_or_default::<SessionFilter>(request.params).and_then(|filter| self.list_sessions(filter).map(|sessions| json!({ "sessions": sessions.into_iter().map(map_session_to_contract).collect::<Vec<_>>() }))),
+            "getSession" => parse_params::<contract_rpc::GetSessionInput>(request.params).and_then(|input| self.get_session(&input.session_id).map(|session| serde_json::to_value(contract_rpc::GetSessionOutput { session: map_session_to_contract(session) }).unwrap())),
+            "listSessions" => parse_params_or_default::<contract_rpc::ListSessionsInput>(request.params).and_then(|filter| self.list_sessions(SessionFilter {
+                task_id: filter.task_id,
+                workspace_id: filter.workspace_id,
+                session_id: filter.session_id,
+            }).map(|sessions| serde_json::to_value(contract_rpc::ListSessionsOutput { sessions: sessions.into_iter().map(map_session_to_contract).collect::<Vec<_>>() }).unwrap())),
             "launchSession" => parse_params::<contract_rpc::LaunchSessionInput>(request.params).and_then(|input| self.launch_session(LaunchSessionInput {
                 session_id: input.session_id,
             }).map(|(session, run)| serde_json::to_value(contract_rpc::LaunchSessionOutput { session: map_session_to_contract(session), run: map_run_attempt_to_contract(run) }).unwrap())),
@@ -263,14 +360,22 @@ impl DaemonRpc {
                 session_id: input.session_id,
                 text: input.text,
             }).map(|accepted| serde_json::to_value(contract_rpc::AcceptedOutput { accepted }).unwrap())),
-            "writePty" => parse_write_pty_params(request.params).and_then(|(session_id, data)| self.runtime_write_pty(&session_id, &data).map(|_| json!({ "accepted": true }))),
-            "resizePty" => parse_resize_pty_params(request.params).and_then(|(session_id, cols, rows)| self.runtime_resize_pty(&session_id, cols, rows).map(|_| json!({ "accepted": true }))),
-            "recordRuntimeLifecycle" => parse_params::<RuntimeLifecycleInput>(request.params).and_then(|input| self.session_service.record_runtime_lifecycle(input).map(|session| json!({ "session": map_session_to_contract(session) }))),
-            "bindProviderSession" => parse_bind_provider_params(request.params).and_then(|(session_id, provider_session_id)| {
-                self.bind_provider_session(&session_id, &provider_session_id)
-                    .map(|session| json!({ "session": map_session_to_contract(session) }))
+            "writePty" => parse_params::<contract_rpc::WritePtyInput>(request.params).and_then(|input| self.runtime_write_pty(&input.session_id, &input.data).map(|_| serde_json::to_value(contract_rpc::AcceptedOutput { accepted: true }).unwrap())),
+            "resizePty" => parse_params::<contract_rpc::ResizePtyInput>(request.params).and_then(|input| self.runtime_resize_pty(&input.session_id, input.cols, input.rows).map(|_| serde_json::to_value(contract_rpc::AcceptedOutput { accepted: true }).unwrap())),
+            "recordRuntimeLifecycle" => parse_params::<contract_rpc::RecordRuntimeLifecycleInput>(request.params).and_then(|input| self.session_service.record_runtime_lifecycle(RuntimeLifecycleInput {
+                session_id: input.session_id,
+                event_type: input.event_type,
+                message: input.message,
+            }).map(|session| serde_json::to_value(contract_rpc::RecordRuntimeLifecycleOutput { session: map_session_to_contract(session) }).unwrap())),
+            "bindProviderSession" => parse_params::<contract_rpc::BindProviderSessionInput>(request.params).and_then(|input| {
+                self.bind_provider_session(&input.session_id, &input.provider_session_id)
+                    .map(|session| serde_json::to_value(contract_rpc::BindProviderSessionOutput { session: map_session_to_contract(session) }).unwrap())
             }),
-            "forwardProviderHook" => parse_provider_hook_params(request.params).and_then(|(provider, payload)| self.forward_provider_hook(&provider, payload)),
+            "forwardProviderHook" => parse_params::<contract_rpc::ForwardProviderHookInput>(request.params).and_then(|input| self.forward_provider_hook(&input.provider, input.payload).map(|value| {
+                serde_json::from_value::<contract_rpc::ForwardProviderHookOutput>(value)
+                    .map(|output| serde_json::to_value(output).unwrap())
+                    .unwrap()
+            })),
             "stopSession" => parse_params::<contract_rpc::StopSessionInput>(request.params).and_then(|input| self.stop_session(StopSessionInput {
                 session_id: input.session_id,
                 reason: input.reason,
@@ -301,7 +406,22 @@ impl DaemonRpc {
                     contract_rpc::ApprovalStatus::Expired => daemon_core::domain::ApprovalStatus::Expired,
                 }).collect()),
             }).map(|requests| serde_json::to_value(contract_rpc::ListApprovalRequestsOutput { requests: requests.into_iter().map(map_approval_request_to_contract).collect::<Vec<_>>() }).unwrap())),
-            "requestApproval" => parse_approval_request_params(request.params).and_then(|input| self.approval_service.create_request(&input.session_id, input.action_type, input.title, input.description, input.payload).map(|approval| json!({ "approval": approval }))),
+            "requestApproval" => parse_params::<contract_rpc::RequestApprovalInput>(request.params).and_then(|input| self.approval_service.create_request(
+                &input.session_id,
+                match input.action_type {
+                    codebar_contracts::domain::ApprovalActionType::Write => daemon_core::domain::ApprovalActionType::Write,
+                    codebar_contracts::domain::ApprovalActionType::Delete => daemon_core::domain::ApprovalActionType::Delete,
+                    codebar_contracts::domain::ApprovalActionType::GitPush => daemon_core::domain::ApprovalActionType::GitPush,
+                    codebar_contracts::domain::ApprovalActionType::DangerousBash => daemon_core::domain::ApprovalActionType::DangerousBash,
+                    codebar_contracts::domain::ApprovalActionType::ExternalSideEffect => daemon_core::domain::ApprovalActionType::ExternalSideEffect,
+                },
+                input.title,
+                input.description,
+                input.payload
+                    .and_then(|value| value.as_object().cloned())
+                    .map(|map| map.into_iter().collect())
+                    .unwrap_or_default(),
+            ).map(|approval| serde_json::to_value(contract_rpc::RequestApprovalOutput { approval: map_approval_request_to_contract(approval) }).unwrap())),
             "resolveApproval" => parse_params::<contract_rpc::ResolveApprovalInput>(request.params).and_then(|input| self.resolve_approval(ResolveApprovalInput {
                 approval_request_id: input.approval_request_id,
                 decision: match input.decision {
@@ -320,6 +440,14 @@ impl DaemonRpc {
                 let files = value.get("files").and_then(|v| v.as_array()).map(|items| items.iter().filter_map(|item| item.as_str().map(ToString::to_string)).collect()).unwrap_or_default();
                 serde_json::to_value(contract_rpc::GetDiagnosticsOutput { summary, files }).unwrap()
             })),
+            "getWorkflowSnapshot" => parse_params::<workflow_contract::GetWorkflowSnapshotRequest>(request.params).and_then(|input| self.get_workflow_snapshot(input).map(|output| serde_json::to_value(output).unwrap())),
+            "getWorkflowNextAction" => parse_params::<workflow_contract::GetWorkflowNextActionRequest>(request.params).and_then(|input| self.get_workflow_next_action(input).map(|output| serde_json::to_value(output).unwrap())),
+            "claimWorkflowStep" => parse_params::<workflow_contract::ClaimWorkflowStepRequest>(request.params).and_then(|input| self.claim_workflow_step(input).map(|output| serde_json::to_value(output).unwrap())),
+            "updateWorkflowProgress" => parse_params::<workflow_contract::UpdateWorkflowProgressRequest>(request.params).and_then(|input| self.update_workflow_progress(input).map(|_| serde_json::to_value(contract_rpc::AcceptedOutput { accepted: true }).unwrap())),
+            "completeWorkflowStep" => parse_params::<workflow_contract::CompleteWorkflowStepRequest>(request.params).and_then(|input| self.complete_workflow_step(input).map(|output| serde_json::to_value(output).unwrap())),
+            "blockWorkflowStep" => parse_params::<workflow_contract::BlockWorkflowStepRequest>(request.params).and_then(|input| self.block_workflow_step(input).map(|_| serde_json::to_value(contract_rpc::AcceptedOutput { accepted: true }).unwrap())),
+            "attachWorkflowSession" => parse_params::<workflow_contract::AttachWorkflowSessionRequest>(request.params).and_then(|input| self.attach_workflow_session(input).map(|output| serde_json::to_value(output).unwrap())),
+            "resolveWorkflowApproval" => parse_params::<workflow_contract::ResolveWorkflowApprovalRequest>(request.params).and_then(|input| self.resolve_workflow_approval(input).map(|output| serde_json::to_value(output).unwrap())),
             other => Err(ErrorEnvelope::new(
                 ErrorCode::NotFound,
                 format!("unknown rpc method {other}"),
@@ -472,81 +600,6 @@ fn get_required_string(params: &Value, key: &str) -> DomainResult<String> {
         .map(ToString::to_string)
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| ErrorEnvelope::new(ErrorCode::InvalidArgument, format!("missing {key}"), false))
-}
-
-fn parse_bind_provider_params(params: Value) -> DomainResult<(String, String)> {
-    let session_id = get_required_string(&params, "sessionId")?;
-    let provider_session_id = get_required_string(&params, "providerSessionId")?;
-    Ok((session_id, provider_session_id))
-}
-
-fn parse_workspace_params(params: Value) -> DomainResult<Workspace> {
-    let workspace = params
-        .get("workspace")
-        .cloned()
-        .unwrap_or(params);
-    serde_json::from_value(workspace)
-        .map_err(|error| ErrorEnvelope::new(ErrorCode::InvalidArgument, error.to_string(), false))
-}
-
-fn parse_write_pty_params(params: Value) -> DomainResult<(String, String)> {
-    let session_id = get_required_string(&params, "sessionId")?;
-    let data = get_required_string(&params, "data")?;
-    Ok((session_id, data))
-}
-
-fn parse_resize_pty_params(params: Value) -> DomainResult<(String, u16, u16)> {
-    let session_id = get_required_string(&params, "sessionId")?;
-    let cols = params
-        .get("cols")
-        .and_then(|value| value.as_u64())
-        .ok_or_else(|| ErrorEnvelope::new(ErrorCode::InvalidArgument, "missing cols", false))? as u16;
-    let rows = params
-        .get("rows")
-        .and_then(|value| value.as_u64())
-        .ok_or_else(|| ErrorEnvelope::new(ErrorCode::InvalidArgument, "missing rows", false))? as u16;
-    Ok((session_id, cols, rows))
-}
-
-fn parse_provider_hook_params(params: Value) -> DomainResult<(String, Value)> {
-    let provider = get_required_string(&params, "provider")?;
-    let payload = params.get("payload").cloned().unwrap_or(Value::Null);
-    Ok((provider, payload))
-}
-
-struct ApprovalRequestParams {
-    session_id: String,
-    action_type: ApprovalActionType,
-    title: String,
-    description: String,
-    payload: std::collections::HashMap<String, Value>,
-}
-
-fn parse_approval_request_params(params: Value) -> DomainResult<ApprovalRequestParams> {
-    let session_id = get_required_string(&params, "sessionId")?;
-    let title = get_required_string(&params, "title")?;
-    let description = get_required_string(&params, "description")?;
-    let action_type = match get_required_string(&params, "actionType")?.as_str() {
-        "write" => ApprovalActionType::Write,
-        "delete" => ApprovalActionType::Delete,
-        "git_push" => ApprovalActionType::GitPush,
-        "dangerous_bash" => ApprovalActionType::DangerousBash,
-        "external_side_effect" => ApprovalActionType::ExternalSideEffect,
-        other => return Err(ErrorEnvelope::new(ErrorCode::InvalidArgument, format!("unknown actionType {other}"), false)),
-    };
-    let payload = params
-        .get("payload")
-        .and_then(|value| value.as_object())
-        .cloned()
-        .map(|map| map.into_iter().collect())
-        .unwrap_or_default();
-    Ok(ApprovalRequestParams {
-        session_id,
-        action_type,
-        title,
-        description,
-        payload,
-    })
 }
 
 pub async fn read_rpc_response(path: &Path, request: &RpcRequest) -> Result<RpcResponse, String> {

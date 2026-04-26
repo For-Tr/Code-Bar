@@ -82,6 +82,10 @@ pub fn map_plan_step_to_contract(step: domain::PlanStep) -> contract_domain::Pla
         lease_owner_session_id: step.lease_owner_session_id,
         lease_token: step.lease_token,
         lease_expires_at: step.lease_expires_at,
+        progress_summary: step.progress_summary,
+        progress_details: step.progress_details,
+        outputs: step.outputs,
+        blocked_reason: step.blocked_reason,
         created_at: step.created_at,
         updated_at: step.updated_at,
     }

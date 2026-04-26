@@ -1,55 +1,56 @@
-import { invoke } from "@tauri-apps/api/core";
+import { daemonRequest } from "./tauriDaemonRequest";
 import type {
   AttachWorkflowSessionRequest,
+  AttachWorkflowSessionResponse,
   BlockWorkflowStepRequest,
   ClaimWorkflowStepRequest,
   ClaimWorkflowStepResponse,
   CompleteWorkflowStepRequest,
+  CompleteWorkflowStepResponse,
+  GetWorkflowNextActionRequest,
+  GetWorkflowNextActionResponse,
   GetWorkflowSnapshotRequest,
   GetWorkflowSnapshotResponse,
   ResolveWorkflowApprovalRequest,
+  ResolveWorkflowApprovalResponse,
   TaskDagEvent,
-  TaskDagNextAction,
   UpdateWorkflowProgressRequest,
 } from "@codebar/contracts";
 
-export interface WorkflowNextActionResponse {
-  taskId: string;
-  nextAction: TaskDagNextAction;
-}
-
 export function getWorkflowSnapshot(input: GetWorkflowSnapshotRequest) {
-  return invoke<GetWorkflowSnapshotResponse>("orchestration_get_workflow_snapshot", { input });
+  return daemonRequest<GetWorkflowSnapshotResponse>("getWorkflowSnapshot", input);
 }
 
-export function listWorkflowEvents(taskId: string) {
-  return invoke<TaskDagEvent[]>("orchestration_list_task_events", { taskId });
+export async function listWorkflowEvents(taskId: string) {
+  const snapshot = await getWorkflowSnapshot({ taskId, includeEvents: true, includeDiagnostics: false });
+  return snapshot.events satisfies TaskDagEvent[];
 }
 
 export function getWorkflowNextAction(sessionId: string) {
-  return invoke<WorkflowNextActionResponse>("orchestration_get_session_next_action", { sessionId });
+  const input: GetWorkflowNextActionRequest = { sessionId };
+  return daemonRequest<GetWorkflowNextActionResponse>("getWorkflowNextAction", input);
 }
 
 export function claimWorkflowStep(input: ClaimWorkflowStepRequest) {
-  return invoke<ClaimWorkflowStepResponse>("orchestration_claim_step", { input });
+  return daemonRequest<ClaimWorkflowStepResponse>("claimWorkflowStep", input);
 }
 
 export function updateWorkflowProgress(input: UpdateWorkflowProgressRequest) {
-  return invoke<void>("orchestration_update_step_progress", { input });
+  return daemonRequest<{ accepted: boolean }>("updateWorkflowProgress", input);
 }
 
 export function completeWorkflowStep(input: CompleteWorkflowStepRequest) {
-  return invoke<void>("orchestration_complete_step", { input });
+  return daemonRequest<CompleteWorkflowStepResponse>("completeWorkflowStep", input);
 }
 
 export function blockWorkflowStep(input: BlockWorkflowStepRequest) {
-  return invoke<void>("orchestration_block_step", { input });
+  return daemonRequest<{ accepted: boolean }>("blockWorkflowStep", input);
 }
 
 export function attachWorkflowSession(input: AttachWorkflowSessionRequest) {
-  return invoke("orchestration_attach_session", { input });
+  return daemonRequest<AttachWorkflowSessionResponse>("attachWorkflowSession", input);
 }
 
 export function resolveWorkflowApproval(input: ResolveWorkflowApprovalRequest) {
-  return invoke<void>("orchestration_resolve_approval", { input });
+  return daemonRequest<ResolveWorkflowApprovalResponse>("resolveWorkflowApproval", input);
 }

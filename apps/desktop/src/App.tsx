@@ -19,13 +19,24 @@ import {
   isGlassTheme,
   type ThemeMode,
 } from "./store/settingsStore";
-import { useWorkspaceStore, useWorkspacesSorted } from "./store/workspaceStore";
+import { useWorkspaceStore } from "./store/workspaceStore";
 import { useWorkbenchStore } from "./store/workbenchStore";
 import { useScmStore } from "./store/scmStore";
 import { useExplorerStore, type ExplorerEntry } from "./store/explorerStore";
 import { useEditorStore } from "./store/editorStore";
 import { useWorkflowStore } from "./store/workflowStore";
 import { useWorkflowExecutionStore } from "./store/workflowExecutionStore";
+import { useOrchestrationStore } from "./store/orchestrationStore";
+import {
+  bindProviderSession,
+  ensureDaemonReady,
+  getDaemonDiagnostics,
+  getDaemonNextAction,
+  listDaemonApprovals,
+  listDaemonSessions,
+  mapDaemonSessionToUiSession,
+  syncWorkspaceToDaemon,
+} from "./services/daemonCommands";
 
 const spring = { type: "spring" as const, stiffness: 320, damping: 28, mass: 1 };
 const MAX_FRONTEND_ERROR_LOGS = 50;
@@ -66,16 +77,15 @@ export default function App() {
   const setScmSnapshot = useScmStore((s) => s.setSnapshot);
   const setScmStatus = useScmStore((s) => s.setStatus);
   const setScmDiffOverride = useScmStore((s) => s.setDiffOverride);
-  const applyWorkflowSnapshotDocument = useWorkflowStore((s) => s.applySnapshotDocument);
-  const applyWorkflowEvents = useWorkflowStore((s) => s.applyEvents);
-  const applyWorkflowDiagnostics = useWorkflowStore((s) => s.applyDiagnostics);
-  const syncWorkflowSession = useWorkflowStore((s) => s.syncSession);
-  const enqueueWorkflowExecutionIntent = useWorkflowExecutionStore((s) => s.enqueueIntent);
   const markWorkflowExecutionRunning = useWorkflowExecutionStore((s) => s.markRunning);
   const markWorkflowExecutionWaiting = useWorkflowExecutionStore((s) => s.markWaiting);
   const markWorkflowExecutionError = useWorkflowExecutionStore((s) => s.markError);
   const clearWorkflowExecutionIntent = useWorkflowExecutionStore((s) => s.clearIntent);
-  const setAutoContinueDecision = useWorkflowExecutionStore((s) => s.setAutoContinueDecision);
+
+  const setApprovals = useOrchestrationStore((s) => s.setApprovals);
+  const setDiagnostics = useOrchestrationStore((s) => s.setDiagnostics);
+  const setNextAction = useOrchestrationStore((s) => s.setNextAction);
+  const diagnosticsBySessionId = useOrchestrationStore((s) => s.diagnosticsBySessionId);
 
   const { settings, patchSettings } = useSettingsStore();
   const effectiveLocale = resolveEffectiveLocale(settings.locale);
@@ -83,7 +93,6 @@ export default function App() {
   const settingsOpen = useSettingsStore((s) => s.settingsOpen);
   const closeSettings = useSettingsStore((s) => s.closeSettings);
   const { activeWorkspaceId } = useWorkspaceStore();
-  const workspaces = useWorkspacesSorted();
   const sidebarSection = useWorkbenchStore((s) => s.sidebarSection);
   const focusSession = useWorkbenchStore((s) => s.focusSession);
   const focusedSessionId = useWorkbenchStore((s) => s.focusedSessionId);
@@ -482,24 +491,9 @@ export default function App() {
 
   const syncWorkflowFromSession = useCallback((sessionId: string) => {
     const session = useSessionStore.getState().sessions.find((item) => item.id === sessionId);
-    if (!session) return;
-    const workspace = workspaces.find((item) => item.id === session.workspaceId) ?? null;
-    void syncWorkflowSession({
-      provider: session.runner.type === "codex" ? "codex" : "claude_code",
-      sessionId: session.id,
-      providerSessionId: session.providerSessionId,
-      cwd: session.workdir,
-      worktreePath: session.worktreePath,
-      workspaceId: session.workspaceId,
-      workspaceName: workspace?.name,
-      workspacePath: workspace?.path,
-      sessionName: session.name,
-      currentTask: session.currentTask,
-      branchName: session.branchName,
-      baseBranch: session.baseBranch,
-      sessionStatus: session.status,
-    }).catch(() => {});
-  }, [syncWorkflowSession, workspaces]);
+    if (!session?.taskId) return;
+    void useWorkflowStore.getState().refreshWorkflow(session.taskId, session.id);
+  }, []);
 
   const refreshSessionDiff = useCallback((sessionId?: string | null, options?: { reloadExplorer?: boolean; reloadDirs?: string[] }) => {
     if (!("__TAURI_INTERNALS__" in window)) return;
@@ -772,7 +766,7 @@ export default function App() {
       const result = await listDaemonSessions().catch(() => ({ sessions: [] }));
       if (cancelled) return;
 
-      const daemonSessions = (result.sessions ?? []).map((session) => {
+      const daemonSessions = (result.sessions ?? []).map((session: import("@codebar/contracts").Session) => {
         const provider = session.provider === 'codex' ? 'codex' : 'claude-code';
         return mapDaemonSessionToUiSession({
           session,
@@ -988,47 +982,51 @@ export default function App() {
         }
 
         if (eventType === "approval.resolved") {
-          const approval = eventPayload.approval as Record<string, unknown> | undefined
-          const approvalSessionId = typeof approval?.sessionId === 'string' ? approval.sessionId : undefined
-          const executionMessage = typeof (eventPayload.execution as Record<string, unknown> | undefined)?.message === 'string'
-            ? (eventPayload.execution as Record<string, unknown>).message as string
-            : undefined
+          const approval = eventPayload.approval as Record<string, unknown> | undefined;
+          const approvalSessionId = typeof approval?.sessionId === "string" ? approval.sessionId : undefined;
+          const execution = eventPayload.execution as Record<string, unknown> | undefined;
+          const executionMessage = typeof execution?.message === "string" ? execution.message : undefined;
+
           if (approvalSessionId) {
+            const previousDiagnostics = diagnosticsBySessionId[approvalSessionId];
             if (executionMessage) {
               setDiagnostics(approvalSessionId, {
                 summary: executionMessage,
-                files: diagnosticsBySessionId[approvalSessionId]?.files ?? [],
+                files: previousDiagnostics?.files ?? [],
                 lastExecutionMessage: executionMessage,
-                recoveryDetail: diagnosticsBySessionId[approvalSessionId]?.recoveryDetail,
-              })
+                recoveryDetail: previousDiagnostics?.recoveryDetail,
+              });
             }
-            const refreshedSession = useSessionStore.getState().sessions.find((session) => session.id === approvalSessionId)
+
+            const refreshedSession = useSessionStore.getState().sessions.find((session) => session.id === approvalSessionId);
             if (refreshedSession) {
-              refreshSessionDiff(approvalSessionId)
+              refreshSessionDiff(approvalSessionId);
               void getDaemonNextAction(approvalSessionId)
                 .then((nextAction) => setNextAction(approvalSessionId, nextAction))
-                .catch(() => {})
+                .catch(() => {});
               void getDaemonDiagnostics(approvalSessionId, refreshedSession.taskId)
                 .then((diagnostics) => setDiagnostics(approvalSessionId, {
                   ...diagnostics,
-                  lastExecutionMessage: executionMessage ?? diagnosticsBySessionId[approvalSessionId]?.lastExecutionMessage,
-                  recoveryDetail: diagnostics.summary.includes('recovery:') ? diagnostics.summary : diagnosticsBySessionId[approvalSessionId]?.recoveryDetail,
+                  lastExecutionMessage: executionMessage ?? previousDiagnostics?.lastExecutionMessage,
+                  recoveryDetail: diagnostics.summary.includes("recovery:")
+                    ? diagnostics.summary
+                    : previousDiagnostics?.recoveryDetail,
                 }))
-                .catch(() => {})
+                .catch(() => {});
               void listDaemonApprovals(approvalSessionId)
                 .then((result) => setApprovals(
                   approvalSessionId,
                   (result.requests ?? []).map((request) => ({
-                    id: String(request.id ?? ''),
+                    id: String(request.id ?? ""),
                     sessionId: String(request.sessionId ?? approvalSessionId),
-                    taskId: String(request.taskId ?? ''),
-                    actionType: String(request.actionType ?? ''),
-                    title: String(request.title ?? ''),
-                    description: String(request.description ?? ''),
-                    status: String(request.status ?? ''),
-                  }))
+                    taskId: String(request.taskId ?? ""),
+                    actionType: String(request.actionType ?? ""),
+                    title: String(request.title ?? ""),
+                    description: String(request.description ?? ""),
+                    status: String(request.status ?? ""),
+                  })),
                 ))
-                .catch(() => {})
+                .catch(() => {});
             }
           }
         }
@@ -1038,21 +1036,20 @@ export default function App() {
         }
 
         if (eventType === "session.recovered") {
-          const recoveryReason = typeof (eventPayload.recovery as Record<string, unknown> | undefined)?.reason === 'string'
-            ? (eventPayload.recovery as Record<string, unknown>).reason as string
-            : 'recovered'
+          const recovery = eventPayload.recovery as Record<string, unknown> | undefined;
+          const recoveryReason = typeof recovery?.reason === "string" ? recovery.reason : "recovered";
           updateSession(entityId, { status: "suspended", currentTask: `Recovery: ${recoveryReason}` });
-          const recoveredSession = useSessionStore.getState().sessions.find((session) => session.id === entityId)
+          const recoveredSession = useSessionStore.getState().sessions.find((session) => session.id === entityId);
           if (recoveredSession) {
             void getDaemonDiagnostics(entityId, recoveredSession.taskId)
               .then((diagnostics) => setDiagnostics(entityId, {
                 ...diagnostics,
                 recoveryDetail: diagnostics.summary,
               }))
-              .catch(() => {})
+              .catch(() => {});
           }
         }
-      }
+      },
     );
 
     const u7b = listen<{ session_id: string }>(
@@ -1082,95 +1079,10 @@ export default function App() {
       }
     );
 
-    const u8 = listen<{ action: string; taskId: string; sessionId?: string | null; stepId?: string | null; approvalId?: string | null; reason?: string | null }>(
-      "workflow-action-applied",
-      ({ payload }) => {
-        if (!payload.sessionId) return;
-        if (payload.action === "claim") {
-          updateSession(payload.sessionId, { status: "running" });
-        } else if (payload.action === "complete") {
-          updateSession(payload.sessionId, { status: "waiting" });
-        } else if (payload.action === "block") {
-          updateSession(payload.sessionId, {
-            status: "suspended",
-            currentTask: payload.reason ?? "Blocked from workflow",
-          });
-        } else if (payload.action === "resolve_approval") {
-          updateSession(payload.sessionId, { status: "running" });
-        }
-      }
-    );
-
-    const u8a = listen<{ state: "continued" | "stopped"; reason: string; detail?: string | null; sessionId?: string | null }>(
-      "workflow-auto-continue-decision",
-      ({ payload }) => {
-        if (!payload.sessionId) return;
-        setAutoContinueDecision(payload.sessionId, {
-          state: payload.state,
-          reason: payload.reason,
-          detail: payload.detail ?? undefined,
-        });
-      }
-    );
-
-    const u8b = listen<{ action: string; taskId: string; sessionId?: string | null; stepId?: string | null; leaseToken?: string | null; prompt?: string | null; revision?: string | null }>(
-      "workflow-execution-requested",
-      ({ payload }) => {
-        if (!payload.sessionId || !payload.prompt) return;
-        const accepted = enqueueWorkflowExecutionIntent({
-          sessionId: payload.sessionId,
-          stepId: payload.stepId ?? undefined,
-          action: payload.action,
-          prompt: payload.prompt,
-          leaseToken: payload.leaseToken ?? undefined,
-          revision: payload.revision ?? undefined,
-        });
-        if (!accepted.accepted) {
-          setAutoContinueDecision(payload.sessionId, {
-            state: "stopped",
-            reason: accepted.reason,
-          });
-          return;
-        }
-        const currentState = useSessionStore.getState();
-        const currentWorkbench = useWorkbenchStore.getState();
-        if (currentState.activeSessionId !== payload.sessionId) {
-          currentState.setActiveSession(payload.sessionId);
-        }
-        if (currentState.expandedSessionId !== payload.sessionId) {
-          currentState.setExpandedSession(payload.sessionId);
-        }
-        if (currentWorkbench.focusedSessionId !== payload.sessionId || currentWorkbench.centerSurface !== "session") {
-          currentWorkbench.showSessionSurface(payload.sessionId);
-        }
-      }
-    );
-
-    const u9 = listen<{ taskId: string; sessionId?: string | null; document: import("@codebar/contracts").TaskDagDocument }>(
-      "workflow-snapshot-updated",
-      ({ payload }) => {
-        applyWorkflowSnapshotDocument(payload.taskId, payload.document, payload.sessionId ?? undefined);
-      }
-    );
-
-    const u10 = listen<{ taskId: string; events: import("@codebar/contracts").TaskDagEvent[] }>(
-      "workflow-events-appended",
-      ({ payload }) => {
-        applyWorkflowEvents(payload.taskId, payload.events);
-      }
-    );
-
-    const u11 = listen<{ taskId: string; diagnostics: import("@codebar/contracts").TaskDagDiagnostic[] }>(
-      "workflow-diagnostics-updated",
-      ({ payload }) => {
-        applyWorkflowDiagnostics(payload.taskId, payload.diagnostics);
-      }
-    );
-
     return () => {
-      [u1, u2, u3, u4, u5, u5b, u5c, u5d, u6, u7, u7b, u7c, u7d, u8, u8a, u8b, u9, u10, u11].forEach((p) => p.then((f) => f()).catch(() => {}));
+      [u1, u2, u3, u4, u5, u5b, u5c, u5d, u6, u7, u8, u7b, u7c, u7d].forEach((p) => p.then((f) => f()).catch(() => {}));
     };
-  }, [appendOutput, updateSession, setDiffFiles, setScmSnapshot, setScmStatus, setScmDiffOverride, refreshSessionDiff, applyWorkflowSnapshotDocument, applyWorkflowEvents, applyWorkflowDiagnostics, syncWorkflowFromSession, enqueueWorkflowExecutionIntent, markWorkflowExecutionRunning, markWorkflowExecutionWaiting, markWorkflowExecutionError, clearWorkflowExecutionIntent, setAutoContinueDecision]);
+  }, [appendOutput, updateSession, setDiffFiles, setScmSnapshot, setScmStatus, setScmDiffOverride, refreshSessionDiff, syncWorkflowFromSession, markWorkflowExecutionRunning, markWorkflowExecutionWaiting, markWorkflowExecutionError]);
 
   // ── 会话切换时主动拉一次 Diff（覆盖非 running / 外部改动场景）──
   useEffect(() => {

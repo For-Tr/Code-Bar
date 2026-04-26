@@ -190,6 +190,10 @@ impl SkillProfileRepository for FileStore {
     fn get_skill_profile(&self, skill_profile_id: &str) -> DomainResult<Option<SkillProfile>> {
         Ok(self.skill_profiles.lock().unwrap().get(skill_profile_id).cloned())
     }
+
+    fn list_skill_profiles(&self) -> DomainResult<Vec<SkillProfile>> {
+        Ok(self.skill_profiles.lock().unwrap().values().cloned().collect())
+    }
 }
 
 impl ApprovalRepository for FileStore {
