@@ -89,6 +89,7 @@ function AppearanceTab() {
   const { settings, patchSettings } = useSettingsStore();
 
   type ThemeOption = ThemeMode;
+  const ptyFontSize = settings.ptyFontSize;
 
   const themeOptions: {
     value: ThemeOption;
@@ -269,6 +270,55 @@ function AppearanceTab() {
               </button>
             );
           })}
+        </div>
+      </div>
+
+      <div>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: C.textDim, marginBottom: 10 }}>
+          {t("settings.sections.terminal")}
+        </div>
+        <div style={{ padding: "14px", background: "var(--ci-surface-hi)", borderRadius: 14, display: "grid", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: C.text }}>{t("settings.terminal.fontSize")}</div>
+              <div style={{ marginTop: 3, fontSize: 11, color: C.textDim }}>{t("settings.terminal.fontSizeDescription")}</div>
+            </div>
+            <div style={{ minWidth: 44, textAlign: "right", fontSize: 12, fontWeight: 700, color: C.accent }}>{ptyFontSize}px</div>
+          </div>
+          <input
+            type="range"
+            min={8}
+            max={24}
+            step={1}
+            value={ptyFontSize}
+            onChange={(event) => patchSettings({ ptyFontSize: Number(event.currentTarget.value) })}
+            style={{ width: "100%" }}
+          />
+          <div
+            style={{
+              borderRadius: 12,
+              border: `1px solid ${C.border}`,
+              background: "#0a0a0c",
+              padding: "14px 16px",
+              boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.02)",
+            }}
+          >
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(226,232,240,0.45)", marginBottom: 8 }}>
+              {t("settings.terminal.preview")}
+            </div>
+            <div
+              style={{
+                fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
+                fontSize: ptyFontSize,
+                lineHeight: 1.4,
+                color: "#e2e8f0",
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+              }}
+            >
+              {t("settings.terminal.previewText")}
+            </div>
+          </div>
         </div>
       </div>
 

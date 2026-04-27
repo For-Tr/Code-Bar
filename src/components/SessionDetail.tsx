@@ -53,6 +53,7 @@ interface InstallTerminalProps {
 
 function InstallTerminal({ installId, installCmd, onFinished }: InstallTerminalProps) {
   const { t } = useAppI18n();
+  const ptyFontSize = useSettingsStore((s) => s.settings.ptyFontSize);
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<import("@xterm/xterm").Terminal | null>(null);
   const fitRef = useRef<import("@xterm/addon-fit").FitAddon | null>(null);
@@ -75,7 +76,7 @@ function InstallTerminal({ installId, installCmd, onFinished }: InstallTerminalP
       term = new Terminal({
         theme: { background: "#0a0a0c", foreground: "#e2e8f0", cursor: "#60a5fa" },
         fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-        fontSize: 12,
+        fontSize: ptyFontSize,
         lineHeight: 1.4,
         scrollback: 2000,
         allowTransparency: true,
@@ -139,7 +140,7 @@ function InstallTerminal({ installId, installCmd, onFinished }: InstallTerminalP
       fitRef.current = null;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [installCmd, installId, isWindows, onFinished]);
+  }, [installCmd, installId, isWindows, onFinished, ptyFontSize]);
 
   useEffect(() => {
     const el = containerRef.current;

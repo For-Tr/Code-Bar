@@ -47,6 +47,11 @@ export function normalizeSplitWidgetPanelWidth(width: unknown): number {
   return Math.min(720, Math.max(220, Math.round(width)));
 }
 
+export function normalizePtyFontSize(size: unknown): number {
+  if (typeof size !== "number" || !Number.isFinite(size)) return 13;
+  return Math.min(24, Math.max(8, Math.round(size)));
+}
+
 export interface SplitWidgetTerminalTab {
   id: string;
   title: string;
@@ -205,6 +210,7 @@ export interface Settings {
   apiKeys: ApiKeys;
   locale: LocaleSetting;
   theme: ThemeMode;
+  ptyFontSize: number;
   splitPaneSidebarWidth: number;
   splitWidgetPanelWidth: number;
   splitWidgetPanelCollapsed: boolean;
@@ -265,6 +271,7 @@ const DEFAULT_SETTINGS: Settings = {
   },
   locale: "system",
   theme: "light",
+  ptyFontSize: 13,
   splitPaneSidebarWidth: 420,
   splitWidgetPanelWidth: 260,
   splitWidgetPanelCollapsed: true,
@@ -365,6 +372,7 @@ export const useSettingsStore = create<SettingsStore>()(
           splitWidgetPanelWidth?: unknown;
           splitWidgetPanelCollapsed?: unknown;
           splitWidgetCanvas?: unknown;
+          ptyFontSize?: unknown;
         };
         const runnerProfiles: RunnerProfiles = {
           "claude-code": normalizeRunnerProfile(persistedSettings.runnerProfiles?.["claude-code"]),
@@ -378,6 +386,7 @@ export const useSettingsStore = create<SettingsStore>()(
             ...persistedSettings,
             locale: normalizeLocaleSetting(persistedSettings.locale),
             theme: normalizeThemeMode(persistedSettings.theme),
+            ptyFontSize: normalizePtyFontSize(persistedSettings.ptyFontSize),
             splitPaneSidebarWidth: normalizeSplitPaneSidebarWidth(persistedSettings.splitPaneSidebarWidth),
             splitWidgetPanelWidth: normalizeSplitWidgetPanelWidth(persistedSettings.splitWidgetPanelWidth),
             splitWidgetPanelCollapsed: persistedSettings.splitWidgetPanelCollapsed === true,

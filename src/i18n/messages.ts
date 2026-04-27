@@ -67,6 +67,7 @@ const messages = {
       sections: {
         theme: "主题",
         layout: "布局",
+        terminal: "终端",
         rightWidgets: "右侧组件",
       },
       themeOptions: {
@@ -106,6 +107,12 @@ const messages = {
         zhCN: "简体中文",
         enUS: "English",
         ar: "العربية",
+      },
+      terminal: {
+        fontSize: "字体大小",
+        fontSizeDescription: "调整 PTY / CLI 终端的显示字号。",
+        preview: "预览",
+        previewText: "$ claude --resume\n> Fix Windows resume after restart\n✓ Waiting for your next instruction",
       },
     },
     titleBar: {
@@ -405,6 +412,7 @@ const messages = {
       sections: {
         theme: "Theme",
         layout: "Layout",
+        terminal: "Terminal",
         rightWidgets: "Right-side widgets",
       },
       themeOptions: {
@@ -444,6 +452,12 @@ const messages = {
         zhCN: "简体中文",
         enUS: "English",
         ar: "العربية",
+      },
+      terminal: {
+        fontSize: "Font size",
+        fontSizeDescription: "Adjust the display size for PTY / CLI terminals.",
+        preview: "Preview",
+        previewText: "$ claude --resume\n> Fix Windows resume after restart\n✓ Waiting for your next instruction",
       },
     },
     titleBar: {
@@ -743,6 +757,7 @@ const messages = {
       sections: {
         theme: "السمة",
         layout: "التخطيط",
+        terminal: "الطرفية",
         rightWidgets: "أدوات الجانب الأيمن",
       },
       themeOptions: {
@@ -782,6 +797,12 @@ const messages = {
         zhCN: "简体中文",
         enUS: "English",
         ar: "العربية",
+      },
+      terminal: {
+        fontSize: "حجم الخط",
+        fontSizeDescription: "اضبط حجم العرض لطرفيات PTY / CLI.",
+        preview: "معاينة",
+        previewText: "$ claude --resume\n> إصلاح استئناف Windows بعد إعادة التشغيل\n✓ بانتظار التعليمات التالية",
       },
     },
     titleBar: {

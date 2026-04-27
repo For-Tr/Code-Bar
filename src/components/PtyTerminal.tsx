@@ -92,9 +92,9 @@ function getTerminalLook(theme: ThemeMode) {
   };
 }
 
-function getTerminalMetrics() {
+function getTerminalMetrics(fontSize: number) {
   return {
-    fontSize: 13,
+    fontSize,
     lineHeight: 1.4,
   };
 }
@@ -155,6 +155,7 @@ export function PtyTerminal({
 
   // 读取当前主题
   const theme = useSettingsStore((s) => s.settings.theme);
+  const ptyFontSize = useSettingsStore((s) => s.settings.ptyFontSize);
 
   // ── 初始化 xterm ──────────────────────────────────────────
   useEffect(() => {
@@ -162,7 +163,7 @@ export function PtyTerminal({
     const container = containerRef.current;
 
     const { termTheme, termBg } = getTerminalLook(theme);
-    const { fontSize, lineHeight } = getTerminalMetrics();
+    const { fontSize, lineHeight } = getTerminalMetrics(ptyFontSize);
     const isWindows = navigator.userAgent.toLowerCase().includes("windows");
 
     const term = new Terminal({
@@ -266,7 +267,7 @@ export function PtyTerminal({
     if (!term) return;
 
     const { termTheme, termBg } = getTerminalLook(theme);
-    const { fontSize, lineHeight } = getTerminalMetrics();
+    const { fontSize, lineHeight } = getTerminalMetrics(ptyFontSize);
 
     // xterm 5.x 支持直接更新 options.theme
     term.options.theme = termTheme;
@@ -288,7 +289,7 @@ export function PtyTerminal({
         const t = termRef.current;
         if (!t) return;
         t.options.theme = e.matches ? TERM_THEME_DARK : TERM_THEME_LIGHT;
-        t.options.fontSize = 13;
+        t.options.fontSize = ptyFontSize;
         t.options.lineHeight = 1.4;
         const bg = e.matches ? "#0a0a0c" : "#1e1e2e";
         if (containerRef.current) containerRef.current.style.background = bg;
@@ -299,7 +300,7 @@ export function PtyTerminal({
       mq.addEventListener("change", listener);
       return () => mq.removeEventListener("change", listener);
     }
-  }, [theme]);
+  }, [ptyFontSize, theme]);
 
   // 用 ref 保存最新回调，避免闭包过时（不加入依赖数组）
   const onWaitingRef = useRef(onWaiting);
