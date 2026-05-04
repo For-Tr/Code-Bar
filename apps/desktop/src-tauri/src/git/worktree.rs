@@ -1,4 +1,8 @@
-use std::{fs, path::Path, time::{SystemTime, UNIX_EPOCH}};
+use std::{
+    fs,
+    path::Path,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use crate::runtime_scope::session_worktree_root_dir;
 use crate::util::{background_command, expand_path, normalize_expanded_path};

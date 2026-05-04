@@ -1,41 +1,18 @@
 import { useMemo } from 'react'
-import { useOrchestrationStore } from '../store/orchestrationStore'
 import { useSessionStore } from '../store/sessionStore'
-import { getDaemonDiagnostics, getDaemonNextAction, listDaemonApprovals, resolveDaemonApproval } from '../services/daemonCommands'
+import { resolveDaemonApproval } from '../services/daemonCommands'
+import { useDaemonData } from '../daemon/DaemonDataProvider'
 
 export function OrchestrationPanel() {
   const expandedSessionId = useSessionStore((s) => s.expandedSessionId)
   const sessions = useSessionStore((s) => s.sessions)
-  const approvalsBySessionId = useOrchestrationStore((s) => s.approvalsBySessionId)
-  const nextActionBySessionId = useOrchestrationStore((s) => s.nextActionBySessionId)
-  const diagnosticsBySessionId = useOrchestrationStore((s) => s.diagnosticsBySessionId)
-  const setApprovals = useOrchestrationStore((s) => s.setApprovals)
-  const setNextAction = useOrchestrationStore((s) => s.setNextAction)
-  const setDiagnostics = useOrchestrationStore((s) => s.setDiagnostics)
+  const daemon = useDaemonData()
 
   const session = useMemo(() => sessions.find((item) => item.id === expandedSessionId) ?? null, [expandedSessionId, sessions])
 
   const refresh = async () => {
     if (!session) return
-    const [nextAction, approvalsResult, diagnostics] = await Promise.all([
-      getDaemonNextAction(session.id).catch(() => null),
-      listDaemonApprovals(session.id).catch(() => ({ requests: [] })),
-      getDaemonDiagnostics(session.id, session.taskId).catch(() => null),
-    ])
-    if (nextAction) setNextAction(session.id, nextAction)
-    setApprovals(
-      session.id,
-      (approvalsResult.requests ?? []).map((request) => ({
-        id: String(request.id ?? ''),
-        sessionId: String(request.sessionId ?? session.id),
-        taskId: String(request.taskId ?? ''),
-        actionType: String(request.actionType ?? ''),
-        title: String(request.title ?? ''),
-        description: String(request.description ?? ''),
-        status: String(request.status ?? ''),
-      }))
-    )
-    if (diagnostics) setDiagnostics(session.id, diagnostics)
+    await daemon.refreshSessionViews(session.id)
   }
 
   if (!session) {
@@ -46,9 +23,9 @@ export function OrchestrationPanel() {
     )
   }
 
-  const approvals = approvalsBySessionId[session.id] ?? []
-  const nextAction = nextActionBySessionId[session.id]
-  const diagnostics = diagnosticsBySessionId[session.id]
+  const approvals = daemon.state.approvalsBySessionId[session.id] ?? []
+  const nextAction = daemon.state.nextActionBySessionId[session.id]
+  const diagnostics = daemon.state.diagnosticsBySessionId[session.id]
 
   return (
     <div style={{ width: '100%', height: '100%', padding: 10, boxSizing: 'border-box', display: 'grid', gap: 10, alignContent: 'start', overflowY: 'auto' }}>

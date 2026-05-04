@@ -69,9 +69,7 @@ pub async fn start_runner(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let codebar_tmp = crate::util::codebar_tmp_dir()
-        .to_string_lossy()
-        .to_string();
+    let codebar_tmp = crate::util::codebar_tmp_dir().to_string_lossy().to_string();
     cmd.env("TMPDIR", &codebar_tmp);
     cmd.env("TEMP", &codebar_tmp);
     cmd.env("TMP", &codebar_tmp);

@@ -1,4 +1,4 @@
-use crate::domain::{ApprovalRequest, DomainResult, Session, Worktree, Workspace};
+use crate::domain::{ApprovalRequest, DomainResult, Session, Workspace, Worktree};
 use crate::ports::ApprovalExecutor;
 
 pub struct NullApprovalExecutor;

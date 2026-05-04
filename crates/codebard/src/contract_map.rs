@@ -57,6 +57,26 @@ pub fn map_worktree_to_contract(worktree: domain::Worktree) -> contract_domain::
     }
 }
 
+pub fn map_workspace_to_contract(workspace: domain::Workspace) -> contract_domain::Workspace {
+    contract_domain::Workspace {
+        id: workspace.id,
+        display_name: workspace.display_name,
+        root_path: workspace.root_path,
+        vcs_type: match workspace.vcs_type {
+            domain::VcsType::Git => contract_domain::VcsType::Git,
+            domain::VcsType::None => contract_domain::VcsType::None,
+        },
+        repo_identity: workspace.repo_identity,
+        trust_level: match workspace.trust_level {
+            domain::TrustLevel::Trusted => contract_domain::TrustLevel::Trusted,
+            domain::TrustLevel::Untrusted => contract_domain::TrustLevel::Untrusted,
+        },
+        default_provider: workspace.default_provider.map(map_provider_kind_to_contract),
+        created_at: workspace.created_at,
+        updated_at: workspace.updated_at,
+    }
+}
+
 pub fn map_plan_to_contract(plan: domain::Plan) -> contract_domain::Plan {
     contract_domain::Plan {
         id: plan.id,
@@ -78,7 +98,12 @@ pub fn map_plan_step_to_contract(step: domain::PlanStep) -> contract_domain::Pla
         depends_on: step.depends_on,
         parallelizable: step.parallelizable,
         required_skills: step.required_skills,
-        allowed_providers: step.allowed_providers.map(|providers| providers.into_iter().map(map_provider_kind_to_contract).collect()),
+        allowed_providers: step.allowed_providers.map(|providers| {
+            providers
+                .into_iter()
+                .map(map_provider_kind_to_contract)
+                .collect()
+        }),
         lease_owner_session_id: step.lease_owner_session_id,
         lease_token: step.lease_token,
         lease_expires_at: step.lease_expires_at,
@@ -95,7 +120,9 @@ pub fn map_run_attempt_to_contract(run: domain::RunAttempt) -> contract_domain::
     run
 }
 
-pub fn map_approval_request_to_contract(request: domain::ApprovalRequest) -> contract_domain::ApprovalRequest {
+pub fn map_approval_request_to_contract(
+    request: domain::ApprovalRequest,
+) -> contract_domain::ApprovalRequest {
     contract_domain::ApprovalRequest {
         id: request.id,
         session_id: request.session_id,
@@ -104,8 +131,12 @@ pub fn map_approval_request_to_contract(request: domain::ApprovalRequest) -> con
             domain::ApprovalActionType::Write => contract_domain::ApprovalActionType::Write,
             domain::ApprovalActionType::Delete => contract_domain::ApprovalActionType::Delete,
             domain::ApprovalActionType::GitPush => contract_domain::ApprovalActionType::GitPush,
-            domain::ApprovalActionType::DangerousBash => contract_domain::ApprovalActionType::DangerousBash,
-            domain::ApprovalActionType::ExternalSideEffect => contract_domain::ApprovalActionType::ExternalSideEffect,
+            domain::ApprovalActionType::DangerousBash => {
+                contract_domain::ApprovalActionType::DangerousBash
+            }
+            domain::ApprovalActionType::ExternalSideEffect => {
+                contract_domain::ApprovalActionType::ExternalSideEffect
+            }
         },
         title: request.title,
         description: request.description,

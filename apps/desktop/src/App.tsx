@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -14,6 +14,8 @@ import { WorkbenchCenter } from "./workbench/WorkbenchCenter";
 import Settings from "./components/Settings";
 import { ensureI18n, getLocaleDirection, resolveEffectiveLocale, useAppI18n } from "./i18n";
 import { useSessionStore, type DiffFile, type ClaudeSession } from "./store/sessionStore";
+import { DaemonDataProvider, useDaemonData } from "./daemon/DaemonDataProvider";
+import { mapDaemonStateToUiStatus, resolveEffectiveSessionWorkdir, runnerTypeFromProvider, selectSessionView } from "./daemon/selectors";
 import {
   useSettingsStore,
   isGlassTheme,
@@ -26,20 +28,29 @@ import { useExplorerStore, type ExplorerEntry } from "./store/explorerStore";
 import { useEditorStore } from "./store/editorStore";
 import { useWorkflowStore } from "./store/workflowStore";
 import { useWorkflowExecutionStore } from "./store/workflowExecutionStore";
-import { useOrchestrationStore } from "./store/orchestrationStore";
 import {
   bindProviderSession,
-  ensureDaemonReady,
-  getDaemonDiagnostics,
-  getDaemonNextAction,
-  listDaemonApprovals,
-  listDaemonSessions,
-  mapDaemonSessionToUiSession,
-  syncWorkspaceToDaemon,
 } from "./services/daemonCommands";
 
 const spring = { type: "spring" as const, stiffness: 320, damping: 28, mass: 1 };
 const MAX_FRONTEND_ERROR_LOGS = 50;
+
+function isDevHelperPath(path: string) {
+  return path === ".codebar-worktree-dev" || path.startsWith(".codebar-worktree-dev/")
+}
+
+function filterDevHelperDiffFiles(files: DiffFile[]) {
+  return files.filter((file) => !isDevHelperPath(file.path))
+}
+
+function filterDevHelperScmGroups(groups: import("./store/scmStore").ScmStatusGroups) {
+  return {
+    conflicts: groups.conflicts.filter((entry) => !isDevHelperPath(entry.path)),
+    staged: groups.staged.filter((entry) => !isDevHelperPath(entry.path)),
+    unstaged: groups.unstaged.filter((entry) => !isDevHelperPath(entry.path)),
+    untracked: groups.untracked.filter((entry) => !isDevHelperPath(entry.path)),
+  }
+}
 
 function getExplorerSyncSelection(state: ReturnType<typeof useEditorStore.getState>) {
   return Object.fromEntries(
@@ -62,18 +73,19 @@ interface FrontendErrorLog {
   detail?: string | null;
 }
 
-export default function App() {
+function AppShell() {
   const { t } = useAppI18n();
   const {
     sessions,
     activeSessionId,
     expandedSessionId,
     appendOutput,
-    updateSession,
     setDiffFiles,
     setActiveSession,
     setExpandedSession,
   } = useSessionStore();
+  const daemon = useDaemonData();
+  const { refreshSessionViews } = daemon;
   const setScmSnapshot = useScmStore((s) => s.setSnapshot);
   const setScmStatus = useScmStore((s) => s.setStatus);
   const setScmDiffOverride = useScmStore((s) => s.setDiffOverride);
@@ -82,18 +94,14 @@ export default function App() {
   const markWorkflowExecutionError = useWorkflowExecutionStore((s) => s.markError);
   const clearWorkflowExecutionIntent = useWorkflowExecutionStore((s) => s.clearIntent);
 
-  const setApprovals = useOrchestrationStore((s) => s.setApprovals);
-  const setDiagnostics = useOrchestrationStore((s) => s.setDiagnostics);
-  const setNextAction = useOrchestrationStore((s) => s.setNextAction);
-  const diagnosticsBySessionId = useOrchestrationStore((s) => s.diagnosticsBySessionId);
-
   const { settings, patchSettings } = useSettingsStore();
   const effectiveLocale = resolveEffectiveLocale(settings.locale);
   const direction = getLocaleDirection(effectiveLocale);
   const settingsOpen = useSettingsStore((s) => s.settingsOpen);
   const closeSettings = useSettingsStore((s) => s.closeSettings);
   const { activeWorkspaceId } = useWorkspaceStore();
-  const sidebarSection = useWorkbenchStore((s) => s.sidebarSection);
+  const primaryObject = useWorkbenchStore((s) => s.primaryObject);
+  const centerSurface = useWorkbenchStore((s) => s.centerSurface);
   const focusSession = useWorkbenchStore((s) => s.focusSession);
   const focusedSessionId = useWorkbenchStore((s) => s.focusedSessionId);
   const isGlass = isGlassTheme(settings.theme);
@@ -465,7 +473,6 @@ export default function App() {
   useEffect(() => {
     const currentActive = useSessionStore.getState().activeSessionId;
     const currentSession = useSessionStore.getState().sessions.find((s) => s.id === currentActive);
-    // 当前 activeSession 不属于当前 workspace 时，重新选择
     if (currentSession?.workspaceId !== activeWorkspaceId) {
       const wsSessions = useSessionStore.getState().sessions.filter(
         (s) => s.workspaceId === activeWorkspaceId
@@ -482,6 +489,13 @@ export default function App() {
     (s) => s.id === activeSessionId && s.workspaceId === activeWorkspaceId
   );
   const expandedSession = sessions.find((s) => s.id === expandedSessionId) ?? null;
+  const daemonSessionViewsById = useMemo(() => {
+    const entries = Object.keys(daemon.state.sessionsById)
+      .map((sessionId) => [sessionId, selectSessionView(daemon.state, sessionId)] as const)
+      .filter((entry): entry is readonly [string, NonNullable<ReturnType<typeof selectSessionView>>] => !!entry[1]);
+    return Object.fromEntries(entries);
+  }, [daemon.state]);
+
   const visibleSplitSessionId = expandedSession?.workspaceId === activeWorkspaceId
     ? expandedSession.id
     : null;
@@ -490,10 +504,10 @@ export default function App() {
   ) ?? activeSession ?? null;
 
   const syncWorkflowFromSession = useCallback((sessionId: string) => {
-    const session = useSessionStore.getState().sessions.find((item) => item.id === sessionId);
+    const session = daemon.state.sessionsById[sessionId];
     if (!session?.taskId) return;
     void useWorkflowStore.getState().refreshWorkflow(session.taskId, session.id);
-  }, []);
+  }, [daemon.state.sessionsById]);
 
   const refreshSessionDiff = useCallback((sessionId?: string | null, options?: { reloadExplorer?: boolean; reloadDirs?: string[] }) => {
     if (!("__TAURI_INTERNALS__" in window)) return;
@@ -512,30 +526,35 @@ export default function App() {
     }
 
     const runRefresh = async () => {
-      const session = useSessionStore.getState().sessions.find((s) => s.id === targetId);
-      if (!session) return;
+      const session = useSessionStore.getState().sessions.find((s) => s.id === targetId) ?? null;
+      const workspace = session
+        ? useWorkspaceStore.getState().workspaces.find((item) => item.id === session.workspaceId) ?? null
+        : null;
+      const workdir = resolveEffectiveSessionWorkdir(daemon.state, targetId, session, workspace);
+      const daemonSessionView = daemonSessionViewsById[targetId];
+      if (!workdir) return;
 
       await Promise.all([
         invoke("get_git_status", {
-          sessionId: session.id,
-          workdir: session.workdir,
+          sessionId: targetId,
+          workdir,
         }),
-        session.baseBranch
+        daemonSessionView?.worktree?.baseBranch
           ? invoke("get_git_diff_session_worktree", {
-              sessionId: session.id,
-              workdir: session.workdir,
-              baseBranch: session.baseBranch,
+              sessionId: targetId,
+              workdir,
+              baseBranch: daemonSessionView.worktree.baseBranch,
             })
           : invoke("get_git_diff", {
-              sessionId: session.id,
-              workdir: session.workdir,
+              sessionId: targetId,
+              workdir,
             }),
       ]).catch(() => {});
 
       if (options?.reloadDirs && options.reloadDirs.length > 0) {
-        await reloadExplorerDirectories(session.id, options.reloadDirs).catch(() => {});
+        await reloadExplorerDirectories(targetId, options.reloadDirs).catch(() => {});
       } else if (options?.reloadExplorer) {
-        await reloadVisibleDirectories(session.id).catch(() => {});
+        await reloadVisibleDirectories(targetId).catch(() => {});
       }
     };
 
@@ -550,7 +569,7 @@ export default function App() {
     });
 
     refreshInFlightRef.current[targetId] = task;
-  }, []);
+  }, [daemonSessionViewsById]);
 
 
   useEffect(() => {
@@ -577,7 +596,18 @@ export default function App() {
     if (!("__TAURI_INTERNALS__" in window)) return;
 
     const visibleSessions = [activeSession, workbenchSession].filter((session): session is ClaudeSession => !!session);
-    const nextWatchMap = new Map(visibleSessions.map((session) => [session.id, session.workdir]));
+    const workspacesById = Object.fromEntries(
+      useWorkspaceStore.getState().workspaces.map((workspace) => [workspace.id, workspace]),
+    );
+    const nextWatchMap = new Map(visibleSessions.map((session) => {
+      const workdir = resolveEffectiveSessionWorkdir(
+        daemon.state,
+        session.id,
+        session,
+        workspacesById[session.workspaceId] ?? null,
+      );
+      return [session.id, workdir] as const;
+    }));
 
     nextWatchMap.forEach((workdir, sessionId) => {
       const knownWorkdir = watchedWorkdirBySessionRef.current[sessionId];
@@ -599,7 +629,7 @@ export default function App() {
       delete watchedWorkdirBySessionRef.current[sessionId];
       void invoke("stop_git_watch", { sessionId }).catch(() => {});
     });
-  }, [activeSession, workbenchSession]);
+  }, [activeSession, workbenchSession, daemonSessionViewsById]);
 
   useEffect(() => () => {
     if (!("__TAURI_INTERNALS__" in window)) return;
@@ -618,15 +648,18 @@ export default function App() {
         closeSettings();
         return;
       }
-      if (sidebarSection !== "sessions") {
+
+      const isDefaultSessionWelcomePath = primaryObject === "sessions" && centerSurface === "welcome";
+      if (!isDefaultSessionWelcomePath) {
         useWorkbenchStore.getState().resetWorkbenchMode();
         return;
       }
+
       invoke("close_popup").catch(() => {});
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [settingsOpen, closeSettings, sidebarSection]);
+  }, [settingsOpen, closeSettings, primaryObject, centerSurface]);
 
   // ── 浮窗位置 / 大小记忆：用户拖动/调整后防抖 500ms 写盘 ──
   // 注意：只在基础状态（非展开）下保存，展开状态是临时的，不应覆盖记忆。
@@ -695,16 +728,18 @@ export default function App() {
     const unlisten = listen<{ session_id?: string | null }>("popup-focused", ({ payload }) => {
       const sid = payload?.session_id?.trim();
       const { activeSessionId: aid, sessions: ss } = useSessionStore.getState();
-      const target =
-        sid && ss.some((s) => s.id === sid)
-          ? sid
-          : (aid ?? ss[ss.length - 1]?.id ?? null);
-      if (target) {
+      const targetSession =
+        (sid ? ss.find((s) => s.id === sid) : null)
+        ?? ss.find((s) => s.id === aid)
+        ?? ss[ss.length - 1]
+        ?? null;
+      if (targetSession) {
         requestAnimationFrame(() => {
-          setActiveSession(target);
-          setExpandedSession(target);
-          focusSession(target);
-          refreshSessionDiff(target);
+          useWorkspaceStore.getState().bringToFront(targetSession.workspaceId);
+          setActiveSession(targetSession.id);
+          setExpandedSession(targetSession.id);
+          focusSession(targetSession.id);
+          refreshSessionDiff(targetSession.id);
         });
       }
     });
@@ -718,20 +753,6 @@ export default function App() {
     workspaces.forEach((ws) => {
       invoke("trust_workspace", { path: ws.path }).catch(() => {});
     });
-  }, []);
-
-  // ── 启动时确保 daemon 可用并同步已存在工作区 ───────────────
-  useEffect(() => {
-    if (!("__TAURI_INTERNALS__" in window)) return;
-
-    ensureDaemonReady()
-      .then(() => {
-        const workspaces = useWorkspaceStore.getState().workspaces;
-        workspaces.forEach((workspace) => {
-          void syncWorkspaceToDaemon(workspace).catch(() => {});
-        });
-      })
-      .catch(() => {});
   }, []);
 
   // ── 启动时加载保存的 API Key ──────────────────────────────
@@ -754,59 +775,49 @@ export default function App() {
     });
   }, []);
 
-  // ── 启动时从 daemon 恢复 session 主状态 ─────────────────────
+  // ── daemon snapshot -> ui session bridge (ephemeral) ─────────
   useEffect(() => {
-    if (!("__TAURI_INTERNALS__" in window)) return;
+    const workspacesById = Object.fromEntries(
+      useWorkspaceStore.getState().workspaces.map((workspace) => [workspace.id, workspace]),
+    );
 
-    let cancelled = false;
+    const daemonSessions = Object.values(daemon.state.sessionsById);
+    if (daemonSessions.length === 0) return;
 
-    (async () => {
-      const workspaces = useWorkspaceStore.getState().workspaces;
-      const workspacePathById = Object.fromEntries(workspaces.map((workspace) => [workspace.id, workspace.path]));
-      const result = await listDaemonSessions().catch(() => ({ sessions: [] }));
-      if (cancelled) return;
+    const bridgedSessions = daemonSessions.map((session) => {
+      const view = daemonSessionViewsById[session.id];
+      const uiSession = useSessionStore.getState().sessions.find((item) => item.id === session.id);
+      const taskTitle = view?.task?.title ?? uiSession?.currentTask ?? "";
+      const workdir = resolveEffectiveSessionWorkdir(
+        daemon.state,
+        session.id,
+        uiSession,
+        workspacesById[session.workspaceId] ?? null,
+      );
+      return {
+        id: session.id,
+        name: taskTitle || uiSession?.name || `Session ${session.id}`,
+        workspaceId: session.workspaceId,
+        workdir,
+        status: mapDaemonStateToUiStatus(session.state),
+        currentTask: taskTitle,
+        createdAt: Date.parse(session.createdAt) || uiSession?.createdAt || Date.now(),
+        diffFiles: uiSession?.diffFiles ?? [],
+        output: uiSession?.output ?? [],
+        runner: {
+          type: runnerTypeFromProvider(session.provider),
+        },
+        branchName: view?.worktree?.branchName,
+        baseBranch: view?.worktree?.baseBranch,
+        worktreePath: view?.worktree?.path,
+        providerSessionId: session.providerSessionId,
+        taskId: session.taskId,
+        daemonWorktreeId: session.worktreeId,
+      } satisfies ClaudeSession;
+    });
 
-      const daemonSessions = (result.sessions ?? []).map((session: import("@codebar/contracts").Session) => {
-        const provider = session.provider === 'codex' ? 'codex' : 'claude-code';
-        return mapDaemonSessionToUiSession({
-          session,
-          taskTitle: typeof session.taskId === 'string' ? `Task ${session.taskId}` : undefined,
-          workspacePathById,
-          runnerType: provider,
-        });
-      });
-
-      if (daemonSessions.length > 0) {
-        useSessionStore.getState().mergeRecoveredSessions(daemonSessions);
-        daemonSessions.forEach((session) => {
-          void getDaemonNextAction(session.id)
-            .then((nextAction) => setNextAction(session.id, nextAction))
-            .catch(() => {});
-          void listDaemonApprovals(session.id)
-            .then((result) => {
-              const approvals = (result.requests ?? []).map((request) => ({
-                id: String(request.id ?? ''),
-                sessionId: String(request.sessionId ?? session.id),
-                taskId: String(request.taskId ?? ''),
-                actionType: String(request.actionType ?? ''),
-                title: String(request.title ?? ''),
-                description: String(request.description ?? ''),
-                status: String(request.status ?? ''),
-              }));
-              setApprovals(session.id, approvals);
-            })
-            .catch(() => {});
-          void getDaemonDiagnostics(session.id, session.taskId)
-            .then((diagnostics) => setDiagnostics(session.id, diagnostics))
-            .catch(() => {});
-        });
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [setApprovals, setDiagnostics, setNextAction]);
+    useSessionStore.getState().mergeRecoveredSessions(bridgedSessions);
+  }, [daemon.state.sessionsById, daemonSessionViewsById]);
 
   // ── 监听 Rust 侧事件 ──────────────────────────────────────
   useEffect(() => {
@@ -830,9 +841,7 @@ export default function App() {
       "runner-done",
       ({ payload }) => {
         if (payload.error) {
-          updateSession(payload.session_id, { status: "error", currentTask: payload.error });
-        } else {
-          updateSession(payload.session_id, { status: "done", currentTask: "已完成" });
+          void refreshSessionViews(payload.session_id).catch(() => {});
         }
         refreshSessionDiff(payload.session_id);
       }
@@ -842,10 +851,14 @@ export default function App() {
     const u4 = listen<{ session_id: string; status: string; task: string }>(
       "claude-status",
       ({ payload }) => {
-        updateSession(payload.session_id, {
-          status: payload.status as Parameters<typeof updateSession>[1]["status"],
-          currentTask: payload.task,
-        });
+        if (payload.status === "running") {
+          markWorkflowExecutionRunning(payload.session_id);
+        } else if (payload.status === "waiting") {
+          markWorkflowExecutionWaiting(payload.session_id);
+        } else if (payload.status === "error") {
+          markWorkflowExecutionError(payload.session_id);
+        }
+        void refreshSessionViews(payload.session_id).catch(() => {});
       }
     );
 
@@ -853,15 +866,16 @@ export default function App() {
     const u5 = listen<{ session_id: string; files: DiffFile[] }>(
       "diff-update",
       ({ payload }) => {
-        setDiffFiles(payload.session_id, payload.files);
-        setScmSnapshot(payload.session_id, payload.files);
+        const filteredFiles = filterDevHelperDiffFiles(payload.files);
+        setDiffFiles(payload.session_id, filteredFiles);
+        setScmSnapshot(payload.session_id, filteredFiles);
       }
     );
 
     const u5b = listen<{ session_id: string; groups: import("./store/scmStore").ScmStatusGroups }>(
       "scm-status-update",
       ({ payload }) => {
-        setScmStatus(payload.session_id, payload.groups);
+        setScmStatus(payload.session_id, filterDevHelperScmGroups(payload.groups));
       }
     );
 
@@ -898,18 +912,15 @@ export default function App() {
       }
     );
 
-    // PTY 退出：将 running/waiting/suspended 状态的 session 标记为 done
+    // PTY 退出：触发 daemon 刷新并清理 workflow execution intent
     // SessionPanel 关闭后不再常驻，此处补全全局兜底监听
     const u6 = listen<{ session_id: string }>(
       "pty-exit",
       ({ payload }) => {
         // 延迟 1.2s 与 SessionPanel 内的逻辑保持一致
         setTimeout(() => {
-          const s = useSessionStore.getState().sessions.find((x) => x.id === payload.session_id);
-          if (s && (s.status === "running" || s.status === "waiting" || s.status === "suspended")) {
-            updateSession(payload.session_id, { status: "done" });
-          }
           clearWorkflowExecutionIntent(payload.session_id);
+          void refreshSessionViews(payload.session_id).catch(() => {});
           syncWorkflowFromSession(payload.session_id);
         }, 1200);
       }
@@ -927,10 +938,8 @@ export default function App() {
         if (existing && existing !== payload.provider_session_id) {
           return;
         }
-        updateSession(payload.session_id, {
-          providerSessionId: payload.provider_session_id,
-        });
         queueMicrotask(() => syncWorkflowFromSession(payload.session_id));
+        void refreshSessionViews(payload.session_id).catch(() => {});
         void invoke("save_recovery_binding", {
           input: {
             sessionId: payload.session_id,
@@ -943,120 +952,11 @@ export default function App() {
       }
     );
 
-    const u8 = listen<Record<string, unknown>>(
-      "daemon-event",
-      ({ payload }) => {
-        const eventType = typeof payload.eventType === "string" ? payload.eventType : "";
-        const entityId = typeof payload.entityId === "string" ? payload.entityId : "";
-        const eventPayload = payload.payload as Record<string, unknown> | undefined;
-        if (!eventType || !entityId || !eventPayload) return;
-
-        if (eventType === "session.provider_bound") {
-          const providerSessionId = typeof eventPayload.providerSessionId === "string"
-            ? eventPayload.providerSessionId
-            : undefined;
-          if (providerSessionId) {
-            updateSession(entityId, { providerSessionId });
-          }
-        }
-
-        if (eventType === "session.launched" || eventType === "session.resumed") {
-          updateSession(entityId, { status: "running" });
-        }
-
-        if (eventType === "session.input_sent" || eventType === "session.runtime_running") {
-          updateSession(entityId, { status: "running" });
-        }
-
-        if (eventType === "session.runtime_waiting") {
-          updateSession(entityId, { status: "waiting" });
-        }
-
-        if (eventType === "session.runtime_error") {
-          const message = typeof eventPayload.message === "string" ? eventPayload.message : undefined;
-          updateSession(entityId, { status: "error", currentTask: message });
-        }
-
-        if (eventType === "session.runtime_exit") {
-          updateSession(entityId, { status: "done" });
-        }
-
-        if (eventType === "approval.resolved") {
-          const approval = eventPayload.approval as Record<string, unknown> | undefined;
-          const approvalSessionId = typeof approval?.sessionId === "string" ? approval.sessionId : undefined;
-          const execution = eventPayload.execution as Record<string, unknown> | undefined;
-          const executionMessage = typeof execution?.message === "string" ? execution.message : undefined;
-
-          if (approvalSessionId) {
-            const previousDiagnostics = diagnosticsBySessionId[approvalSessionId];
-            if (executionMessage) {
-              setDiagnostics(approvalSessionId, {
-                summary: executionMessage,
-                files: previousDiagnostics?.files ?? [],
-                lastExecutionMessage: executionMessage,
-                recoveryDetail: previousDiagnostics?.recoveryDetail,
-              });
-            }
-
-            const refreshedSession = useSessionStore.getState().sessions.find((session) => session.id === approvalSessionId);
-            if (refreshedSession) {
-              refreshSessionDiff(approvalSessionId);
-              void getDaemonNextAction(approvalSessionId)
-                .then((nextAction) => setNextAction(approvalSessionId, nextAction))
-                .catch(() => {});
-              void getDaemonDiagnostics(approvalSessionId, refreshedSession.taskId)
-                .then((diagnostics) => setDiagnostics(approvalSessionId, {
-                  ...diagnostics,
-                  lastExecutionMessage: executionMessage ?? previousDiagnostics?.lastExecutionMessage,
-                  recoveryDetail: diagnostics.summary.includes("recovery:")
-                    ? diagnostics.summary
-                    : previousDiagnostics?.recoveryDetail,
-                }))
-                .catch(() => {});
-              void listDaemonApprovals(approvalSessionId)
-                .then((result) => setApprovals(
-                  approvalSessionId,
-                  (result.requests ?? []).map((request) => ({
-                    id: String(request.id ?? ""),
-                    sessionId: String(request.sessionId ?? approvalSessionId),
-                    taskId: String(request.taskId ?? ""),
-                    actionType: String(request.actionType ?? ""),
-                    title: String(request.title ?? ""),
-                    description: String(request.description ?? ""),
-                    status: String(request.status ?? ""),
-                  })),
-                ))
-                .catch(() => {});
-            }
-          }
-        }
-
-        if (eventType === "session.stopped") {
-          updateSession(entityId, { status: "error" });
-        }
-
-        if (eventType === "session.recovered") {
-          const recovery = eventPayload.recovery as Record<string, unknown> | undefined;
-          const recoveryReason = typeof recovery?.reason === "string" ? recovery.reason : "recovered";
-          updateSession(entityId, { status: "suspended", currentTask: `Recovery: ${recoveryReason}` });
-          const recoveredSession = useSessionStore.getState().sessions.find((session) => session.id === entityId);
-          if (recoveredSession) {
-            void getDaemonDiagnostics(entityId, recoveredSession.taskId)
-              .then((diagnostics) => setDiagnostics(entityId, {
-                ...diagnostics,
-                recoveryDetail: diagnostics.summary,
-              }))
-              .catch(() => {});
-          }
-        }
-      },
-    );
-
     const u7b = listen<{ session_id: string }>(
       "pty-running",
       ({ payload }) => {
-        updateSession(payload.session_id, { status: "running" });
         markWorkflowExecutionRunning(payload.session_id);
+        void refreshSessionViews(payload.session_id).catch(() => {});
         queueMicrotask(() => syncWorkflowFromSession(payload.session_id));
       }
     );
@@ -1064,8 +964,8 @@ export default function App() {
     const u7c = listen<{ session_id: string }>(
       "pty-waiting",
       ({ payload }) => {
-        updateSession(payload.session_id, { status: "waiting" });
         markWorkflowExecutionWaiting(payload.session_id);
+        void refreshSessionViews(payload.session_id).catch(() => {});
         queueMicrotask(() => syncWorkflowFromSession(payload.session_id));
       }
     );
@@ -1073,28 +973,22 @@ export default function App() {
     const u7d = listen<{ session_id: string; error: string }>(
       "pty-error",
       ({ payload }) => {
-        updateSession(payload.session_id, { status: "error", currentTask: payload.error });
         markWorkflowExecutionError(payload.session_id);
+        void refreshSessionViews(payload.session_id).catch(() => {});
         queueMicrotask(() => syncWorkflowFromSession(payload.session_id));
       }
     );
 
     return () => {
-      [u1, u2, u3, u4, u5, u5b, u5c, u5d, u6, u7, u8, u7b, u7c, u7d].forEach((p) => p.then((f) => f()).catch(() => {}));
+      [u1, u2, u3, u4, u5, u5b, u5c, u5d, u6, u7, u7b, u7c, u7d].forEach((p) => p.then((f) => f()).catch(() => {}));
     };
-  }, [appendOutput, updateSession, setDiffFiles, setScmSnapshot, setScmStatus, setScmDiffOverride, refreshSessionDiff, syncWorkflowFromSession, markWorkflowExecutionRunning, markWorkflowExecutionWaiting, markWorkflowExecutionError]);
+  }, [appendOutput, refreshSessionViews, setDiffFiles, setScmSnapshot, setScmStatus, setScmDiffOverride, refreshSessionDiff, syncWorkflowFromSession, markWorkflowExecutionRunning, markWorkflowExecutionWaiting, markWorkflowExecutionError, clearWorkflowExecutionIntent]);
 
   // ── 会话切换时主动拉一次 Diff（覆盖非 running / 外部改动场景）──
   useEffect(() => {
     if (!activeSession?.id) return;
     refreshSessionDiff(activeSession.id);
   }, [activeSession?.id, refreshSessionDiff]);
-
-  useEffect(() => {
-    if (sidebarSection === "sessions" || sidebarSection === "workflow") return;
-    if (workbenchSession) return;
-    useWorkbenchStore.getState().resetWorkbenchMode();
-  }, [sidebarSection, workbenchSession]);
 
   const splitSidebarWidth = settings.splitPaneSidebarWidth;
   const splitWidgetPanelWidth = settings.splitWidgetPanelWidth;
@@ -1175,6 +1069,23 @@ export default function App() {
       }} />
     </div>
   );
+
+  if (daemon.state.error && !daemon.state.bootstrapped) {
+    return (
+      <div style={{
+        width: "100vw",
+        height: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        color: "var(--ci-deleted-text)",
+        fontSize: 12,
+        background: "var(--ci-bg)",
+      }}>
+        {daemon.state.error}
+      </div>
+    );
+  }
 
   return (
     <>
@@ -1443,5 +1354,13 @@ export default function App() {
         </motion.div>
       </div>
     </>
+  );
+}
+
+export default function App() {
+  return (
+    <DaemonDataProvider>
+      <AppShell />
+    </DaemonDataProvider>
   );
 }

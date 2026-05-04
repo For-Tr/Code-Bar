@@ -1,18 +1,25 @@
 use base64::Engine;
 use codebar_contracts::errors::{ErrorCode, ErrorEnvelope};
 use daemon_core::domain::{DomainResult, EventEntityType, EventEnvelope, EventSource};
-use daemon_core::ports::{Clock, EventRepository, IdGenerator, RuntimeHost, RuntimeLaunchResult, RuntimeLaunchSpec};
+use daemon_core::ports::{
+    Clock, EventRepository, IdGenerator, LaunchSpec, ProcessEvent, ProcessHandle, RuntimeHost,
+};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
+
+use crate::cwd::resolve_cwd;
+use crate::env::build_launch_env;
+use crate::hooks::{build_bootstrap_prompt, build_user_prompt};
+use crate::supervisor::Supervisor;
 
 pub struct PortablePtyRuntimeHost {
     writers: Arc<Mutex<HashMap<String, Box<dyn Write + Send>>>>,
     killers: Arc<Mutex<HashMap<String, Box<dyn portable_pty::Child + Send>>>>,
     masters: Arc<Mutex<HashMap<String, Box<dyn portable_pty::MasterPty + Send>>>>,
-    simulated_sessions: Arc<Mutex<HashSet<String>>>,
+    supervisor: Supervisor,
     ids: Arc<dyn IdGenerator>,
     clock: Arc<dyn Clock>,
     events: Arc<dyn EventRepository>,
@@ -28,15 +35,19 @@ impl PortablePtyRuntimeHost {
             writers: Arc::new(Mutex::new(HashMap::new())),
             killers: Arc::new(Mutex::new(HashMap::new())),
             masters: Arc::new(Mutex::new(HashMap::new())),
-            simulated_sessions: Arc::new(Mutex::new(HashSet::new())),
+            supervisor: Supervisor::default(),
             ids,
             clock,
             events,
         }
     }
 
-
-    fn emit_session_event(&self, session_id: &str, event_type: &str, payload: HashMap<String, Value>) {
+    fn emit_session_event(
+        &self,
+        session_id: &str,
+        event_type: &str,
+        payload: HashMap<String, Value>,
+    ) {
         let event = EventEnvelope::new(
             self.ids.next_event_id(),
             EventEntityType::Session,
@@ -56,10 +67,10 @@ impl PortablePtyRuntimeHost {
         }
         self.writers.lock().unwrap().remove(session_id);
         self.masters.lock().unwrap().remove(session_id);
-        self.simulated_sessions.lock().unwrap().remove(session_id);
+        self.supervisor.clear(session_id);
     }
 
-    fn spawn_runtime(&self, spec: RuntimeLaunchSpec) -> DomainResult<RuntimeLaunchResult> {
+    fn spawn_runtime(&self, spec: LaunchSpec) -> DomainResult<ProcessHandle> {
         self.stop_existing_session(&spec.session_id);
 
         let pty_system = native_pty_system();
@@ -70,13 +81,10 @@ impl PortablePtyRuntimeHost {
             pixel_height: 0,
         }) {
             Ok(pair) => pair,
-            Err(_error) => {
-                self.simulated_sessions.lock().unwrap().insert(spec.session_id.clone());
-                return Ok(RuntimeLaunchResult {
-                    launcher_type: spec.launcher_type,
-                    command: spec.command,
-                    args: spec.args,
-                    cwd: spec.cwd,
+            Err(_) => {
+                self.supervisor.mark_simulated(&spec.session_id);
+                return Ok(ProcessHandle {
+                    handle_id: spec.session_id.clone(),
                     pid: None,
                 });
             }
@@ -86,19 +94,37 @@ impl PortablePtyRuntimeHost {
         for arg in &spec.args {
             cmd.arg(arg);
         }
-        cmd.cwd(&spec.cwd);
-        cmd.env("TERM", "xterm-256color");
-        cmd.env("COLORTERM", "truecolor");
+        if let Some(prompt) = build_user_prompt(&spec) {
+            cmd.arg(prompt);
+        }
+
+        cmd.cwd(&resolve_cwd(&spec));
+        for (key, value) in build_launch_env(&spec) {
+            cmd.env(key, value);
+        }
+
+        if let Some(prompt) = build_bootstrap_prompt(&spec) {
+            cmd.env("CODEBAR_BOOTSTRAP_PROMPT", prompt);
+        }
+
+        if let Some(provider_session_id) = &spec.provider_session_id {
+            cmd.env("CODEBAR_PROVIDER_SESSION_ID", provider_session_id);
+        }
+        if let Some(bridge_command) = &spec.mcp_bridge_command {
+            cmd.env("CODEBAR_MCP_BRIDGE_COMMAND", bridge_command);
+        }
+        if let Some(bridge_args) = &spec.mcp_bridge_args {
+            if let Ok(encoded) = serde_json::to_string(bridge_args) {
+                cmd.env("CODEBAR_MCP_BRIDGE_ARGS_JSON", encoded);
+            }
+        }
 
         let child = match pair.slave.spawn_command(cmd) {
             Ok(child) => child,
             Err(_) => {
-                self.simulated_sessions.lock().unwrap().insert(spec.session_id.clone());
-                return Ok(RuntimeLaunchResult {
-                    launcher_type: spec.launcher_type,
-                    command: spec.command,
-                    args: spec.args,
-                    cwd: spec.cwd,
+                self.supervisor.mark_simulated(&spec.session_id);
+                return Ok(ProcessHandle {
+                    handle_id: spec.session_id.clone(),
                     pid: None,
                 });
             }
@@ -113,24 +139,24 @@ impl PortablePtyRuntimeHost {
             .take_writer()
             .map_err(|error| ErrorEnvelope::new(ErrorCode::Internal, error.to_string(), true))?;
 
+        let session_id = spec.session_id.clone();
         self.writers
             .lock()
             .unwrap()
-            .insert(spec.session_id.clone(), writer);
+            .insert(session_id.clone(), writer);
         self.killers
             .lock()
             .unwrap()
-            .insert(spec.session_id.clone(), child);
+            .insert(session_id.clone(), child);
         self.masters
             .lock()
             .unwrap()
-            .insert(spec.session_id.clone(), pair.master);
+            .insert(session_id.clone(), pair.master);
 
-        let session_id = spec.session_id.clone();
         let writers = self.writers.clone();
         let killers = self.killers.clone();
         let masters = self.masters.clone();
-        let simulated = self.simulated_sessions.clone();
+        let supervisor_sessions = self.supervisor.simulated_sessions();
         let ids = self.ids.clone();
         let clock = self.clock.clone();
         let events = self.events.clone();
@@ -152,7 +178,10 @@ impl PortablePtyRuntimeHost {
                             &session_id,
                             "pty-data",
                             HashMap::from([
-                                (String::from("session_id"), Value::String(session_id.clone())),
+                                (
+                                    String::from("session_id"),
+                                    Value::String(session_id.clone()),
+                                ),
                                 (String::from("data"), Value::String(b64)),
                             ]),
                         );
@@ -170,14 +199,21 @@ impl PortablePtyRuntimeHost {
                         if new_status != 0 && new_status != last_status {
                             last_status = new_status;
                             stripper.clear();
-                            let event_type = if new_status == 2 { "pty-waiting" } else { "pty-running" };
+                            let event_type = if new_status == 2 {
+                                "pty-waiting"
+                            } else {
+                                "pty-running"
+                            };
                             publish_runtime_event(
                                 &*ids,
                                 &*clock,
                                 &*events,
                                 &session_id,
                                 event_type,
-                                HashMap::from([(String::from("session_id"), Value::String(session_id.clone()))]),
+                                HashMap::from([(
+                                    String::from("session_id"),
+                                    Value::String(session_id.clone()),
+                                )]),
                             );
                         }
                     }
@@ -187,46 +223,42 @@ impl PortablePtyRuntimeHost {
             writers.lock().unwrap().remove(&session_id);
             masters.lock().unwrap().remove(&session_id);
             killers.lock().unwrap().remove(&session_id);
-            simulated.lock().unwrap().remove(&session_id);
+            supervisor_sessions.lock().unwrap().remove(&session_id);
             publish_runtime_event(
                 &*ids,
                 &*clock,
                 &*events,
                 &session_id,
                 "pty-exit",
-                HashMap::from([(String::from("session_id"), Value::String(session_id.clone()))]),
+                HashMap::from([(
+                    String::from("session_id"),
+                    Value::String(session_id.clone()),
+                )]),
             );
         });
 
-        Ok(RuntimeLaunchResult {
-            launcher_type: spec.launcher_type,
-            command: spec.command,
-            args: spec.args,
-            cwd: spec.cwd,
+        Ok(ProcessHandle {
+            handle_id: spec.session_id,
             pid: None,
         })
     }
 }
 
 impl RuntimeHost for PortablePtyRuntimeHost {
-    fn launch(&self, spec: RuntimeLaunchSpec) -> DomainResult<RuntimeLaunchResult> {
+    fn launch(&self, spec: LaunchSpec) -> DomainResult<ProcessHandle> {
         self.spawn_runtime(spec)
     }
 
-    fn resume(&self, spec: RuntimeLaunchSpec) -> DomainResult<RuntimeLaunchResult> {
-        self.spawn_runtime(spec)
-    }
-
-    fn send_input(&self, session_id: &str, text: &str) -> DomainResult<()> {
-        if self.simulated_sessions.lock().unwrap().contains(session_id) {
+    fn send_input(&self, handle_id: &str, text: &str) -> DomainResult<()> {
+        if self.supervisor.is_simulated(handle_id) {
             return Ok(());
         }
 
         let mut writers = self.writers.lock().unwrap();
-        let writer = writers.get_mut(session_id).ok_or_else(|| {
+        let writer = writers.get_mut(handle_id).ok_or_else(|| {
             ErrorEnvelope::new(
                 ErrorCode::Internal,
-                format!("session {session_id} is not running"),
+                format!("session {handle_id} is not running"),
                 false,
             )
         })?;
@@ -241,19 +273,21 @@ impl RuntimeHost for PortablePtyRuntimeHost {
             .map_err(|error| ErrorEnvelope::new(ErrorCode::Internal, error.to_string(), true))
     }
 
-    fn write_base64(&self, session_id: &str, data: &str) -> DomainResult<()> {
-        if self.simulated_sessions.lock().unwrap().contains(session_id) {
+    fn write_base64(&self, handle_id: &str, data: &str) -> DomainResult<()> {
+        if self.supervisor.is_simulated(handle_id) {
             return Ok(());
         }
 
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(data)
-            .map_err(|error| ErrorEnvelope::new(ErrorCode::InvalidArgument, error.to_string(), false))?;
+            .map_err(|error| {
+                ErrorEnvelope::new(ErrorCode::InvalidArgument, error.to_string(), false)
+            })?;
         let mut writers = self.writers.lock().unwrap();
-        let writer = writers.get_mut(session_id).ok_or_else(|| {
+        let writer = writers.get_mut(handle_id).ok_or_else(|| {
             ErrorEnvelope::new(
                 ErrorCode::Internal,
-                format!("session {session_id} is not running"),
+                format!("session {handle_id} is not running"),
                 false,
             )
         })?;
@@ -262,16 +296,16 @@ impl RuntimeHost for PortablePtyRuntimeHost {
             .map_err(|error| ErrorEnvelope::new(ErrorCode::Internal, error.to_string(), true))
     }
 
-    fn resize(&self, session_id: &str, cols: u16, rows: u16) -> DomainResult<()> {
-        if self.simulated_sessions.lock().unwrap().contains(session_id) {
+    fn resize(&self, handle_id: &str, cols: u16, rows: u16) -> DomainResult<()> {
+        if self.supervisor.is_simulated(handle_id) {
             return Ok(());
         }
 
         let masters = self.masters.lock().unwrap();
-        let master = masters.get(session_id).ok_or_else(|| {
+        let master = masters.get(handle_id).ok_or_else(|| {
             ErrorEnvelope::new(
                 ErrorCode::Internal,
-                format!("session {session_id} is not running"),
+                format!("session {handle_id} is not running"),
                 false,
             )
         })?;
@@ -285,19 +319,26 @@ impl RuntimeHost for PortablePtyRuntimeHost {
             .map_err(|error| ErrorEnvelope::new(ErrorCode::Internal, error.to_string(), true))
     }
 
-    fn stop(&self, session_id: &str, _reason: Option<&str>) -> DomainResult<()> {
-        self.stop_existing_session(session_id);
+    fn stop(&self, handle_id: &str, _reason: Option<&str>) -> DomainResult<()> {
+        self.stop_existing_session(handle_id);
         self.emit_session_event(
-            session_id,
+            handle_id,
             "pty-exit",
-            HashMap::from([(String::from("session_id"), Value::String(session_id.to_string()))]),
+            HashMap::from([(
+                String::from("session_id"),
+                Value::String(handle_id.to_string()),
+            )]),
         );
         Ok(())
     }
 
-    fn is_session_alive(&self, session_id: &str) -> bool {
-        self.killers.lock().unwrap().contains_key(session_id)
-            || self.simulated_sessions.lock().unwrap().contains(session_id)
+    fn poll_events(&self, _handle_id: &str) -> DomainResult<Vec<ProcessEvent>> {
+        Ok(Vec::new())
+    }
+
+    fn is_handle_alive(&self, handle_id: &str) -> bool {
+        self.killers.lock().unwrap().contains_key(handle_id)
+            || self.supervisor.is_simulated(handle_id)
     }
 }
 

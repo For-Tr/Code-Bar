@@ -1,9 +1,18 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { Session as DaemonSession } from "@codebar/contracts";
 import { useAppI18n } from "../i18n";
+import { useDaemonData } from "../daemon/DaemonDataProvider";
 import { useSessionStore } from "../store/sessionStore";
 import { useSettingsStore, type RunnerType } from "../store/settingsStore";
+import {
+  deriveCreatePageFlags,
+  deriveRuntimeSurfaceState,
+  deriveSessionBridgeState,
+  deriveSubmittedQueryState,
+  resolveSubmitAction,
+} from "./createPageDaemonState";
 import {
   buildRunnerContextEnv,
   checkRunnerAvailability,
@@ -11,14 +20,15 @@ import {
   getRunnerCliCommand,
   getRunnerInstallCommand,
   hasNativeResumeBinding,
-  switchRunnerForSession,
 } from "../services/runnerCommands";
 import {
+  bootstrapDaemonSession,
   launchDaemonSession,
   recordDaemonRuntimeLifecycle,
   resumeDaemonSession,
   sendDaemonSessionInput,
-  stopDaemonSession,
+  updateDaemonSession,
+  updateDaemonTask,
 } from "../services/daemonCommands";
 import { useWorkflowExecutionStore } from "../store/workflowExecutionStore";
 
@@ -30,14 +40,14 @@ export function useSessionRunnerController({
   isOpen: boolean;
 }) {
   const { t } = useAppI18n();
+  const daemon = useDaemonData();
   const isWindows = navigator.userAgent.toLowerCase().includes("windows");
   const session = useSessionStore((s) => s.sessions.find((x) => x.id === sessionId));
   const worktreeReady = useSessionStore((s) => s.worktreeReadyIds.has(sessionId));
-  const { updateSession } = useSessionStore();
   const pendingExecutionIntent = useWorkflowExecutionStore((s) => s.pendingIntentBySessionId[sessionId] ?? null);
   const beginWorkflowExecutionDispatch = useWorkflowExecutionStore((s) => s.beginDispatch);
   const markWorkflowExecutionSent = useWorkflowExecutionStore((s) => s.markSent);
-  const { settings } = useSettingsStore();
+  const { settings, patchRunner } = useSettingsStore();
 
   const [pendingQuery, setPendingQuery] = useState("");
   const [querySent, setQuerySent] = useState(() => {
@@ -56,19 +66,39 @@ export function useSessionRunnerController({
   const [cliAvailable, setCliAvailable] = useState<boolean | null>(null);
 
   const ptyReadyRef = useRef(false);
+  const launchAttemptRef = useRef(false);
   const lastQuerySentAtRef = useRef(0);
   const sessionIdRef = useRef(sessionId);
   sessionIdRef.current = sessionId;
   const pendingQueryRef = useRef<string | null>(null);
   const pendingQueryTimerRef = useRef<number | null>(null);
 
-  const runner = session ? session.runner : settings.runner;
+  const currentEntity = session;
+  const daemonSession = (session ? daemon.state.sessionsById[session.id] : null) as DaemonSession | null;
+  const sessionLifecycleState = daemonSession?.state ?? null;
+  const runner = currentEntity ? currentEntity.runner : settings.runner;
   const supportsPromptLaunch = runner.type === "claude-code" || runner.type === "codex";
+  const canUseRuntime = !("__TAURI_INTERNALS__" in window) || !!session?.taskId;
+   const daemonFlags = deriveCreatePageFlags({
+    daemonState: sessionLifecycleState,
+    providerSessionId: session?.providerSessionId,
+    querySent,
+    uiStatus: session?.status ?? "idle",
+  });
+  const canSwitchRunner = daemonFlags.canSwitchRunner;
+  const shouldShowComposer = daemonFlags.shouldShowComposer;
+  const waitingForPtyLaunch = daemonFlags.waitingForPtyLaunch;
   const boundResumeSessionId = supportsPromptLaunch ? (session?.providerSessionId?.trim() ?? "") : "";
   const resumeSessionId = supportsPromptLaunch
     ? (ptyEverActive ? launchResumeSessionId : boundResumeSessionId)
     : "";
   const isResumeLaunch = resumeSessionId.length > 0;
+  const runtimeSurfaceState = deriveRuntimeSurfaceState({
+    runtimeBridgeActive: ptyEverActive,
+    canUseRuntime,
+    waitingForPtyLaunch,
+  });
+  const showRuntimeSurface = runtimeSurfaceState.visible;
   const runnerBadge = getRunnerBadge(runner.type);
   const installCmd = getRunnerInstallCommand(runner.type);
 
@@ -118,32 +148,81 @@ export function useSessionRunnerController({
 
   const handlePtyReady = useCallback(() => {
     ptyReadyRef.current = true;
-    if (sessionIdRef.current) {
-      const session = useSessionStore.getState().sessions.find((item) => item.id === sessionIdRef.current);
-      if (session?.providerSessionId?.trim()) {
-        void resumeDaemonSession(sessionIdRef.current).catch(() => {});
-      } else {
-        void launchDaemonSession(sessionIdRef.current).catch(() => {});
+    if (launchAttemptRef.current || !sessionIdRef.current) return;
+    launchAttemptRef.current = true;
+    const currentSessionId = sessionIdRef.current;
+    const currentSession = useSessionStore.getState().sessions.find((item) => item.id === currentSessionId);
+
+    if (!("__TAURI_INTERNALS__" in window) || !currentSession?.taskId) {
+      if (isWindows) {
+        clearPendingQueryTimer();
+        pendingQueryTimerRef.current = window.setTimeout(() => {
+          pendingQueryTimerRef.current = null;
+          flushPendingQuery(0);
+        }, 4000);
+        return;
       }
-    }
-    setLaunchPrompt(null);
-    if (isWindows) {
-      clearPendingQueryTimer();
-      pendingQueryTimerRef.current = window.setTimeout(() => {
-        pendingQueryTimerRef.current = null;
-        flushPendingQuery(0);
-      }, 4000);
+      flushPendingQuery(200);
       return;
     }
-    flushPendingQuery(200);
-  }, [clearPendingQueryTimer, flushPendingQuery, isWindows]);
+
+    const currentDaemonSession = daemon.state.sessionsById[currentSessionId] as DaemonSession | null | undefined;
+    const submitAction = resolveSubmitAction({
+      daemonState: currentDaemonSession?.state ?? null,
+      providerSessionId: currentSession.providerSessionId,
+      uiStatus: currentSession.status,
+    });
+
+    const launch = submitAction === "bootstrap_then_launch"
+      ? bootstrapDaemonSession({ sessionId: currentSessionId, strategy: "new_managed" }).then(() => launchDaemonSession(currentSessionId))
+      : submitAction === "launch"
+      ? launchDaemonSession(currentSessionId)
+      : submitAction === "resume"
+      ? resumeDaemonSession(currentSessionId)
+      : null;
+
+    if (!launch) {
+      launchAttemptRef.current = false;
+      if (isWindows) {
+        clearPendingQueryTimer();
+        pendingQueryTimerRef.current = window.setTimeout(() => {
+          pendingQueryTimerRef.current = null;
+          flushPendingQuery(0);
+        }, 4000);
+        return;
+      }
+      flushPendingQuery(200);
+      return;
+    }
+
+    void launch
+      .then(() => {
+        if (isWindows) {
+          clearPendingQueryTimer();
+          pendingQueryTimerRef.current = window.setTimeout(() => {
+            pendingQueryTimerRef.current = null;
+            flushPendingQuery(0);
+          }, 4000);
+          return;
+        }
+        flushPendingQuery(200);
+      })
+      .catch((error) => {
+        launchAttemptRef.current = false;
+        ptyReadyRef.current = false;
+        setQuerySent(false);
+        setLaunchPrompt(null);
+        clearPendingQueryTimer();
+        pendingQueryRef.current = null;
+        void recordDaemonRuntimeLifecycle(currentSessionId, "error", error instanceof Error ? error.message : String(error)).catch(() => {});
+      });
+  }, [clearPendingQueryTimer, daemon.state.sessionsById, flushPendingQuery, isWindows, querySent]);
 
   const handlePtyWaiting = useCallback(() => {
     const sid = sessionIdRef.current;
     const s = useSessionStore.getState().sessions.find((x) => x.id === sid);
     flushPendingQuery(isWindows ? 120 : 0);
     if (s?.status === "waiting") return;
-    updateSession(sid, { status: "waiting" });
     void recordDaemonRuntimeLifecycle(sid, "waiting").catch(() => {});
     const taskName = s?.currentTask?.slice(0, 40) || t("session.genericTask");
     invoke("send_notification", {
@@ -151,19 +230,23 @@ export function useSessionRunnerController({
       body: t("session.waitingNextStepNotification", { task: taskName }),
       sessionId: sid,
     }).catch(() => {});
-  }, [flushPendingQuery, isWindows, updateSession, t]);
+  }, [flushPendingQuery, isWindows, t]);
 
   const handlePtyRunning = useCallback(() => {
     const sid = sessionIdRef.current;
-    updateSession(sid, { status: "running" });
     void recordDaemonRuntimeLifecycle(sid, "running").catch(() => {});
-  }, [updateSession]);
+  }, []);
 
   const handlePtyError = useCallback((error: string) => {
     const sid = sessionIdRef.current;
-    updateSession(sid, { status: "error", currentTask: error });
+    launchAttemptRef.current = false;
+    ptyReadyRef.current = false;
+    setQuerySent(false);
+    setLaunchPrompt(null);
+    clearPendingQueryTimer();
+    pendingQueryRef.current = null;
     void recordDaemonRuntimeLifecycle(sid, "error", error).catch(() => {});
-  }, [updateSession]);
+  }, [clearPendingQueryTimer]);
 
   const cliCommand = getRunnerCliCommand(runner);
 
@@ -184,21 +267,56 @@ export function useSessionRunnerController({
 
   const handleSubmitQuery = useCallback((q: string) => {
     const trimmed = q.trim();
-    if (!trimmed || !session) return;
-    const title = trimmed.length > 24 ? trimmed.slice(0, 24) + "…" : trimmed;
+    const liveSession = useSessionStore.getState().sessions.find((item) => item.id === sessionIdRef.current);
+    if (!trimmed || !liveSession) return;
+    const liveDaemonSession = daemon.state.sessionsById[liveSession.id] as DaemonSession | null | undefined;
+    const submitAction = resolveSubmitAction({
+      daemonState: liveDaemonSession?.state ?? null,
+      providerSessionId: liveSession.providerSessionId,
+      uiStatus: liveSession.status,
+    });
     lastQuerySentAtRef.current = Date.now();
-    updateSession(session.id, { name: title, currentTask: trimmed, status: "running" });
+    const submittedQuery = deriveSubmittedQueryState(trimmed, submitAction);
+    pendingQueryRef.current = submittedQuery.transportQuery;
+    setPendingQuery(submittedQuery.composerDraft);
     setQuerySent(true);
 
-    if (ptyReadyRef.current) {
-      pendingQueryRef.current = trimmed;
-      flushPendingQuery(isWindows ? 120 : 100);
-    } else if (supportsPromptLaunch && !ptyEverActive) {
-      setLaunchPrompt(trimmed);
-    } else {
-      pendingQueryRef.current = trimmed;
+    const nextTitle = liveSession.name?.trim() || trimmed.slice(0, 48);
+
+    if (liveSession.taskId) {
+      void updateDaemonTask({
+        taskId: liveSession.taskId,
+        title: nextTitle,
+        prompt: trimmed,
+      }).catch(() => {});
+
+      if (submitAction === "send_input") {
+        if (ptyReadyRef.current) {
+          flushPendingQuery(isWindows ? 120 : 100);
+        }
+        return;
+      }
+
+      if (supportsPromptLaunch && !ptyEverActive) {
+        setLaunchPrompt(trimmed);
+      }
+      setPtyEverActive(true);
+      return;
     }
-  }, [session, updateSession, flushPendingQuery, isWindows, ptyEverActive, supportsPromptLaunch]);
+
+    if (!("__TAURI_INTERNALS__" in window)) {
+      if (ptyReadyRef.current) {
+        flushPendingQuery(isWindows ? 120 : 100);
+      } else if (supportsPromptLaunch && !ptyEverActive) {
+        setLaunchPrompt(trimmed);
+      }
+      return;
+    }
+
+    setQuerySent(false);
+    pendingQueryRef.current = null;
+    return;
+  }, [daemon.state.sessionsById, flushPendingQuery, isWindows, ptyEverActive, supportsPromptLaunch]);
 
   const handleInstall = useCallback(() => {
     if (!installCmd) return;
@@ -208,14 +326,32 @@ export function useSessionRunnerController({
     setInstalling(true);
   }, [installCmd, sessionId]);
 
-  const handleSwitchRunner = useCallback((type: RunnerType) => {
+  const handleSwitchRunner = useCallback(async (type: RunnerType) => {
+    if (!session || !canSwitchRunner) return;
+    if (session.runner.type === type) return;
+
+    const provider = type === "codex" ? "codex" : "claude";
+    const nextRunner = useSettingsStore.getState().getRunnerConfigForType(type);
+
+    await updateDaemonSession({ sessionId: session.id, provider });
+
+    if (session.taskId) {
+      await updateDaemonTask({ taskId: session.taskId, title: session.name }).catch(() => {});
+    }
+
+    useSessionStore.getState().updateSession(session.id, {
+      runner: { ...nextRunner },
+      providerSessionId: undefined,
+    });
+    patchRunner({ type });
+    setLaunchResumeSessionId("");
     setLaunchPrompt(null);
     clearPendingQueryTimer();
     ptyReadyRef.current = false;
+    launchAttemptRef.current = false;
     pendingQueryRef.current = null;
-    void stopDaemonSession(sessionId).catch(() => {});
-    switchRunnerForSession(sessionId, type);
-  }, [clearPendingQueryTimer, sessionId]);
+    await daemon.refreshSessionViews(session.id).catch(() => {});
+  }, [canSwitchRunner, clearPendingQueryTimer, daemon, patchRunner, session]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -227,31 +363,52 @@ export function useSessionRunnerController({
 
   useEffect(() => {
     const s = useSessionStore.getState().sessions.find((x) => x.id === sessionId);
-    setQuerySent(!!s && ((s.status === "running" || s.status === "waiting" || s.status === "suspended") || hasNativeResumeBinding(s)));
-    setPendingQuery("");
-    setLaunchPrompt(null);
-    setLaunchResumeSessionId(
+    const started = !!s && ((s.status === "running" || s.status === "waiting" || s.status === "suspended") || hasNativeResumeBinding(s));
+    const persistedResumeSessionId =
       s && (s.runner.type === "claude-code" || s.runner.type === "codex")
         ? (s.providerSessionId?.trim() ?? "")
-        : ""
+        : "";
+    setQuerySent(started);
+    setLaunchResumeSessionId(persistedResumeSessionId);
+    setPtyEverActive(
+      deriveSessionBridgeState({
+        sessionStarted: started,
+        canUseRuntime,
+        worktreeReady: !!useSessionStore.getState().worktreeReadyIds.has(sessionId),
+        isResumeLaunch: persistedResumeSessionId.length > 0,
+        persistedResumeSessionId,
+      }),
     );
     clearPendingQueryTimer();
     ptyReadyRef.current = false;
-    pendingQueryRef.current = null;
-  }, [clearPendingQueryTimer, sessionId]);
+    launchAttemptRef.current = false;
+    if (!started) {
+      pendingQueryRef.current = null;
+      setLaunchPrompt(null);
+    }
+  }, [canUseRuntime, clearPendingQueryTimer, sessionId]);
 
   useEffect(() => {
-    if (isOpen && !querySent) {
+    if (isOpen && shouldShowComposer && !querySent) {
       const t = setTimeout(() => queryInputRef.current?.focus(), 350);
       return () => clearTimeout(t);
     }
-  }, [isOpen, querySent]);
+  }, [isOpen, querySent, shouldShowComposer]);
 
   useEffect(() => {
-    if (querySent && (worktreeReady || isResumeLaunch) && !ptyEverActive) {
+    if (
+      !ptyEverActive
+      && deriveSessionBridgeState({
+        sessionStarted: querySent,
+        canUseRuntime,
+        worktreeReady,
+        isResumeLaunch,
+        persistedResumeSessionId: launchResumeSessionId,
+      })
+    ) {
       setPtyEverActive(true);
     }
-  }, [querySent, worktreeReady, isResumeLaunch, ptyEverActive]);
+  }, [canUseRuntime, isResumeLaunch, launchResumeSessionId, ptyEverActive, querySent, worktreeReady]);
 
   useEffect(() => {
     const canConsumeIntent = !querySent || session?.status === "waiting";
@@ -290,13 +447,13 @@ export function useSessionRunnerController({
     const u = listen<{ session_id: string }>("pty-exit", ({ payload }) => {
       if (payload.session_id !== sessionIdRef.current) return;
       setTimeout(() => {
-        updateSession(sessionIdRef.current, { status: "done" });
+        launchAttemptRef.current = false;
         void recordDaemonRuntimeLifecycle(sessionIdRef.current, "exit").catch(() => {});
         setQuerySent(false);
       }, 1200);
     });
     return () => { void u.then((f) => f()).catch(() => {}); };
-  }, [updateSession]);
+  }, []);
 
   useEffect(() => {
     pendingQueryForInputRef.current = pendingQuery;
@@ -359,6 +516,11 @@ export function useSessionRunnerController({
     boundResumeSessionId,
     resumeSessionId,
     isResumeLaunch,
+    canSwitchRunner,
+    shouldShowComposer,
+    waitingForPtyLaunch,
+    showRuntimeSurface,
+    runtimeSurfaceActive: runtimeSurfaceState.active,
     cliCommand,
     installCmd,
     contextEnv: buildContextEnv(),

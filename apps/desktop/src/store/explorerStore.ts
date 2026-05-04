@@ -106,6 +106,10 @@ function matchesSessionDir(key: string, sessionId: string, dirs: string[]) {
   return dirs.includes(path);
 }
 
+function isDevHelperPath(path: string) {
+  return path === ".codebar-worktree-dev" || path.startsWith(".codebar-worktree-dev/")
+}
+
 function normalizePath(path: string) {
   return path.trim().replace(/^\/+|\/+$/g, "");
 }
@@ -659,9 +663,10 @@ export const useExplorerStore = create<ExplorerStore>()((set, get) => ({
 
   setDirectoryEntries: (sessionId, dir, entries) =>
     set((state) => {
+      const filteredEntries = entries.filter((entry) => !isDevHelperPath(normalizePath(entry.path)) && entry.name !== ".codebar-worktree-dev")
       const nextChildrenBySessionPath = {
         ...state.childrenBySessionPath,
-        [dirKey(sessionId, dir)]: sortEntries(entries),
+        [dirKey(sessionId, dir)]: sortEntries(filteredEntries),
       };
       const nextGraph = buildNodeGraph({
         childrenBySessionPath: nextChildrenBySessionPath,

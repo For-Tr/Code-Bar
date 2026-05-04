@@ -6,11 +6,14 @@ edition = "2021"
 [dependencies]
 daemon-core = { path = "../daemon-core" }
 codebar-contracts = { path = "../codebar-contracts" }
+runtime-host = { path = "../runtime-host" }
+storage-sqlite = { path = "../storage-sqlite" }
+provider-claude = { path = "../provider-claude" }
+provider-codex = { path = "../provider-codex" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-portable-pty = "0.8"
-base64 = "0.22"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "io-util", "sync", "time", "fs"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "io-util", "sync", "time", "fs"] }
+rusqlite = { version = "0.31", features = ["bundled"] }

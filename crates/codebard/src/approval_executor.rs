@@ -1,5 +1,7 @@
 use codebar_contracts::errors::{ErrorCode, ErrorEnvelope};
-use daemon_core::domain::{ApprovalActionType, ApprovalRequest, DomainResult, Session, Worktree, Workspace};
+use daemon_core::domain::{
+    ApprovalActionType, ApprovalRequest, DomainResult, Session, Workspace, Worktree,
+};
 use daemon_core::ports::ApprovalExecutor;
 use std::process::Command;
 
@@ -16,7 +18,13 @@ impl ApprovalExecutor for GitApprovalExecutor {
         let workdir = worktree
             .map(|worktree| worktree.path.clone())
             .or_else(|| workspace.map(|workspace| workspace.root_path.clone()))
-            .ok_or_else(|| ErrorEnvelope::new(ErrorCode::GitOperationFailed, "missing workdir context", true))?;
+            .ok_or_else(|| {
+                ErrorEnvelope::new(
+                    ErrorCode::GitOperationFailed,
+                    "missing workdir context",
+                    true,
+                )
+            })?;
 
         match request.action_type {
             ApprovalActionType::Write => {
@@ -33,7 +41,9 @@ impl ApprovalExecutor for GitApprovalExecutor {
                     .current_dir(&workdir)
                     .args(["commit", "-m", message])
                     .output()
-                    .map_err(|error| ErrorEnvelope::new(ErrorCode::GitOperationFailed, error.to_string(), true))?;
+                    .map_err(|error| {
+                        ErrorEnvelope::new(ErrorCode::GitOperationFailed, error.to_string(), true)
+                    })?;
                 if !output.status.success() {
                     return Err(ErrorEnvelope::new(
                         ErrorCode::GitOperationFailed,
@@ -60,14 +70,23 @@ impl ApprovalExecutor for GitApprovalExecutor {
                 }
                 let args: Vec<&str> = match mode {
                     "untracked" => vec!["clean", "-fd", "--", path],
-                    "staged" => vec!["restore", "--staged", "--worktree", "--source=HEAD", "--", path],
+                    "staged" => vec![
+                        "restore",
+                        "--staged",
+                        "--worktree",
+                        "--source=HEAD",
+                        "--",
+                        path,
+                    ],
                     _ => vec!["restore", "--worktree", "--", path],
                 };
                 let output = Command::new("git")
                     .current_dir(&workdir)
                     .args(args)
                     .output()
-                    .map_err(|error| ErrorEnvelope::new(ErrorCode::GitOperationFailed, error.to_string(), true))?;
+                    .map_err(|error| {
+                        ErrorEnvelope::new(ErrorCode::GitOperationFailed, error.to_string(), true)
+                    })?;
                 if !output.status.success() {
                     return Err(ErrorEnvelope::new(
                         ErrorCode::GitOperationFailed,

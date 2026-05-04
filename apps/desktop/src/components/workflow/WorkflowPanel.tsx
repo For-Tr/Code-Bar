@@ -2,13 +2,17 @@ import { useEffect, useMemo, useState } from "react";
 import type { TaskDagDocument, WorkflowLifecycle, WorkflowTaskSummary } from "@codebar/contracts";
 import type { ClaudeSession } from "../../store/sessionStore";
 import { useWorkbenchStore } from "../../store/workbenchStore";
-import type { RunnerConfig } from "../../store/settingsStore";
 import { useSessionStore } from "../../store/sessionStore";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { useWorkflowExecutionStore } from "../../store/workflowExecutionStore";
 import { useWorkflowStore, selectWorkflowNodeById } from "../../store/workflowStore";
+import { GitFreshnessBadge } from "../git/GitFreshnessBadge";
 import { WorkflowDetailSheet } from "./WorkflowDetailSheet";
 import { WorkflowGraph } from "./WorkflowGraph";
+import { WorkflowOverviewTab } from "./WorkflowOverviewTab";
+import { WorkflowActivityTab } from "./WorkflowActivityTab";
+import { WorkflowExecutionTab } from "./WorkflowExecutionTab";
+import { canRunWorkflowExecutionSetupActions, collectWorkflowExecutionSessions } from "./workflowObjectModel";
 
 function providerForSession(session: ClaudeSession | null): "claude_code" | "codex" {
   return session?.runner.type === "codex" ? "codex" : "claude_code";
@@ -39,12 +43,16 @@ function lifecycleHint(lifecycle: WorkflowLifecycle) {
 }
 
 export function WorkflowPanel({ session }: { session: ClaudeSession | null }) {
+  const workflowTab = useWorkbenchStore((s) => s.workflowTab);
+  const setWorkflowTab = useWorkbenchStore((s) => s.setWorkflowTab);
+
   const snapshotsByTaskId = useWorkflowStore((s) => s.snapshotsByTaskId);
   const eventsByTaskId = useWorkflowStore((s) => s.eventsByTaskId);
   const diagnosticsByTaskId = useWorkflowStore((s) => s.diagnosticsByTaskId);
   const selectedTaskId = useWorkflowStore((s) => s.selectedTaskId);
   const selectedSessionId = useWorkflowStore((s) => s.selectedSessionId);
   const taskIdBySessionId = useWorkflowStore((s) => s.taskIdBySessionId);
+  const taskSummariesByTaskId = useWorkflowStore((s) => s.taskSummariesByTaskId);
   const selectedNodeId = useWorkflowStore((s) => s.selectedNodeId);
   const errorByTaskId = useWorkflowStore((s) => s.errorByTaskId);
   const loadingTaskIds = useWorkflowStore((s) => s.loadingTaskIds);
@@ -70,11 +78,9 @@ export function WorkflowPanel({ session }: { session: ClaudeSession | null }) {
   const focusedWorkflowTaskId = useWorkbenchStore((s) => s.focusedWorkflowTaskId);
 
   const activeWorkspace = useWorkspaceStore((s) => s.workspaces.find((workspace) => workspace.id === s.activeWorkspaceId) ?? null);
-  const sessions = useSessionStore((s) => s.sessions);
-  const addSession = useSessionStore((s) => s.addSession);
+  const allSessions = useSessionStore((s) => s.sessions);
   const setActiveSession = useSessionStore((s) => s.setActiveSession);
   const setExpandedSession = useSessionStore((s) => s.setExpandedSession);
-  const updateSession = useSessionStore((s) => s.updateSession);
   const markWorktreeReady = useSessionStore((s) => s.markWorktreeReady);
 
   const [submittingReview, setSubmittingReview] = useState(false);
@@ -89,49 +95,75 @@ export function WorkflowPanel({ session }: { session: ClaudeSession | null }) {
     void refreshWorkflow(session.taskId, session.id);
   }, [focusedWorkflowTaskId, refreshWorkflow, selectedTaskId, session?.id, session?.taskId]);
 
+  const isTaskInActiveWorkspace = (taskId: string | null | undefined) => {
+    if (!taskId) return false;
+    const summary = taskSummariesByTaskId[taskId];
+    return !!summary && summary.workspaceId === activeWorkspace?.id;
+  };
+
   useEffect(() => {
     if (!focusedWorkflowTaskId) return;
+    if (!isTaskInActiveWorkspace(focusedWorkflowTaskId)) return;
     if (selectedTaskId === focusedWorkflowTaskId) return;
     setSelectedTask(focusedWorkflowTaskId, null);
     void refreshWorkflow(focusedWorkflowTaskId);
-  }, [focusedWorkflowTaskId, refreshWorkflow, selectedTaskId, setSelectedTask]);
+  }, [activeWorkspace?.id, focusedWorkflowTaskId, refreshWorkflow, selectedTaskId, setSelectedTask, taskSummariesByTaskId]);
 
-  const taskId = selectedTaskId ?? focusedWorkflowTaskId ?? (session ? taskIdBySessionId[session.id] ?? null : null);
+  const sessionTaskId = session ? taskIdBySessionId[session.id] ?? null : null;
+  const taskId = isTaskInActiveWorkspace(selectedTaskId)
+    ? selectedTaskId
+    : isTaskInActiveWorkspace(focusedWorkflowTaskId)
+    ? focusedWorkflowTaskId
+    : isTaskInActiveWorkspace(sessionTaskId)
+    ? sessionTaskId
+    : null;
   const document = taskId ? snapshotsByTaskId[taskId] : undefined;
   const taskSummary: WorkflowTaskSummary | undefined = undefined;
   const lifecycle = resolveLifecycle(document, taskSummary);
 
   const mappedSessionId = session && taskIdBySessionId[session.id] === taskId ? session.id : null;
   const workflowSessionId = selectedSessionId ?? document?.task.activeSessionId ?? mappedSessionId ?? null;
-  const executionState = workflowSessionId ? executionStateBySessionId[workflowSessionId] ?? null : null;
-  const activeExecutionIntent = workflowSessionId ? activeIntentBySessionId[workflowSessionId] ?? null : null;
-  const autoContinueDecision = workflowSessionId ? autoContinueDecisionBySessionId[workflowSessionId] ?? null : null;
+  const linkedWorkflowSession = workflowSessionId
+    ? allSessions.find((item) => item.id === workflowSessionId) ?? null
+    : null;
+  const workflowGitWorkdir = linkedWorkflowSession?.worktreePath ?? linkedWorkflowSession?.workdir ?? activeWorkspace?.path ?? null;
+  const workflowGitBase = linkedWorkflowSession?.baseBranch ?? null;
 
-  const documentWithExecutionState = useMemo(() => {
-    if (!document || !workflowSessionId || !executionState) return document;
+  const documentWithExecutionState = useMemo<TaskDagDocument | undefined>(() => {
+    if (!document) return document;
     return {
       ...document,
       nodes: document.nodes.map((item) => {
         if (item.kind !== "step") return item;
-        if (item.runtime?.currentSession?.id !== workflowSessionId) return item;
+        const currentSessionId = item.runtime?.currentSession?.id;
+        if (!currentSessionId) return item;
+        const currentExecutionState = executionStateBySessionId[currentSessionId];
+        if (!currentExecutionState) return item;
         return {
           ...item,
           runtime: {
             ...item.runtime,
+            recommendedNextActions: item.runtime?.recommendedNextActions ?? [],
             metadata: {
               ...(item.runtime?.metadata ?? {}),
-              executionState,
+              executionState: currentExecutionState,
             },
           },
         };
       }),
     };
-  }, [document, executionState, workflowSessionId]);
+  }, [document, executionStateBySessionId]);
 
   const node = useMemo(
     () => selectWorkflowNodeById(documentWithExecutionState, selectedNodeId),
     [documentWithExecutionState, selectedNodeId],
   );
+
+  const nodeSessionId = node?.kind === "step" ? node.runtime?.currentSession?.id ?? null : null;
+  const detailSessionId = nodeSessionId ?? workflowSessionId;
+  const executionState = detailSessionId ? executionStateBySessionId[detailSessionId] ?? null : null;
+  const activeExecutionIntent = detailSessionId ? activeIntentBySessionId[detailSessionId] ?? null : null;
+  const autoContinueDecision = detailSessionId ? autoContinueDecisionBySessionId[detailSessionId] ?? null : null;
 
   const events = taskId ? (eventsByTaskId[taskId] ?? []) : [];
   const diagnostics = taskId ? (diagnosticsByTaskId[taskId] ?? []) : [];
@@ -144,7 +176,11 @@ export function WorkflowPanel({ session }: { session: ClaudeSession | null }) {
     ? diagnostics.filter((diagnostic) => diagnostic.stepId === node.stepId || diagnostic.taskId === document?.task.id)
     : diagnostics;
 
-  const canRunNodeActions = lifecycle === "running" && !!workflowSessionId;
+  const canRunNodeActions = lifecycle === "running" && !!detailSessionId;
+  const canRunExecutionSetupActions = canRunWorkflowExecutionSetupActions(lifecycle);
+  const canAttachCurrentSession = canRunExecutionSetupActions && !!session && !!document?.capabilities.canAttachSession;
+  const canCreateSession = canRunExecutionSetupActions && !!document?.capabilities.canCreateSession;
+  const canStartWorkflow = canRunExecutionSetupActions && !!document?.capabilities.canStartWorkflow;
 
   const handleSubmitForReview = async () => {
     if (!taskId || submittingReview) return;
@@ -191,32 +227,11 @@ export function WorkflowPanel({ session }: { session: ClaudeSession | null }) {
   };
 
   const handleCreateSession = async () => {
-    if (!taskId || creatingSession || !activeWorkspace) return;
+    if (!taskId || creatingSession) return;
     setCreatingSession(true);
     try {
       const created = await ensureSessionForTask(taskId, session?.runner.type === "codex" ? "codex" : "claude");
-      const fallbackWorkdir = activeWorkspace.path;
       const sessionId = created.id;
-      const existingSession = sessions.find((item) => item.id === sessionId);
-      const exists = !!existingSession;
-      if (!exists) {
-        const runner: RunnerConfig = created.provider === "codex"
-          ? { type: "codex" }
-          : { type: "claude-code" };
-        addSession(
-          sessionId,
-          activeWorkspace.id,
-          fallbackWorkdir,
-          `Session ${sessionId}`,
-          runner,
-        );
-      }
-      updateSession(sessionId, {
-        workspaceId: activeWorkspace.id,
-        workdir: existingSession?.workdir ?? fallbackWorkdir,
-        taskId,
-        status: "idle",
-      });
       markWorktreeReady(sessionId);
       setActiveSession(sessionId);
       setExpandedSession(sessionId);
@@ -238,62 +253,6 @@ export function WorkflowPanel({ session }: { session: ClaudeSession | null }) {
     }
   };
 
-  const renderPrimaryActions = () => {
-    if (lifecycle === "draft") {
-      return (
-        <button
-          disabled={submittingReview || !document?.capabilities.canSubmitForReview}
-          onClick={() => void handleSubmitForReview()}
-          style={primaryButtonStyle(submittingReview || !document?.capabilities.canSubmitForReview)}
-        >
-          {submittingReview ? "Submitting…" : "Submit for review"}
-        </button>
-      );
-    }
-
-    if (lifecycle === "in_review") {
-      return (
-        <button
-          disabled={confirmingTask || !document?.capabilities.canConfirm}
-          onClick={() => void handleConfirmTask()}
-          style={primaryButtonStyle(confirmingTask || !document?.capabilities.canConfirm)}
-        >
-          {confirmingTask ? "Confirming…" : "Confirm workflow"}
-        </button>
-      );
-    }
-
-    if (lifecycle === "confirmed") {
-      return (
-        <>
-          <button
-            disabled={!session || attachingSession}
-            onClick={() => void handleAttachCurrentSession()}
-            style={secondaryButtonStyle(!session || attachingSession)}
-          >
-            {attachingSession ? "Attaching…" : "Attach current session"}
-          </button>
-          <button
-            disabled={creatingSession || !document?.capabilities.canCreateSession}
-            onClick={() => void handleCreateSession()}
-            style={secondaryButtonStyle(creatingSession || !document?.capabilities.canCreateSession)}
-          >
-            {creatingSession ? "Creating session…" : "Create session"}
-          </button>
-          <button
-            disabled={!workflowSessionId || startingWorkflow || !document?.capabilities.canStartWorkflow}
-            onClick={() => void handleStartWorkflow()}
-            style={primaryButtonStyle(!workflowSessionId || startingWorkflow || !document?.capabilities.canStartWorkflow)}
-          >
-            {startingWorkflow ? "Starting…" : "Start workflow"}
-          </button>
-        </>
-      );
-    }
-
-    return null;
-  };
-
   return (
     <div style={{ display: "flex", height: "100%", minHeight: 0, background: "var(--ci-bg)" }}>
       <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }}>
@@ -307,71 +266,121 @@ export function WorkflowPanel({ session }: { session: ClaudeSession | null }) {
           )
         ) : (
           <>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 14px", borderBottom: "1px solid var(--ci-toolbar-border)", background: "var(--ci-panel-bg)" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "12px 16px 10px", borderBottom: "1px solid var(--ci-toolbar-border)", background: "var(--ci-panel-bg)" }}>
               <div style={{ minWidth: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ci-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: "var(--ci-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {document.task.title}
                   </div>
                   <span style={lifecycleBadgeStyle(lifecycle)}>{lifecycleLabel(lifecycle)}</span>
                 </div>
-                <div style={{ marginTop: 3, fontSize: 11, color: "var(--ci-text-dim)" }}>
+                <div style={{ marginTop: 4, fontSize: 11, color: "var(--ci-text-dim)" }}>
                   {lifecycleHint(lifecycle)}
                 </div>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                <GitFreshnessBadge workdir={workflowGitWorkdir} baseBranch={workflowGitBase} />
                 {executionState ? (
                   <span style={executionBadgeStyle(executionState)}>
                     {executionState === "waiting" && activeExecutionIntent ? "auto-continuing" : executionState}
                   </span>
                 ) : null}
-                {activeExecutionIntent ? (
-                  <span style={{ fontSize: 11, color: "var(--ci-text-dim)" }}>{activeExecutionIntent.action}</span>
-                ) : null}
-                {autoContinueDecision ? (
-                  <span style={{ fontSize: 11, color: "var(--ci-text-dim)" }}>
-                    {autoContinueDecision.state === "continued" ? "continued" : "stopped"} · {autoContinueDecision.reason}
-                  </span>
-                ) : null}
-                {renderPrimaryActions()}
+                {activeExecutionIntent ? <span style={{ fontSize: 11, color: "var(--ci-text-dim)" }}>{activeExecutionIntent.action}</span> : null}
               </div>
             </div>
 
-            <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
-              <div style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
-                <WorkflowGraph document={documentWithExecutionState ?? document} selectedNodeId={selectedNodeId} onSelectNode={setSelectedNode} />
-              </div>
-              <WorkflowDetailSheet
-                lifecycle={lifecycle}
-                node={node}
-                onClose={() => setSelectedNode(null)}
-                onClaim={(stepId) => {
-                  if (!workflowSessionId) return;
-                  void claimStep(workflowSessionId, stepId);
-                }}
-                onComplete={(stepId) => {
-                  if (!workflowSessionId) return;
-                  void completeStep(workflowSessionId, stepId);
-                }}
-                onBlock={(stepId) => {
-                  if (!workflowSessionId) return;
-                  void blockStep(workflowSessionId, stepId, `Blocked ${stepId} from workflow surface`);
-                }}
-                onResolveApproval={(approvalId) => void resolveApproval(approvalId, workflowSessionId ?? undefined)}
-                diagnostics={filteredDiagnostics}
-                events={filteredEvents}
-                capabilities={{
-                  canClaimStep: !!document.capabilities.canClaimStep && canRunNodeActions,
-                  canCompleteStep: !!document.capabilities.canCompleteStep && canRunNodeActions,
-                  canBlockStep: !!document.capabilities.canBlockStep && canRunNodeActions,
-                  canResolveApproval: !!document.capabilities.canResolveApproval && canRunNodeActions,
-                }}
-                pendingAction={node && node.kind === "step" ? pendingActionByStepId[node.stepId] ?? null : null}
-                approvalPending={node && node.kind === "approval_gate" ? pendingApprovalIds[node.approvalRequest.id] ?? false : false}
-                executionState={executionState}
-                activeExecutionAction={activeExecutionIntent?.action ?? null}
-                autoContinueDecision={autoContinueDecision}
-              />
+            <div style={{ display: "flex", gap: 8, padding: "10px 16px", borderBottom: "1px solid var(--ci-toolbar-border)", background: "var(--ci-panel-bg)" }}>
+              {([
+                ["overview", "Overview"],
+                ["graph", "Graph"],
+                ["activity", "Activity"],
+                ["execution", "Execution"],
+              ] as const).map(([tabId, label]) => (
+                <button
+                  key={tabId}
+                  onClick={() => setWorkflowTab(tabId)}
+                  style={{
+                    borderRadius: 999,
+                    border: workflowTab === tabId ? "1px solid var(--ci-accent-bdr)" : "1px solid var(--ci-toolbar-border)",
+                    background: workflowTab === tabId ? "var(--ci-accent-bg)" : "var(--ci-btn-ghost-bg)",
+                    color: workflowTab === tabId ? "var(--ci-accent)" : "var(--ci-text-dim)",
+                    padding: "5px 10px",
+                    fontSize: 11,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <div style={{ flex: 1, minHeight: 0 }}>
+              {workflowTab === "overview" ? (
+                <WorkflowOverviewTab
+                  document={document}
+                  lifecycle={lifecycle}
+                  submitForReviewPending={submittingReview}
+                  confirmTaskPending={confirmingTask}
+                  onSubmitForReview={() => void handleSubmitForReview()}
+                  onConfirmTask={() => void handleConfirmTask()}
+                  onOpenTab={(tab) => setWorkflowTab(tab)}
+                />
+              ) : workflowTab === "activity" ? (
+                <WorkflowActivityTab lifecycle={lifecycle} diagnostics={diagnostics} events={events} />
+              ) : workflowTab === "execution" ? (
+                <WorkflowExecutionTab
+                  lifecycle={lifecycle}
+                  workflowSessionId={workflowSessionId}
+                  sessions={collectWorkflowExecutionSessions(document)}
+                  canAttachCurrentSession={canAttachCurrentSession}
+                  canCreateSession={canCreateSession}
+                  canStartWorkflow={canStartWorkflow}
+                  attachingSession={attachingSession}
+                  creatingSession={creatingSession}
+                  startingWorkflow={startingWorkflow}
+                  onAttachCurrentSession={() => void handleAttachCurrentSession()}
+                  onCreateSession={() => void handleCreateSession()}
+                  onStartWorkflow={() => void handleStartWorkflow()}
+                />
+              ) : (
+                <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
+                  <div style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
+                    <WorkflowGraph document={documentWithExecutionState ?? document} selectedNodeId={selectedNodeId} onSelectNode={setSelectedNode} />
+                  </div>
+                  <WorkflowDetailSheet
+                    lifecycle={lifecycle}
+                    node={node}
+                    onClose={() => setSelectedNode(null)}
+                    onClaim={(stepId) => {
+                      if (!detailSessionId) return;
+                      void claimStep(detailSessionId, stepId);
+                    }}
+                    onComplete={(stepId) => {
+                      if (!detailSessionId) return;
+                      void completeStep(detailSessionId, stepId);
+                    }}
+                    onBlock={(stepId) => {
+                      if (!detailSessionId) return;
+                      void blockStep(detailSessionId, stepId, `Blocked ${stepId} from workflow surface`);
+                    }}
+                    onResolveApproval={(approvalId) => void resolveApproval(approvalId, detailSessionId ?? undefined)}
+                    diagnostics={filteredDiagnostics}
+                    events={filteredEvents}
+                    capabilities={{
+                      canClaimStep: !!document.capabilities.canClaimStep && canRunNodeActions,
+                      canCompleteStep: !!document.capabilities.canCompleteStep && canRunNodeActions,
+                      canBlockStep: !!document.capabilities.canBlockStep && canRunNodeActions,
+                      canResolveApproval: !!document.capabilities.canResolveApproval && canRunNodeActions,
+                    }}
+                    pendingAction={node && node.kind === "step" ? pendingActionByStepId[node.stepId] ?? null : null}
+                    approvalPending={node && node.kind === "approval_gate" ? pendingApprovalIds[node.approvalRequest.id] ?? false : false}
+                    executionState={executionState}
+                    activeExecutionAction={activeExecutionIntent?.action ?? null}
+                    autoContinueDecision={autoContinueDecision}
+                  />
+                </div>
+              )}
             </div>
           </>
         )}
@@ -453,34 +462,6 @@ function lifecycleBadgeStyle(lifecycle: WorkflowLifecycle) {
     color: "var(--ci-text-dim)",
     border: "1px solid var(--ci-toolbar-border)",
   };
-}
-
-function primaryButtonStyle(disabled: boolean) {
-  return {
-    borderRadius: 8,
-    padding: "6px 10px",
-    fontSize: 11,
-    fontWeight: 600,
-    cursor: disabled ? "not-allowed" : "pointer",
-    opacity: disabled ? 0.5 : 1,
-    background: "var(--ci-accent-bg)",
-    color: "var(--ci-accent)",
-    border: "1px solid var(--ci-accent-bdr)",
-  } as const;
-}
-
-function secondaryButtonStyle(disabled: boolean) {
-  return {
-    borderRadius: 8,
-    padding: "6px 10px",
-    fontSize: 11,
-    fontWeight: 600,
-    cursor: disabled ? "not-allowed" : "pointer",
-    opacity: disabled ? 0.5 : 1,
-    background: "var(--ci-btn-ghost-bg)",
-    color: "var(--ci-text)",
-    border: "1px solid var(--ci-toolbar-border)",
-  } as const;
 }
 
 function EmptyState({ text }: { text: string }) {

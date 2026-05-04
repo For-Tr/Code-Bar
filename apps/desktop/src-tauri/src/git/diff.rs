@@ -243,10 +243,14 @@ pub fn get_git_diff_from_base_worktree(
         .map_err(|e| e.to_string())?;
 
     if !merge_base.status.success() {
-        return Err(String::from_utf8_lossy(&merge_base.stderr).trim().to_string());
+        return Err(String::from_utf8_lossy(&merge_base.stderr)
+            .trim()
+            .to_string());
     }
 
-    let merge_base_sha = String::from_utf8_lossy(&merge_base.stdout).trim().to_string();
+    let merge_base_sha = String::from_utf8_lossy(&merge_base.stdout)
+        .trim()
+        .to_string();
     if merge_base_sha.is_empty() {
         return Err("无法解析 merge-base".to_string());
     }

@@ -81,9 +81,9 @@ impl Engine {
                 .map(|step| step.id)
                 .ok_or_else(|| ErrorEnvelope::conflict("no runnable step available to claim"))?,
         };
-        let claimed = self
-            .step_lease_manager
-            .claim_step(state, session_id, &resolved_step_id, now)?;
+        let claimed =
+            self.step_lease_manager
+                .claim_step(state, session_id, &resolved_step_id, now)?;
         state.events.push(events::step_claimed(
             session_id,
             &claimed.step_id,
@@ -114,9 +114,9 @@ impl Engine {
             summary,
             details,
         )?;
-        state
-            .events
-            .push(events::step_progress_updated(session_id, step_id, now, summary, details));
+        state.events.push(events::step_progress_updated(
+            session_id, step_id, now, summary, details,
+        ));
         Ok(())
     }
 

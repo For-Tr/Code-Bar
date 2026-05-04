@@ -8,9 +8,13 @@ use crate::{
 fn build_diff_file(path: &str, diff_text: &str) -> serde_json::Value {
     let hunks = parse_diff_hunks(diff_text);
     let note = parse_diff_note(diff_text);
-    let additions = diff_text.lines().filter(|line| line.starts_with('+') && !line.starts_with("+++"))
+    let additions = diff_text
+        .lines()
+        .filter(|line| line.starts_with('+') && !line.starts_with("+++"))
         .count() as u32;
-    let deletions = diff_text.lines().filter(|line| line.starts_with('-') && !line.starts_with("---"))
+    let deletions = diff_text
+        .lines()
+        .filter(|line| line.starts_with('-') && !line.starts_with("---"))
         .count() as u32;
     let mut entry = serde_json::json!({
         "path": path,

@@ -167,9 +167,7 @@ pub async fn start_pty_session(
     // 继承基础环境变量
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
-    let codebar_tmp = crate::util::codebar_tmp_dir()
-        .to_string_lossy()
-        .to_string();
+    let codebar_tmp = crate::util::codebar_tmp_dir().to_string_lossy().to_string();
     cmd.env("TMPDIR", &codebar_tmp);
     cmd.env("TEMP", &codebar_tmp);
     cmd.env("TMP", &codebar_tmp);

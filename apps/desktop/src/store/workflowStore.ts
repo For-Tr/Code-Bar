@@ -1,5 +1,4 @@
 import { create } from "zustand";
-import { useSessionStore } from "./sessionStore";
 import { useWorkbenchStore } from "./workbenchStore";
 import type {
   ClaimWorkflowStepResponse,
@@ -393,13 +392,6 @@ export const useWorkflowStore = create<WorkflowStore>()((set, get) => ({
       }));
       return;
     }
-    const currentNode = stepId && currentDocument
-      ? currentDocument.nodes.find((node) => node.kind === "step" && node.stepId === stepId)
-      : undefined;
-    useSessionStore.getState().updateSession(sessionId, {
-      status: "running",
-      currentTask: currentNode && currentNode.kind === "step" ? currentNode.label : undefined,
-    });
     useWorkbenchStore.getState().focusSession(sessionId);
     try {
       const result = await claimWorkflowStep({ sessionId, stepId });
@@ -431,10 +423,6 @@ export const useWorkflowStore = create<WorkflowStore>()((set, get) => ({
       },
     }));
     const lease = get().activeLeaseByStepId[stepId];
-    useSessionStore.getState().updateSession(sessionId, {
-      status: "waiting",
-      currentTask: "Completed workflow step",
-    });
     try {
       await completeWorkflowStep({
         sessionId,
@@ -462,10 +450,6 @@ export const useWorkflowStore = create<WorkflowStore>()((set, get) => ({
         [stepId]: "block",
       },
     }));
-    useSessionStore.getState().updateSession(sessionId, {
-      status: "suspended",
-      currentTask: reason,
-    });
     try {
       await blockWorkflowStep({ sessionId, stepId, reason });
       const taskId = get().taskIdBySessionId[sessionId] ?? get().selectedTaskId;
@@ -490,9 +474,6 @@ export const useWorkflowStore = create<WorkflowStore>()((set, get) => ({
       },
     }));
     if (sessionId) {
-      useSessionStore.getState().updateSession(sessionId, {
-        status: "running",
-      });
       useWorkbenchStore.getState().focusSession(sessionId);
     }
     try {

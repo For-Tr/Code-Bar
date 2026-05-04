@@ -1,20 +1,28 @@
 import { invoke } from '@tauri-apps/api/core'
 import type {
   BindProviderSessionOutput,
+  BootstrapSessionOutput,
   CreateSessionOutput,
   CreateTaskOutput,
   GetDiagnosticsOutput,
   GetNextActionOutput,
+  GetWorkspaceOutput,
+  GetWorktreeOutput,
   HealthCheckOutput,
   LaunchSessionOutput,
   ListApprovalRequestsOutput,
   ListSessionsOutput,
+  ListWorkspacesOutput,
+  ListWorktreesOutput,
   PrepareWorktreeOutput,
   RecordRuntimeLifecycleOutput,
   RequestApprovalOutput,
   ResolveApprovalOutput,
   Session,
+  UpdateTaskOutput,
 } from '@codebar/contracts'
+import { daemonRequest } from './tauriDaemonRequest'
+import { getI18n } from '../i18n'
 import type { RunnerType } from '../store/settingsStore'
 import type { ClaudeSession, SessionStatus } from '../store/sessionStore'
 import type { Workspace as UiWorkspace } from '../store/workspaceStore'
@@ -34,20 +42,14 @@ export async function createSession(input: {
   provider: 'claude' | 'codex'
   worktreeStrategy: 'reuse' | 'new_managed' | 'ask'
 }) {
-  return invoke<CreateSessionOutput>('daemon_request', {
-    method: 'createSession',
-    params: input,
-  })
+  return daemonRequest<CreateSessionOutput>('createSession', input)
 }
 
 export async function prepareWorktree(input: {
   sessionId: string
   strategy: 'reuse' | 'new_managed'
 }) {
-  return invoke<PrepareWorktreeOutput>('daemon_request', {
-    method: 'prepareWorktree',
-    params: input,
-  })
+  return daemonRequest<PrepareWorktreeOutput>('prepareWorktree', input)
 }
 
 function mapDaemonStateToSessionStatus(state: string | undefined): SessionStatus {
@@ -102,59 +104,79 @@ export async function createDaemonSession(input: {
   prompt?: string
 }) {
   await syncWorkspaceToDaemon(input.workspace)
-  const title = input.title?.trim() || `Session ${Date.now()}`
-  const prompt = input.prompt?.trim() || 'Awaiting first prompt'
-  const taskResponse = await invoke<CreateTaskOutput>('daemon_request', {
-    method: 'createTask',
-    params: {
-      workspaceId: input.workspace.id,
-      title,
-      prompt,
-      requestedProvider: mapRunnerTypeToProvider(input.runnerType),
-    },
+  const prompt = input.prompt?.trim() || ''
+  const fallbackTitle = getI18n().t('session.defaultName', { id: '' }).trim() || 'Session'
+  const title = input.title?.trim() || (prompt ? prompt.slice(0, 48) : fallbackTitle)
+  const taskResponse = await daemonRequest<CreateTaskOutput>('createTask', {
+    workspaceId: input.workspace.id,
+    title,
+    prompt: prompt || 'Awaiting first prompt',
+    requestedProvider: mapRunnerTypeToProvider(input.runnerType),
   })
-  const sessionResponse = await invoke<CreateSessionOutput>('daemon_request', {
-    method: 'createSession',
-    params: {
-      taskId: taskResponse.task.id,
-      provider: mapRunnerTypeToProvider(input.runnerType),
-      worktreeStrategy: 'new_managed',
-    },
-  })
-  const worktreeResponse = await invoke<PrepareWorktreeOutput>('daemon_request', {
-    method: 'prepareWorktree',
-    params: {
-      sessionId: sessionResponse.session.id,
-      strategy: 'new_managed',
-    },
+  const sessionResponse = await createSession({
+    taskId: taskResponse.task.id,
+    provider: mapRunnerTypeToProvider(input.runnerType),
+    worktreeStrategy: 'new_managed',
   })
 
   return {
     taskId: taskResponse.task.id,
     sessionId: sessionResponse.session.id,
-    worktree: worktreeResponse.worktree ?? null,
+    worktree: null,
   }
 }
 
-export async function launchDaemonSession(sessionId: string) {
-  return invoke<LaunchSessionOutput>('daemon_request', {
-    method: 'launchSession',
-    params: { sessionId },
+export async function updateDaemonTask(input: {
+  taskId: string
+  title?: string
+  prompt?: string
+}) {
+  return daemonRequest<UpdateTaskOutput>('updateTask', {
+    taskId: input.taskId,
+    title: input.title,
+    prompt: input.prompt,
   })
+}
+
+export async function updateDaemonSession(input: {
+  sessionId: string
+  provider?: 'claude' | 'codex'
+}) {
+  return daemonRequest<Session>('updateSession', {
+    sessionId: input.sessionId,
+    provider: input.provider,
+  })
+}
+
+export async function bootstrapDaemonSession(input: {
+  sessionId: string
+  strategy: 'reuse' | 'new_managed'
+}) {
+  return daemonRequest<BootstrapSessionOutput>('bootstrapSession', {
+    sessionId: input.sessionId,
+    strategy: input.strategy,
+  })
+}
+
+export async function createDaemonDraftSession(input: {
+  workspace: UiWorkspace
+  runnerType: RunnerType
+  title?: string
+  prompt?: string
+}) {
+  return createDaemonSession(input)
+}
+
+export async function launchDaemonSession(sessionId: string) {
+  return daemonRequest<LaunchSessionOutput>('launchSession', { sessionId })
 }
 
 export async function resumeDaemonSession(sessionId: string) {
-  return invoke<LaunchSessionOutput>('daemon_request', {
-    method: 'resumeSession',
-    params: { sessionId },
-  })
+  return daemonRequest<LaunchSessionOutput>('resumeSession', { sessionId })
 }
 
 export async function sendDaemonSessionInput(sessionId: string, text: string) {
-  return invoke<Record<string, unknown>>('daemon_request', {
-    method: 'sendSessionInput',
-    params: { sessionId, text },
-  })
+  return daemonRequest<Record<string, unknown>>('sendSessionInput', { sessionId, text })
 }
 
 export async function recordDaemonRuntimeLifecycle(
@@ -162,45 +184,37 @@ export async function recordDaemonRuntimeLifecycle(
   eventType: 'running' | 'waiting' | 'error' | 'exit',
   message?: string
 ) {
-  return invoke<RecordRuntimeLifecycleOutput>('daemon_request', {
-    method: 'recordRuntimeLifecycle',
-    params: { sessionId, eventType, message: message ?? null },
+  return daemonRequest<RecordRuntimeLifecycleOutput>('recordRuntimeLifecycle', {
+    sessionId,
+    eventType,
+    message: message ?? null,
   })
 }
 
-export async function stopDaemonSession(sessionId: string) {
-  return invoke<Record<string, unknown>>('daemon_request', {
-    method: 'stopSession',
-    params: { sessionId },
+export async function stopDaemonSession(sessionId: string, reason?: string) {
+  return daemonRequest<Record<string, unknown>>('stopSession', {
+    sessionId,
+    reason: reason ?? null,
   })
 }
 
 export async function listDaemonSessions() {
-  return invoke<ListSessionsOutput>('daemon_request', {
-    method: 'listSessions',
-    params: {},
-  })
+  return daemonRequest<ListSessionsOutput>('listSessions', {})
 }
 
 export async function getDaemonNextAction(sessionId: string) {
-  return invoke<GetNextActionOutput>('daemon_request', {
-    method: 'getNextAction',
-    params: { sessionId },
-  })
+  return daemonRequest<GetNextActionOutput>('getNextAction', { sessionId })
 }
 
 export async function listDaemonApprovals(sessionId: string) {
-  return invoke<ListApprovalRequestsOutput>('daemon_request', {
-    method: 'listApprovalRequests',
-    params: { sessionId, status: ['pending'] },
+  return daemonRequest<ListApprovalRequestsOutput>('listApprovalRequests', {
+    sessionId,
+    status: ['pending'],
   })
 }
 
 export async function resolveDaemonApproval(approvalRequestId: string, decision: 'approved' | 'rejected') {
-  return invoke<ResolveApprovalOutput>('daemon_request', {
-    method: 'resolveApproval',
-    params: { approvalRequestId, decision },
-  })
+  return daemonRequest<ResolveApprovalOutput>('resolveApproval', { approvalRequestId, decision })
 }
 
 export async function requestDangerousSessionAction(input: {
@@ -210,22 +224,19 @@ export async function requestDangerousSessionAction(input: {
   description: string
   payload?: Record<string, unknown>
 }) {
-  return invoke<RequestApprovalOutput>('daemon_request', {
-    method: 'requestApproval',
-    params: {
-      sessionId: input.sessionId,
-      actionType: input.actionType,
-      title: input.title,
-      description: input.description,
-      payload: input.payload ?? {},
-    },
+  return daemonRequest<RequestApprovalOutput>('requestApproval', {
+    sessionId: input.sessionId,
+    actionType: input.actionType,
+    title: input.title,
+    description: input.description,
+    payload: input.payload ?? {},
   })
 }
 
 export async function getDaemonDiagnostics(sessionId: string, taskId?: string) {
-  return invoke<GetDiagnosticsOutput>('daemon_request', {
-    method: 'getDiagnostics',
-    params: { sessionId, taskId: taskId ?? null },
+  return daemonRequest<GetDiagnosticsOutput>('getDiagnostics', {
+    sessionId,
+    taskId: taskId ?? null,
   })
 }
 
@@ -233,6 +244,24 @@ export async function bindProviderSession(sessionId: string, providerSessionId: 
   return invoke<BindProviderSessionOutput>('daemon_bind_provider_session', {
     sessionId,
     providerSessionId,
+  })
+}
+
+export async function getDaemonWorkspace(workspaceId: string) {
+  return daemonRequest<GetWorkspaceOutput>('getWorkspace', { workspaceId })
+}
+
+export async function listDaemonWorkspaces() {
+  return daemonRequest<ListWorkspacesOutput>('listWorkspaces', {})
+}
+
+export async function getDaemonWorktree(worktreeId: string) {
+  return daemonRequest<GetWorktreeOutput>('getWorktree', { worktreeId })
+}
+
+export async function listDaemonWorktrees(workspaceId?: string) {
+  return daemonRequest<ListWorktreesOutput>('listWorktrees', {
+    workspaceId: workspaceId ?? null,
   })
 }
 

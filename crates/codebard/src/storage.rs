@@ -1,12 +1,12 @@
 use codebar_contracts::errors::{ErrorCode, ErrorEnvelope};
 use daemon_core::domain::{
-    ApprovalRequest, DomainResult, Plan, PlanStatus, PlanStep, RunAttempt,
+    ApprovalRequest, DomainResult, Plan, PlanStatus, PlanStep, RecoveryBinding, RunAttempt,
     Session, SkillProfile, Task, Worktree, Workspace,
 };
 use daemon_core::ports::{
-    ApprovalFilter, ApprovalRepository, PlanRepository, RunAttemptRepository, SessionFilter,
-    SkillProfileRepository, StorageIntrospection, TaskFilter, TaskRepository, WorktreeRepository,
-    WorkspaceRepository,
+    ApprovalFilter, ApprovalRepository, ArtifactStore, PlanRepository, PlanStepRepository,
+    RecoveryBindingRepository, RunAttemptRepository, SessionFilter, SkillProfileRepository,
+    StorageIntrospection, TaskFilter, TaskRepository, WorktreeRepository, WorkspaceRepository,
 };
 use serde::{de::DeserializeOwned, Serialize};
 use std::collections::HashMap;
@@ -23,6 +23,7 @@ pub const PLANS_FILE: &str = "plans.json";
 pub const PLAN_STEPS_FILE: &str = "plan_steps.json";
 pub const SKILL_PROFILES_FILE: &str = "skill_profiles.json";
 pub const APPROVALS_FILE: &str = "approvals.json";
+pub const RECOVERY_BINDINGS_FILE: &str = "recovery_bindings.json";
 pub const EVENTS_FILE: &str = "events.jsonl";
 
 pub struct FileStore {
@@ -36,6 +37,7 @@ pub struct FileStore {
     plan_steps: Mutex<HashMap<String, Vec<PlanStep>>>,
     skill_profiles: Mutex<HashMap<String, SkillProfile>>,
     approvals: Mutex<HashMap<String, ApprovalRequest>>,
+    recovery_bindings: Mutex<HashMap<String, RecoveryBinding>>,
 }
 
 impl FileStore {
@@ -51,6 +53,7 @@ impl FileStore {
             plan_steps: Mutex::new(load_grouped(root.join(PLAN_STEPS_FILE))?),
             skill_profiles: Mutex::new(load_map(root.join(SKILL_PROFILES_FILE))?),
             approvals: Mutex::new(load_map(root.join(APPROVALS_FILE))?),
+            recovery_bindings: Mutex::new(load_map(root.join(RECOVERY_BINDINGS_FILE))?),
             root,
         })
     }
@@ -167,7 +170,9 @@ impl PlanRepository for FileStore {
     fn get_active_plan_for_task(&self, task_id: &str) -> DomainResult<Option<Plan>> {
         Ok(self.plans.lock().unwrap().values().find(|plan| plan.task_id == task_id && matches!(plan.status, PlanStatus::Active)).cloned())
     }
+}
 
+impl PlanStepRepository for FileStore {
     fn put_plan_step(&self, step: PlanStep) -> DomainResult<()> {
         let mut plan_steps = self.plan_steps.lock().unwrap();
         plan_steps.entry(step.plan_id.clone()).or_default().retain(|current| current.id != step.id);
@@ -216,6 +221,41 @@ impl ApprovalRepository for FileStore {
     }
 }
 
+impl RecoveryBindingRepository for FileStore {
+    fn put_recovery_binding(&self, binding: RecoveryBinding) -> DomainResult<()> {
+        let mut bindings = self.recovery_bindings.lock().unwrap();
+        bindings.insert(binding.session_id.clone(), binding);
+        self.write_map(RECOVERY_BINDINGS_FILE, &bindings)
+    }
+
+    fn get_recovery_binding(&self, session_id: &str) -> DomainResult<Option<RecoveryBinding>> {
+        Ok(self.recovery_bindings.lock().unwrap().get(session_id).cloned())
+    }
+}
+
+impl ArtifactStore for FileStore {
+    fn artifacts_root(&self) -> String {
+        self.root.join("artifacts").to_string_lossy().to_string()
+    }
+
+    fn write_artifact(&self, relative_path: &str, data: &[u8]) -> DomainResult<String> {
+        let full_path = self.root.join("artifacts").join(relative_path);
+        if let Some(parent) = full_path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|error| ErrorEnvelope::new(ErrorCode::Internal, error.to_string(), true))?;
+        }
+        fs::write(&full_path, data)
+            .map_err(|error| ErrorEnvelope::new(ErrorCode::Internal, error.to_string(), true))?;
+        Ok(full_path.to_string_lossy().to_string())
+    }
+
+    fn read_artifact(&self, relative_path: &str) -> DomainResult<Vec<u8>> {
+        let full_path = self.root.join("artifacts").join(relative_path);
+        fs::read(&full_path)
+            .map_err(|error| ErrorEnvelope::new(ErrorCode::Internal, error.to_string(), true))
+    }
+}
+
 impl StorageIntrospection for FileStore {
     fn data_files(&self) -> Vec<String> {
         [
@@ -228,6 +268,7 @@ impl StorageIntrospection for FileStore {
             PLAN_STEPS_FILE,
             SKILL_PROFILES_FILE,
             APPROVALS_FILE,
+            RECOVERY_BINDINGS_FILE,
             EVENTS_FILE,
         ]
         .into_iter()

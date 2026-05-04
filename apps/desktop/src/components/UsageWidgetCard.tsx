@@ -3,8 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { formatDate, formatTime, useAppI18n } from "../i18n";
 import { RUNNER_LABELS, type RunnerType } from "../store/settingsStore";
 import { useSessionStore } from "../store/sessionStore";
-import { useOrchestrationStore } from "../store/orchestrationStore";
-import { getDaemonDiagnostics, getDaemonNextAction, listDaemonApprovals, resolveDaemonApproval } from "../services/daemonCommands";
+import { resolveDaemonApproval } from "../services/daemonCommands";
+import { useDaemonData } from "../daemon/DaemonDataProvider";
 
 interface RunnerUsageSnapshot {
   runner_type: string;
@@ -68,14 +68,13 @@ export function UsageWidgetCard() {
   const [snapshot, setSnapshot] = useState<RunnerUsageSnapshot | null>(null);
   const refreshAbortRef = useRef(false);
 
-  const approvalsBySessionId = useOrchestrationStore((s) => s.approvalsBySessionId);
-  const nextActionBySessionId = useOrchestrationStore((s) => s.nextActionBySessionId);
-  const diagnosticsBySessionId = useOrchestrationStore((s) => s.diagnosticsBySessionId);
-  const setApprovals = useOrchestrationStore((s) => s.setApprovals);
-  const setNextAction = useOrchestrationStore((s) => s.setNextAction);
-  const setDiagnostics = useOrchestrationStore((s) => s.setDiagnostics);
+  const daemon = useDaemonData();
 
   const session = useMemo(() => sessions.find((item) => item.id === expandedSessionId) ?? null, [expandedSessionId, sessions]);
+
+  const sessionNextAction = session ? daemon.state.nextActionBySessionId[session.id] : undefined;
+  const sessionApprovals = session ? (daemon.state.approvalsBySessionId[session.id] ?? []) : [];
+  const sessionDiagnostics = session ? daemon.state.diagnosticsBySessionId[session.id] : undefined;
 
   const runnerType = useMemo<RunnerType>(() => {
     return session?.runner.type ?? "claude-code";
@@ -91,30 +90,7 @@ export function UsageWidgetCard() {
 
   const refreshOrchestration = async () => {
     if (!session) return;
-    const [nextAction, approvalsResult, diagnostics] = await Promise.all([
-      getDaemonNextAction(session.id).catch(() => null),
-      listDaemonApprovals(session.id).catch(() => ({ requests: [] })),
-      getDaemonDiagnostics(session.id, session.taskId).catch(() => null),
-    ])
-
-    if (nextAction) {
-      setNextAction(session.id, nextAction)
-    }
-    setApprovals(
-      session.id,
-      (approvalsResult.requests ?? []).map((request) => ({
-        id: String(request.id ?? ''),
-        sessionId: String(request.sessionId ?? session.id),
-        taskId: String(request.taskId ?? ''),
-        actionType: String(request.actionType ?? ''),
-        title: String(request.title ?? ''),
-        description: String(request.description ?? ''),
-        status: String(request.status ?? ''),
-      }))
-    )
-    if (diagnostics) {
-      setDiagnostics(session.id, diagnostics)
-    }
+    await daemon.refreshSessionViews(session.id);
   }
 
   const handleRefresh = async () => {
@@ -195,12 +171,12 @@ export function UsageWidgetCard() {
       </div>
 
       <div style={{ display: "grid", gap: 8, flex: 1, minHeight: 0, overflowY: "auto" }}>
-        {session && nextActionBySessionId[session.id] && (
+        {session && sessionNextAction && (
           <div style={{ fontSize: 11, color: "var(--ci-text)", lineHeight: 1.5, padding: "8px 9px", borderRadius: 10, background: "var(--ci-surface)", border: "1px solid var(--ci-toolbar-border)", display: 'grid', gap: 6 }}>
             <div style={{ fontSize: 10, color: "var(--ci-text-dim)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Next action</div>
-            <div>{nextActionBySessionId[session.id]?.recommendedNextCalls.join(", ") || "—"}</div>
-            {nextActionBySessionId[session.id]?.step?.title && (
-              <div style={{ color: 'var(--ci-text-dim)' }}>{nextActionBySessionId[session.id]?.step?.title}</div>
+            <div>{sessionNextAction?.recommendedNextCalls.join(", ") || "—"}</div>
+            {sessionNextAction?.step?.title && (
+              <div style={{ color: 'var(--ci-text-dim)' }}>{sessionNextAction?.step?.title}</div>
             )}
             <button
               onClick={() => void refreshOrchestration()}
@@ -211,10 +187,10 @@ export function UsageWidgetCard() {
           </div>
         )}
 
-        {session && approvalsBySessionId[session.id]?.length > 0 && (
+        {session && sessionApprovals?.length > 0 && (
           <div style={{ fontSize: 11, color: "var(--ci-text)", lineHeight: 1.5, padding: "8px 9px", borderRadius: 10, background: "var(--ci-yellow-bg)", border: "1px solid var(--ci-yellow-bdr)", display: 'grid', gap: 8 }}>
             <div style={{ fontSize: 10, color: "var(--ci-text-dim)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Approvals</div>
-            {approvalsBySessionId[session.id].map((approval) => (
+            {sessionApprovals.map((approval) => (
               <div key={approval.id} style={{ display: 'grid', gap: 6, paddingTop: 4, borderTop: '1px solid var(--ci-yellow-bdr)' }}>
                 <div style={{ fontWeight: 600 }}>{approval.title}</div>
                 <div style={{ color: 'var(--ci-text-dim)' }}>{approval.description}</div>
@@ -241,10 +217,10 @@ export function UsageWidgetCard() {
           </div>
         )}
 
-        {session && diagnosticsBySessionId[session.id] && (
+        {session && sessionDiagnostics && (
           <div style={{ fontSize: 11, color: "var(--ci-text)", lineHeight: 1.5, padding: "8px 9px", borderRadius: 10, background: "var(--ci-surface)", border: "1px solid var(--ci-toolbar-border)" }}>
             <div style={{ fontSize: 10, color: "var(--ci-text-dim)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Diagnostics</div>
-            <div>{diagnosticsBySessionId[session.id].summary}</div>
+            <div>{sessionDiagnostics.summary}</div>
           </div>
         )}
 

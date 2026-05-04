@@ -1,9 +1,5 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use serde_json::Value;
-use time::{
-    format_description::well_known::Rfc3339, OffsetDateTime,
-};
 use crate::{
     model::{
         ClaimStepResult, CompleteStepResult, ErrorEnvelope, JsonMap, OrchestrationState,
@@ -11,6 +7,8 @@ use crate::{
     },
     next_action_resolver::{has_any_runnable_step, is_step_runnable_at},
 };
+use serde_json::Value;
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
 pub const DEFAULT_LEASE_TTL_MS: i64 = 5 * 60 * 1000;
 
@@ -45,7 +43,10 @@ impl StepLeaseManager {
                 step.lease_owner_session_id = None;
                 step.lease_token = None;
                 step.lease_expires_at = None;
-                if matches!(step.status, PlanStepStatus::Claimed | PlanStepStatus::Running) {
+                if matches!(
+                    step.status,
+                    PlanStepStatus::Claimed | PlanStepStatus::Running
+                ) {
                     step.status = PlanStepStatus::Pending;
                 }
                 step.updated_at = now.to_string();
@@ -83,7 +84,9 @@ impl StepLeaseManager {
 
         if let Some(owner) = step.lease_owner_session_id.as_deref() {
             if owner != session_id && !is_lease_expired(step.lease_expires_at.as_deref(), now) {
-                return Err(ErrorEnvelope::conflict("step already claimed by another session"));
+                return Err(ErrorEnvelope::conflict(
+                    "step already claimed by another session",
+                ));
             }
             if owner == session_id && !is_lease_expired(step.lease_expires_at.as_deref(), now) {
                 return Ok(ClaimStepResult {
@@ -142,7 +145,9 @@ impl StepLeaseManager {
             step.status = PlanStepStatus::Running;
         }
         step.progress_summary = Some(summary.to_string());
-        step.progress_details = details.cloned().map(|value| Value::Object(value.into_iter().collect()));
+        step.progress_details = details
+            .cloned()
+            .map(|value| Value::Object(value.into_iter().collect()));
         step.updated_at = now.to_string();
 
         if let Some(session) = state.sessions.get_mut(session_id) {
@@ -176,7 +181,9 @@ impl StepLeaseManager {
         step.lease_owner_session_id = None;
         step.lease_token = None;
         step.lease_expires_at = None;
-        step.outputs = outputs.cloned().map(|value| Value::Object(value.into_iter().collect()));
+        step.outputs = outputs
+            .cloned()
+            .map(|value| Value::Object(value.into_iter().collect()));
         step.blocked_reason = None;
         step.updated_at = now.to_string();
 
@@ -244,7 +251,9 @@ impl StepLeaseManager {
 
         if let Some(owner) = step.lease_owner_session_id.as_deref() {
             if owner != session_id && !is_lease_expired(step.lease_expires_at.as_deref(), now) {
-                return Err(ErrorEnvelope::conflict("cannot block a step leased by another session"));
+                return Err(ErrorEnvelope::conflict(
+                    "cannot block a step leased by another session",
+                ));
             }
         }
 
@@ -352,7 +361,10 @@ pub(crate) fn is_lease_expired(expires_at: Option<&str>, now: &str) -> bool {
     let Some(expires_at) = expires_at else {
         return false;
     };
-    match (parse_timestamp_millis(expires_at), parse_timestamp_millis(now)) {
+    match (
+        parse_timestamp_millis(expires_at),
+        parse_timestamp_millis(now),
+    ) {
         (Some(expires), Some(now)) => expires <= now,
         _ => false,
     }

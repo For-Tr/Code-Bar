@@ -24,9 +24,11 @@ pub struct ScmStatusGroups {
 }
 
 fn is_conflicted(x: char, y: char) -> bool {
-    matches!((x, y),
+    matches!(
+        (x, y),
         ('D', 'D') | ('A', 'U') | ('U', 'D') | ('U', 'A') | ('D', 'U') | ('A', 'A') | ('U', 'U')
-    ) || x == 'U' || y == 'U'
+    ) || x == 'U'
+        || y == 'U'
 }
 
 fn kind_from_status(x: char, y: char) -> &'static str {

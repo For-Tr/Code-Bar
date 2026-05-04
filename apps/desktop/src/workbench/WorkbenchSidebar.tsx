@@ -1,16 +1,17 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { WorkflowLifecycle } from "@codebar/contracts";
-import { Files, GitBranch, GitBranchPlus, MessageSquareCode, Workflow } from "lucide-react";
+import { MessageSquareCode, Workflow } from "lucide-react";
 import { TitleBar } from "../components/TitleBar";
 import { StatusBar } from "../components/StatusBar";
-import { ExploreSidebar } from "../components/ExploreMode";
-import { ScmSidebar } from "../components/scm/ScmSidebar";
 import { useAppI18n } from "../i18n";
 import { useWorkflowStore } from "../store/workflowStore";
+import { useDaemonData } from "../daemon/DaemonDataProvider";
+import { selectSessionView } from "../daemon/selectors";
 import { useWorkbenchStore } from "../store/workbenchStore";
 import { type ClaudeSession } from "../store/sessionStore";
 import { useWorkspaceStore } from "../store/workspaceStore";
-import { resetWorkbenchMode, showExplorer, showScm, showSessionSurface, showWorkflow } from "../services/workbenchCommands";
+import { resetWorkbenchMode, showSessionSurface, showWorkflow } from "../services/workbenchCommands";
+import { GitFreshnessBadge } from "../components/git/GitFreshnessBadge";
 import { WorkbenchTooltip } from "../components/ui/WorkbenchTooltip";
 
 function ActivityButton({
@@ -127,7 +128,7 @@ function WorkflowSidebarTasks({ session }: { session: ClaudeSession | null }) {
   }, [taskSummaries]);
 
   const handleSelectTask = (taskId: string, activeSessionId?: string) => {
-    const sessionId = activeSessionId ?? session?.id ?? null;
+    const sessionId = activeSessionId ?? null;
     focusWorkflowTask(taskId);
     setSelectedTask(taskId, sessionId);
     void refreshWorkflow(taskId, sessionId);
@@ -393,10 +394,29 @@ export function WorkbenchSidebar({
   onRefreshDiff: (sessionId?: string | null, options?: { reloadExplorer?: boolean }) => void;
 }) {
   const { t } = useAppI18n();
-  const sidebarSection = useWorkbenchStore((s) => s.sidebarSection);
+  const primaryObject = useWorkbenchStore((s) => s.primaryObject);
   const hasWorkspace = useWorkspaceStore((s) => s.workspaces.length > 0);
-  const hasSessionContext = !!session;
-  const inWorkbenchSection = sidebarSection !== "sessions";
+  const activeWorkspace = useWorkspaceStore((s) => s.workspaces.find((workspace) => workspace.id === s.activeWorkspaceId) ?? null);
+  const selectedTaskId = useWorkflowStore((s) => s.selectedTaskId);
+  const taskSummariesByTaskId = useWorkflowStore((s) => s.taskSummariesByTaskId);
+  const daemon = useDaemonData();
+  const sessionView = session ? selectSessionView(daemon.state, session.id) : null;
+
+  void onRefreshDiff;
+
+  const selectedWorkflowSummary = selectedTaskId ? taskSummariesByTaskId[selectedTaskId] ?? null : null;
+  const defaultWorkflowTaskId = selectedWorkflowSummary && selectedWorkflowSummary.workspaceId === activeWorkspace?.id
+    ? selectedWorkflowSummary.taskId
+    : null;
+
+  const workflowMenu = (
+    <div style={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden", display: "flex", flexDirection: "column" }}>
+      <div style={{ padding: "6px 18px 4px" }}>
+        {menuContent}
+      </div>
+      <WorkflowSidebarTasks session={session} />
+    </div>
+  );
 
   return (
     <>
@@ -406,42 +426,20 @@ export function WorkbenchSidebar({
           <div style={{ width: 48, display: "flex", flexDirection: "column", alignItems: "stretch", borderInlineEnd: "1px solid var(--ci-toolbar-border)", background: "transparent" }}>
             <ActivityButton
               label={t("workbench.sessions")}
-              active={sidebarSection === "sessions"}
-              onClick={() => hasSessionContext ? showSessionSurface(session.id) : resetWorkbenchMode()}
+              active={primaryObject === "sessions"}
+              onClick={() => hasWorkspace ? showSessionSurface(session?.id ?? null) : resetWorkbenchMode()}
               icon={<MessageSquareCode size={20} strokeWidth={1.9} />}
             />
             <ActivityButton
               label={t("workbench.workflow")}
-              active={sidebarSection === "workflow"}
-              onClick={() => {
-                showWorkflow(session?.id ?? null);
-              }}
+              active={primaryObject === "workflows"}
+              onClick={() => showWorkflow(session?.id ?? null, defaultWorkflowTaskId, "overview")}
               icon={<Workflow size={20} strokeWidth={1.9} />}
-            />
-            <ActivityButton
-              label={hasSessionContext ? t("workbench.explorer") : t("workbench.explorerDisabled")}
-              active={sidebarSection === "explorer"}
-              disabled={!hasSessionContext}
-              onClick={() => {
-                if (!session) return;
-                showExplorer(session.id);
-              }}
-              icon={<Files size={20} strokeWidth={1.9} />}
-            />
-            <ActivityButton
-              label={hasSessionContext ? t("workbench.sourceControl") : t("workbench.sourceControlDisabled")}
-              active={sidebarSection === "scm"}
-              disabled={!hasSessionContext}
-              onClick={() => {
-                if (!session) return;
-                showScm(session.id);
-              }}
-              icon={<GitBranchPlus size={20} strokeWidth={1.9} />}
             />
           </div>
         )}
         <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }}>
-          {session && inWorkbenchSection && sidebarSection !== "workflow" && (
+          {activeWorkspace ? (
             <div style={{
               display: "flex",
               alignItems: "center",
@@ -450,36 +448,38 @@ export function WorkbenchSidebar({
               padding: "8px 12px",
               borderBottom: "1px solid var(--ci-toolbar-border)",
               background: "transparent",
-              minHeight: 34,
             }}>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 10, color: "var(--ci-text-dim)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-                  {sidebarSection === "explorer" ? t("workbench.explorer") : t("workbench.sourceControl")}
+                  Workspace
                 </div>
-                <div style={{ marginTop: 3, display: "flex", alignItems: "center", gap: 8, minWidth: 0, color: "var(--ci-text)", fontSize: 11, fontWeight: 600 }}>
-                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{session.name}</span>
-                  {session.branchName && (
-                    <span style={{ display: "flex", alignItems: "center", gap: 4, color: "var(--ci-text-dim)", fontSize: 10, fontWeight: 500, minWidth: 0 }}>
-                      <GitBranch size={11} strokeWidth={1.8} />
-                      <span style={{ fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{session.branchName.replace("ci/", "")}</span>
-                    </span>
-                  )}
+                <div style={{ marginTop: 3, fontSize: 11, fontWeight: 600, color: "var(--ci-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {activeWorkspace.name}
                 </div>
               </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: 10, color: "var(--ci-text-dim)", fontWeight: 600, whiteSpace: "nowrap" }}>
+                  Workspace root
+                </span>
+                <GitFreshnessBadge workdir={activeWorkspace.path} />
+              </div>
             </div>
-          )}
+          ) : null}
           <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-            {sidebarSection === "explorer"
-              ? <ExploreSidebar session={session} onRefreshDiff={onRefreshDiff} />
-              : sidebarSection === "scm"
-              ? <ScmSidebar session={session} />
-              : sidebarSection === "workflow"
-              ? <WorkflowSidebarTasks session={session} />
-              : menuContent}
+            {primaryObject === "workflows" ? workflowMenu : menuContent}
           </div>
         </div>
       </div>
-      <StatusBar session={session ?? undefined} />
+      <StatusBar
+        session={session
+          ? {
+              ...session,
+              workdir: sessionView?.worktree?.path ?? session.workdir,
+              branchName: sessionView?.worktree?.branchName ?? session.branchName,
+              baseBranch: sessionView?.worktree?.baseBranch ?? session.baseBranch,
+            }
+          : undefined}
+      />
     </>
   );
 }

@@ -2,15 +2,15 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useAppI18n } from "../i18n";
-import { SplitDetailHost } from "../components/SplitSwapLayout";
-import { ExploreEditor } from "../components/ExploreMode";
 import { showSessionSurface, showExplorer, showScm, showWorkflow } from "../services/workbenchCommands";
 import { WorkflowPanel } from "../components/workflow/WorkflowPanel";
+import { SessionObjectPanel } from "../components/session/SessionObjectPanel";
 import { sanitizeRunnerConfig, useSettingsStore } from "../store/settingsStore";
 import { useWorkspaceStore } from "../store/workspaceStore";
 import { useWorkbenchStore } from "../store/workbenchStore";
 import { createDaemonSession, syncWorkspaceToDaemon } from "../services/daemonCommands";
 import { useSessionStore, type ClaudeSession } from "../store/sessionStore";
+import { useDaemonData } from "../daemon/DaemonDataProvider";
 
 function WelcomeAction({ label, accent = false, onClick }: { label: string; accent?: boolean; onClick: () => void }) {
   return (
@@ -119,11 +119,7 @@ function WorkbenchWelcome({ session }: { session: ClaudeSession | null }) {
   const addWorkspace = useWorkspaceStore((s) => s.addWorkspace);
   const activeWorkspace = useWorkspaceStore((s) => s.workspaces.find((workspace) => workspace.id === s.activeWorkspaceId) ?? null);
   const sessions = useSessionStore((s) => s.sessions);
-  const addSession = useSessionStore((s) => s.addSession);
-  const setActiveSession = useSessionStore((s) => s.setActiveSession);
-  const setExpandedSession = useSessionStore((s) => s.setExpandedSession);
-  const markWorktreeReady = useSessionStore((s) => s.markWorktreeReady);
-  const focusSession = useWorkbenchStore((s) => s.focusSession);
+  const daemon = useDaemonData();
   const runner = sanitizeRunnerConfig(useSettingsStore((s) => s.settings.runner));
   const hasWorkspace = workspaces.length > 0;
   const recentSessions = activeWorkspace
@@ -170,40 +166,17 @@ function WorkbenchWelcome({ session }: { session: ClaudeSession | null }) {
   const handleNewSession = async () => {
     if (!activeWorkspace) return;
 
-    if ("__TAURI_INTERNALS__" in window) {
-      try {
-        const created = await createDaemonSession({
-          workspace: activeWorkspace,
-          runnerType: runner.type,
-        });
-        addSession(created.sessionId, activeWorkspace.id, created.worktree?.path ?? activeWorkspace.path, undefined, { ...runner });
-        useSessionStore.getState().updateSession(created.sessionId, {
-          workdir: created.worktree?.path ?? activeWorkspace.path,
-          worktreePath: created.worktree?.path,
-          branchName: created.worktree?.branchName,
-          baseBranch: created.worktree?.baseBranch,
-          taskId: created.taskId,
-        });
-        setActiveSession(created.sessionId);
-        setExpandedSession(created.sessionId);
-        focusSession(created.sessionId);
-        markWorktreeReady(created.sessionId);
-        return;
-      } catch {
-        return;
-      }
+    try {
+      const created = await createDaemonSession({
+        workspace: activeWorkspace,
+        runnerType: runner.type,
+      });
+      await daemon.refreshSessionViews(created.sessionId);
+      await daemon.refreshTaskViews(created.taskId);
+      await showSessionSurface(created.sessionId);
+    } catch {
+      return;
     }
-
-    const maxId = sessions
-      .map((item) => Number(item.id))
-      .filter((value) => !Number.isNaN(value))
-      .reduce((max, value) => Math.max(max, value), 0);
-    const id = String(maxId + 1);
-    addSession(id, activeWorkspace.id, activeWorkspace.path, undefined, { ...runner });
-    setActiveSession(id);
-    setExpandedSession(id);
-    focusSession(id);
-    markWorktreeReady(id);
   };
 
   return (
@@ -368,9 +341,9 @@ export function WorkbenchCenter({
     return <WorkflowPanel session={session} />;
   }
 
-  if (centerSurface === "editor" || centerSurface === "diff") {
-    return <ExploreEditor session={session} onRefreshDiff={onRefreshDiff} />;
+  if (centerSurface === "session" || centerSurface === "editor" || centerSurface === "diff") {
+    return <SessionObjectPanel session={session} onRefreshDiff={onRefreshDiff} />;
   }
 
-  return <SplitDetailHost />;
+  return <WorkbenchWelcome session={session} />;
 }

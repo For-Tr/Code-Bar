@@ -32,6 +32,17 @@ pub type Plan = codebar_contracts::domain::Plan;
 pub type PlanStep = codebar_contracts::domain::PlanStep;
 pub type SkillProfile = codebar_contracts::domain::SkillProfile;
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RecoveryBinding {
+    pub session_id: String,
+    pub provider: ProviderKind,
+    pub provider_session_id: Option<String>,
+    pub worktree_path: Option<String>,
+    pub run_attempt_id: Option<String>,
+    pub updated_at: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ApprovalRequest {
@@ -52,7 +63,11 @@ pub type ErrorEnvelope = codebar_contracts::errors::ErrorEnvelope;
 pub type ErrorCode = codebar_contracts::errors::ErrorCode;
 pub type DomainResult<T> = Result<T, ErrorEnvelope>;
 
-pub fn error_envelope(code: ErrorCode, message: impl Into<String>, retryable: bool) -> ErrorEnvelope {
+pub fn error_envelope(
+    code: ErrorCode,
+    message: impl Into<String>,
+    retryable: bool,
+) -> ErrorEnvelope {
     codebar_contracts::errors::ErrorEnvelope::new(code, message, retryable)
 }
 

@@ -15,7 +15,10 @@ impl HookBridgeProvider {
     }
 }
 
-pub fn forward_provider_hook_to_daemon(provider: HookBridgeProvider, payload: &Value) -> Option<String> {
+pub fn forward_provider_hook_to_daemon(
+    provider: HookBridgeProvider,
+    payload: &Value,
+) -> Option<String> {
     let result = crate::daemon_bridge::daemon_forward_provider_hook(
         provider.as_str().to_string(),
         payload.clone(),

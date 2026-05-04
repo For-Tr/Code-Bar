@@ -1,18 +1,24 @@
-use codebard::rpc::{read_rpc_response, RpcRequest};
-use codebard::wiring::build_daemon;
-use daemon_core::domain::{ApprovalActionType, ProviderKind, TrustLevel, VcsType, Workspace};
-use daemon_core::ports::WorktreeStrategy;
-use daemon_core::services::{CreateSessionInput, CreateTaskInput, LaunchSessionInput, PrepareWorktreeInput, ResolveApprovalInput};
-use codebar_contracts::rpc::{ApprovalStatus, BindProviderSessionOutput, RecordRuntimeLifecycleOutput};
+use codebar_contracts::mcp as mcp_contract;
+use codebar_contracts::rpc::{
+    ApprovalStatus, BindProviderSessionOutput, RecordRuntimeLifecycleOutput,
+};
 use codebar_contracts::workflow::{
     AttachWorkflowSessionRequest, AttachWorkflowSessionResponse, BlockWorkflowStepRequest,
     ClaimWorkflowStepRequest, ClaimWorkflowStepResponse, CompleteWorkflowStepRequest,
     CompleteWorkflowStepResponse, GetWorkflowSnapshotRequest, GetWorkflowSnapshotResponse,
     UpdateWorkflowProgressRequest,
 };
+use codebard::rpc::{read_rpc_response, RpcRequest};
+use codebard::wiring::build_daemon;
+use daemon_core::domain::{ApprovalActionType, ProviderKind, TrustLevel, VcsType, Workspace};
+use daemon_core::ports::WorktreeStrategy;
+use daemon_core::services::{
+    CreateSessionInput, CreateTaskInput, LaunchSessionInput, PrepareWorktreeInput,
+    ResolveApprovalInput,
+};
 use serde_json::json;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn temp_root(name: &str) -> PathBuf {
@@ -37,6 +43,23 @@ fn workspace(root: &PathBuf) -> Workspace {
         created_at: "2026-04-24T00:00:00Z".to_string(),
         updated_at: "2026-04-24T00:00:00Z".to_string(),
     }
+}
+
+fn sqlite_table_exists(db_path: &Path, table_name: &str) -> bool {
+    let Ok(connection) = rusqlite::Connection::open(db_path) else {
+        return false;
+    };
+    let mut statement = match connection
+        .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1 LIMIT 1")
+    {
+        Ok(stmt) => stmt,
+        Err(_) => return false,
+    };
+    let mut rows = match statement.query(rusqlite::params![table_name]) {
+        Ok(rows) => rows,
+        Err(_) => return false,
+    };
+    matches!(rows.next(), Ok(Some(_)))
 }
 
 #[tokio::test]
@@ -80,22 +103,41 @@ async fn lifecycle_persists_snapshots_and_events() {
     assert_eq!(session.task_id, task.id);
     assert_eq!(run.session_id, session.id);
 
-    let diagnostics = daemon.get_diagnostics(Some(&session.id), Some(&task.id)).unwrap();
+    let diagnostics = daemon
+        .get_diagnostics(Some(&session.id), Some(&task.id))
+        .unwrap();
     let files = diagnostics.get("files").unwrap().as_array().unwrap();
-    assert!(files.iter().any(|value| value.as_str().unwrap().ends_with("tasks.json")));
-    assert!(files.iter().any(|value| value.as_str().unwrap().ends_with("events.jsonl")));
+    assert!(files
+        .iter()
+        .any(|value| value.as_str().unwrap().ends_with("state.db")));
+    assert!(files
+        .iter()
+        .any(|value| value.as_str().unwrap().contains("app-data/artifacts")));
 
     let events = daemon.list_events(Default::default()).unwrap();
-    assert!(events.iter().any(|event| event.event_type == "task.created"));
-    assert!(events.iter().any(|event| event.event_type == "session.created"));
-    assert!(events.iter().any(|event| event.event_type == "worktree.prepared"));
-    assert!(events.iter().any(|event| event.event_type == "session.launched"));
+    assert!(events
+        .iter()
+        .any(|event| event.event_type == "task.created"));
+    assert!(events
+        .iter()
+        .any(|event| event.event_type == "session.created"));
+    assert!(events
+        .iter()
+        .any(|event| event.event_type == "worktree.prepared"));
+    assert!(events
+        .iter()
+        .any(|event| event.event_type == "session.launched"));
 
-    assert!(root.join("tasks.json").exists());
-    assert!(root.join("sessions.json").exists());
-    assert!(root.join("worktrees.json").exists());
-    assert!(root.join("run_attempts.json").exists());
-    assert!(root.join("events.jsonl").exists());
+    assert!(root.join("app-data/state.db").exists());
+    assert!(root.join("app-data/artifacts").exists());
+    assert!(sqlite_table_exists(
+        &root.join("app-data/state.db"),
+        "recovery_bindings"
+    ));
+    assert!(sqlite_table_exists(
+        &root.join("app-data/state.db"),
+        "audit_events"
+    ));
 }
 
 #[tokio::test]
@@ -146,7 +188,10 @@ async fn approval_and_recovery_flow_work() {
         )
         .unwrap();
     let session_after_approval = daemon.get_session(&session.id).unwrap();
-    assert_eq!(session_after_approval.state, daemon_core::domain::SessionState::ApprovalRequired);
+    assert_eq!(
+        session_after_approval.state,
+        daemon_core::domain::SessionState::ApprovalRequired
+    );
 
     let approval_id = approval.id.clone();
     let resolved = daemon
@@ -164,12 +209,39 @@ async fn approval_and_recovery_flow_work() {
         .unwrap();
     assert!(resolved_event.payload.get("approval").is_some());
 
-    daemon.stop_session(daemon_core::services::StopSessionInput {
-        session_id: session.id.clone(),
-        reason: Some("simulate crash".to_string()),
-    }).unwrap();
+    daemon
+        .stop_session(daemon_core::services::StopSessionInput {
+            session_id: session.id.clone(),
+            reason: Some("simulate crash".to_string()),
+        })
+        .unwrap();
     let recovered = daemon.recovery.recover().unwrap();
     assert!(recovered.is_empty());
+
+    let db = rusqlite::Connection::open(root.join("app-data/state.db")).unwrap();
+    let mut stmt = db
+        .prepare("SELECT provider_session_id, worktree_path, run_attempt_id FROM recovery_bindings WHERE session_id = ?1")
+        .unwrap();
+    let (provider_session_id, worktree_path, run_attempt_id): (
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ) = stmt
+        .query_row(rusqlite::params![session.id.clone()], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })
+        .unwrap();
+    assert_eq!(provider_session_id, None);
+    assert!(worktree_path.is_some());
+    assert!(run_attempt_id.is_some());
+
+    let mut count_stmt = db
+        .prepare("SELECT COUNT(*) FROM audit_events WHERE entity_id = ?1")
+        .unwrap();
+    let audit_count: i64 = count_stmt
+        .query_row(rusqlite::params![session.id], |row| row.get(0))
+        .unwrap();
+    assert!(audit_count > 0);
 }
 
 #[tokio::test]
@@ -198,6 +270,31 @@ async fn rpc_session_outputs_use_contract_shape() {
         })
         .unwrap();
 
+    let get_workspace_response = daemon.handle_request(RpcRequest {
+        id: Some("workspace-get-1".to_string()),
+        method: "getWorkspace".to_string(),
+        params: json!({
+            "workspaceId": workspace.id,
+        }),
+    });
+    assert!(get_workspace_response.ok);
+    let get_workspace_payload: codebar_contracts::rpc::GetWorkspaceOutput =
+        serde_json::from_value(get_workspace_response.result.unwrap()).unwrap();
+    assert_eq!(get_workspace_payload.workspace.id, workspace.id);
+
+    let list_workspaces_response = daemon.handle_request(RpcRequest {
+        id: Some("workspace-list-1".to_string()),
+        method: "listWorkspaces".to_string(),
+        params: json!({}),
+    });
+    assert!(list_workspaces_response.ok);
+    let list_workspaces_payload: codebar_contracts::rpc::ListWorkspacesOutput =
+        serde_json::from_value(list_workspaces_response.result.unwrap()).unwrap();
+    assert!(list_workspaces_payload
+        .workspaces
+        .iter()
+        .any(|item| item.id == workspace.id));
+
     let bind_response = daemon.handle_request(RpcRequest {
         id: Some("bind-1".to_string()),
         method: "bindProviderSession".to_string(),
@@ -207,10 +304,49 @@ async fn rpc_session_outputs_use_contract_shape() {
         }),
     });
     assert!(bind_response.ok);
-    let bind_payload: BindProviderSessionOutput = serde_json::from_value(bind_response.result.unwrap()).unwrap();
-    assert_eq!(bind_payload.session.provider_session_id.as_deref(), Some("ext_123"));
+    let bind_payload: BindProviderSessionOutput =
+        serde_json::from_value(bind_response.result.unwrap()).unwrap();
+    assert_eq!(
+        bind_payload.session.provider_session_id.as_deref(),
+        Some("ext_123")
+    );
 
     let session_id = bind_payload.session.id.clone();
+
+    let prepared_worktree = daemon
+        .prepare_worktree(PrepareWorktreeInput {
+            session_id: session_id.clone(),
+            strategy: codebar_contracts::rpc::WorktreeStrategy::NewManaged,
+        })
+        .unwrap();
+
+    let get_worktree_response = daemon.handle_request(RpcRequest {
+        id: Some("worktree-get-1".to_string()),
+        method: "getWorktree".to_string(),
+        params: json!({
+            "worktreeId": prepared_worktree.id,
+        }),
+    });
+    assert!(get_worktree_response.ok);
+    let get_worktree_payload: codebar_contracts::rpc::GetWorktreeOutput =
+        serde_json::from_value(get_worktree_response.result.unwrap()).unwrap();
+    assert_eq!(get_worktree_payload.worktree.id, prepared_worktree.id);
+
+    let list_worktrees_response = daemon.handle_request(RpcRequest {
+        id: Some("worktree-list-1".to_string()),
+        method: "listWorktrees".to_string(),
+        params: json!({
+            "workspaceId": workspace.id,
+        }),
+    });
+    assert!(list_worktrees_response.ok);
+    let list_worktrees_payload: codebar_contracts::rpc::ListWorktreesOutput =
+        serde_json::from_value(list_worktrees_response.result.unwrap()).unwrap();
+    assert!(list_worktrees_payload
+        .worktrees
+        .iter()
+        .any(|item| item.id == prepared_worktree.id));
+
     let lifecycle_response = daemon.handle_request(RpcRequest {
         id: Some("lifecycle-1".to_string()),
         method: "recordRuntimeLifecycle".to_string(),
@@ -221,8 +357,12 @@ async fn rpc_session_outputs_use_contract_shape() {
         }),
     });
     assert!(lifecycle_response.ok);
-    let lifecycle_payload: RecordRuntimeLifecycleOutput = serde_json::from_value(lifecycle_response.result.unwrap()).unwrap();
-    assert_eq!(lifecycle_payload.session.state, codebar_contracts::domain::SessionState::Running);
+    let lifecycle_payload: RecordRuntimeLifecycleOutput =
+        serde_json::from_value(lifecycle_response.result.unwrap()).unwrap();
+    assert_eq!(
+        lifecycle_payload.session.state,
+        codebar_contracts::domain::SessionState::Running
+    );
 }
 
 #[tokio::test]
@@ -340,11 +480,21 @@ async fn workflow_rpc_roundtrip_persists_runtime_fields() {
         .nodes
         .iter()
         .find_map(|node| match node {
-            codebar_contracts::workflow::TaskDagNode::Step(step) if step.step_id == claim.step_id => Some(step),
+            codebar_contracts::workflow::TaskDagNode::Step(step)
+                if step.step_id == claim.step_id =>
+            {
+                Some(step)
+            }
             _ => None,
         })
         .expect("step node");
-    assert_eq!(step_node.runtime.as_ref().and_then(|runtime| runtime.latest_progress_summary.as_deref()), Some("halfway"));
+    assert_eq!(
+        step_node
+            .runtime
+            .as_ref()
+            .and_then(|runtime| runtime.latest_progress_summary.as_deref()),
+        Some("halfway")
+    );
     assert_eq!(
         step_node
             .runtime
@@ -408,6 +558,7 @@ async fn next_action_and_rpc_roundtrip_work() {
     #[cfg(unix)]
     {
         let socket_path = daemon.socket_path();
+        let session_id = session.id.clone();
         let server = tokio::spawn(async move {
             codebard::rpc::serve(daemon).await.unwrap();
         });
@@ -430,6 +581,75 @@ async fn next_action_and_rpc_roundtrip_work() {
         .unwrap();
         assert!(response.ok);
         assert_eq!(response.result.unwrap()["ready"], json!(true));
+
+        let attach_response = read_rpc_response(
+            &socket_path,
+            &RpcRequest {
+                id: Some("2".to_string()),
+                method: "session.attach".to_string(),
+                params: json!({
+                    "provider": "claude",
+                    "providerSessionId": null,
+                    "cwd": workspace.root_path,
+                }),
+            },
+        )
+        .await
+        .unwrap();
+        assert!(attach_response.ok);
+        let attach_out: mcp_contract::SessionAttachOutput =
+            serde_json::from_value(attach_response.result.unwrap()).unwrap();
+        assert!(!attach_out.task_id.is_empty());
+        assert!(attach_out
+            .recommended_next_calls
+            .contains(&"context.get_current".to_string()));
+
+        let next_response = read_rpc_response(
+            &socket_path,
+            &RpcRequest {
+                id: Some("3".to_string()),
+                method: "task.get_next_action".to_string(),
+                params: json!({ "sessionId": session_id }),
+            },
+        )
+        .await
+        .unwrap();
+        assert!(next_response.ok);
+        let next_out: mcp_contract::TaskGetNextActionOutput =
+            serde_json::from_value(next_response.result.unwrap()).unwrap();
+        assert!(next_out.recommended_sequence.is_some());
+
+        let skill_list_response = read_rpc_response(
+            &socket_path,
+            &RpcRequest {
+                id: Some("4".to_string()),
+                method: "skill.list_active".to_string(),
+                params: json!({ "sessionId": session.id }),
+            },
+        )
+        .await
+        .unwrap();
+        assert!(skill_list_response.ok);
+        let _skill_list_out: mcp_contract::SkillListActiveOutput =
+            serde_json::from_value(skill_list_response.result.unwrap()).unwrap();
+
+        let bad_invoke_response = read_rpc_response(
+            &socket_path,
+            &RpcRequest {
+                id: Some("5".to_string()),
+                method: "skill.invoke".to_string(),
+                params: json!({
+                    "sessionId": session.id,
+                    "stepId": null,
+                    "skill": "not-active",
+                    "input": {"target": "x"},
+                }),
+            },
+        )
+        .await
+        .unwrap();
+        assert!(!bad_invoke_response.ok);
+
         server.abort();
     }
 }

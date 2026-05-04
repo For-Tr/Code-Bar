@@ -37,7 +37,13 @@ fn now_iso_string() -> String {
 }
 
 fn parse_header_f64(response: &reqwest::blocking::Response, name: &str) -> Option<f64> {
-    response.headers().get(name)?.to_str().ok()?.parse::<f64>().ok()
+    response
+        .headers()
+        .get(name)?
+        .to_str()
+        .ok()?
+        .parse::<f64>()
+        .ok()
 }
 
 fn format_timestamp(ts: f64) -> String {
@@ -71,7 +77,9 @@ struct CodexCredits {
 }
 
 fn fetch_codex_usage_via_http() -> RunnerUsageSnapshot {
-    let auth_path = std::path::PathBuf::from(crate::util::home_dir().unwrap_or_default()).join(".codex").join("auth.json");
+    let auth_path = std::path::PathBuf::from(crate::util::home_dir().unwrap_or_default())
+        .join(".codex")
+        .join("auth.json");
     let Ok(text) = std::fs::read_to_string(&auth_path) else {
         return RunnerUsageSnapshot {
             runner_type: "codex".into(),
@@ -98,8 +106,16 @@ fn fetch_codex_usage_via_http() -> RunnerUsageSnapshot {
         };
     };
 
-    let access_token = value.get("tokens").and_then(|v| v.get("access_token")).and_then(|v| v.as_str()).unwrap_or("");
-    let account_id = value.get("tokens").and_then(|v| v.get("account_id")).and_then(|v| v.as_str()).unwrap_or("");
+    let access_token = value
+        .get("tokens")
+        .and_then(|v| v.get("access_token"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let account_id = value
+        .get("tokens")
+        .and_then(|v| v.get("account_id"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     if access_token.is_empty() {
         return RunnerUsageSnapshot {
             runner_type: "codex".into(),
@@ -113,7 +129,10 @@ fn fetch_codex_usage_via_http() -> RunnerUsageSnapshot {
         };
     }
 
-    let client = match reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(20)).build() {
+    let client = match reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+    {
         Ok(client) => client,
         Err(err) => {
             return RunnerUsageSnapshot {
@@ -161,7 +180,10 @@ fn fetch_codex_usage_via_http() -> RunnerUsageSnapshot {
             cost_summary: None,
             raw_text: None,
             last_refreshed_at: now_iso_string(),
-            error: Some(format!("Codex usage API returned status {}", response.status())),
+            error: Some(format!(
+                "Codex usage API returned status {}",
+                response.status()
+            )),
         };
     }
 
@@ -181,25 +203,55 @@ fn fetch_codex_usage_via_http() -> RunnerUsageSnapshot {
         }
     };
 
-    let primary = parsed.rate_limit.as_ref().and_then(|r| r.primary_window.as_ref());
-    let secondary = parsed.rate_limit.as_ref().and_then(|r| r.secondary_window.as_ref());
-    let balance = parsed.credits.as_ref().and_then(|c| c.balance.as_ref()).map(|v| {
-        v.as_str().map(|s| s.to_string()).unwrap_or_else(|| v.to_string())
-    }).unwrap_or_else(|| "0".into());
-    let unlimited = parsed.credits.as_ref().and_then(|c| c.unlimited).unwrap_or(false);
+    let primary = parsed
+        .rate_limit
+        .as_ref()
+        .and_then(|r| r.primary_window.as_ref());
+    let secondary = parsed
+        .rate_limit
+        .as_ref()
+        .and_then(|r| r.secondary_window.as_ref());
+    let balance = parsed
+        .credits
+        .as_ref()
+        .and_then(|c| c.balance.as_ref())
+        .map(|v| {
+            v.as_str()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| v.to_string())
+        })
+        .unwrap_or_else(|| "0".into());
+    let unlimited = parsed
+        .credits
+        .as_ref()
+        .and_then(|c| c.unlimited)
+        .unwrap_or(false);
 
     RunnerUsageSnapshot {
         runner_type: "codex".into(),
         source: "api".into(),
-        auth_status: Some(format!("plan: {}", parsed.plan_type.unwrap_or_else(|| "unknown".into()))),
+        auth_status: Some(format!(
+            "plan: {}",
+            parsed.plan_type.unwrap_or_else(|| "unknown".into())
+        )),
         usage_summary: Some(format!(
             "5h usage: {}%\n5h reset: {}\n7d usage: {}%\n7d reset: {}",
             primary.and_then(|p| p.used_percent).unwrap_or(0),
-            primary.and_then(|p| p.reset_at).map(|v| v.to_string()).unwrap_or_else(|| "unknown".into()),
+            primary
+                .and_then(|p| p.reset_at)
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "unknown".into()),
             secondary.and_then(|s| s.used_percent).unwrap_or(0),
-            secondary.and_then(|s| s.reset_at).map(|v| v.to_string()).unwrap_or_else(|| "unknown".into()),
+            secondary
+                .and_then(|s| s.reset_at)
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "unknown".into()),
         )),
-        cost_summary: Some(format!("credits: {}{}", balance, if unlimited { " (unlimited)" } else { "" })),
+        cost_summary: Some(format!(
+            "credits: {}{}",
+            balance,
+            if unlimited { " (unlimited)" } else { "" }
+        )),
         raw_text: None,
         last_refreshed_at: now_iso_string(),
         error: None,
@@ -207,7 +259,9 @@ fn fetch_codex_usage_via_http() -> RunnerUsageSnapshot {
 }
 
 fn fetch_claude_usage_via_headers() -> RunnerUsageSnapshot {
-    let api_key = std::env::var("ANTHROPIC_API_KEY").ok().filter(|v| !v.trim().is_empty());
+    let api_key = std::env::var("ANTHROPIC_API_KEY")
+        .ok()
+        .filter(|v| !v.trim().is_empty());
     let base_url = std::env::var("ANTHROPIC_BASE_URL")
         .ok()
         .filter(|v| !v.trim().is_empty())
@@ -230,10 +284,16 @@ fn fetch_claude_usage_via_headers() -> RunnerUsageSnapshot {
     let request = ClaudeMessageRequest {
         model: "claude-haiku-4-5-20251001",
         max_tokens: 1,
-        messages: [ClaudeMessage { role: "user", content: "hi" }],
+        messages: [ClaudeMessage {
+            role: "user",
+            content: "hi",
+        }],
     };
 
-    let client = match reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(20)).build() {
+    let client = match reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+    {
         Ok(client) => client,
         Err(err) => {
             return RunnerUsageSnapshot {
@@ -284,17 +344,27 @@ fn fetch_claude_usage_via_headers() -> RunnerUsageSnapshot {
         };
     }
 
-    let five_hour = parse_header_f64(&response, "anthropic-ratelimit-unified-5h-utilization").map(|v| v * 100.0);
+    let five_hour = parse_header_f64(&response, "anthropic-ratelimit-unified-5h-utilization")
+        .map(|v| v * 100.0);
     let five_hour_reset = parse_header_f64(&response, "anthropic-ratelimit-unified-5h-reset");
-    let weekly = parse_header_f64(&response, "anthropic-ratelimit-unified-7d-utilization").map(|v| v * 100.0);
+    let weekly = parse_header_f64(&response, "anthropic-ratelimit-unified-7d-utilization")
+        .map(|v| v * 100.0);
     let weekly_reset = parse_header_f64(&response, "anthropic-ratelimit-unified-7d-reset");
 
     let usage_summary = Some(format!(
         "5h usage: {}\n5h reset: {}\n7d usage: {}\n7d reset: {}",
-        five_hour.map(|v| format!("{v:.1}%")).unwrap_or_else(|| "unknown".into()),
-        five_hour_reset.map(format_timestamp).unwrap_or_else(|| "unknown".into()),
-        weekly.map(|v| format!("{v:.1}%")).unwrap_or_else(|| "unknown".into()),
-        weekly_reset.map(format_timestamp).unwrap_or_else(|| "unknown".into()),
+        five_hour
+            .map(|v| format!("{v:.1}%"))
+            .unwrap_or_else(|| "unknown".into()),
+        five_hour_reset
+            .map(format_timestamp)
+            .unwrap_or_else(|| "unknown".into()),
+        weekly
+            .map(|v| format!("{v:.1}%"))
+            .unwrap_or_else(|| "unknown".into()),
+        weekly_reset
+            .map(format_timestamp)
+            .unwrap_or_else(|| "unknown".into()),
     ));
 
     RunnerUsageSnapshot {

@@ -263,7 +263,11 @@ impl OrchestrationState {
         self.plans
             .values()
             .filter(|plan| plan.task_id == task_id && plan.status == PlanStatus::Active)
-            .max_by(|left, right| left.updated_at.cmp(&right.updated_at).then(left.id.cmp(&right.id)))
+            .max_by(|left, right| {
+                left.updated_at
+                    .cmp(&right.updated_at)
+                    .then(left.id.cmp(&right.id))
+            })
     }
 
     pub fn steps_for_plan(&self, plan_id: &str) -> Vec<&PlanStep> {

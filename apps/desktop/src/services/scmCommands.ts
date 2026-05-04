@@ -5,12 +5,19 @@ import { type ScmActionMode, type ScmEntryGroup, useScmStore } from "../store/sc
 import { useSessionStore } from "../store/sessionStore";
 import { useWorkbenchStore } from "../store/workbenchStore";
 import { requestDangerousSessionAction } from "./daemonCommands";
+import { getLatestDaemonState } from "../daemon/DaemonDataProvider";
+import { resolveEffectiveSessionWorkdir, selectSessionView } from "../daemon/selectors";
+import { useWorkspaceStore } from "../store/workspaceStore";
 
 interface ConflictVersion {
   label: "base" | "ours" | "theirs" | "working";
   content: string;
   isBinary: boolean;
   missing: boolean;
+}
+
+function isDevHelperPath(path: string) {
+  return path === ".codebar-worktree-dev" || path.startsWith(".codebar-worktree-dev/")
 }
 
 interface ConflictPayload {
@@ -22,6 +29,23 @@ function getSession(sessionId: string) {
   return useSessionStore.getState().sessions.find((item) => item.id === sessionId) ?? null;
 }
 
+function getSessionRuntime(sessionId: string) {
+  const session = getSession(sessionId)
+  if (!session) return null
+  const daemon = getLatestDaemonState()
+  const workspace = useWorkspaceStore.getState().workspaces.find((item) => item.id === session.workspaceId) ?? null
+  const workdir = daemon
+    ? resolveEffectiveSessionWorkdir(daemon, sessionId, session, workspace)
+    : (session.worktreePath ?? session.workdir)
+  if (!workdir || isDevHelperPath(workdir)) return null
+  const sessionView = daemon ? selectSessionView(daemon, sessionId) : null
+  return {
+    session,
+    workdir,
+    baseBranch: sessionView?.worktree?.baseBranch ?? session.baseBranch,
+  }
+}
+
 function openScmFileInEditor(sessionId: string, path: string, preview = true) {
   useEditorStore.getState().openFile(sessionId, path, preview);
   revealExplorerPath(sessionId, path, "focusNoScroll", "scm");
@@ -30,19 +54,19 @@ function openScmFileInEditor(sessionId: string, path: string, preview = true) {
   workbench.setCenterSurface("editor");
 }
 
-async function withRefresh(sessionId: string, action: () => Promise<void>) {
-  const session = getSession(sessionId);
-  if (!session) return;
+async function withRefresh(sessionId: string, action: (runtime: NonNullable<ReturnType<typeof getSessionRuntime>>) => Promise<void>) {
+  const runtime = getSessionRuntime(sessionId);
+  if (!runtime) return;
   const scm = useScmStore.getState();
   scm.setActionPending(sessionId, true);
   scm.setActionError(sessionId, null);
   try {
-    await action();
+    await action(runtime);
     await Promise.all([
-      invoke("get_git_status", { sessionId, workdir: session.workdir }),
-      session.baseBranch
-        ? invoke("get_git_diff_session_worktree", { sessionId, workdir: session.workdir, baseBranch: session.baseBranch })
-        : invoke("get_git_diff", { sessionId, workdir: session.workdir }),
+      invoke("get_git_status", { sessionId, workdir: runtime.workdir }),
+      runtime.baseBranch
+        ? invoke("get_git_diff_session_worktree", { sessionId, workdir: runtime.workdir, baseBranch: runtime.baseBranch })
+        : invoke("get_git_diff", { sessionId, workdir: runtime.workdir }),
     ]);
   } catch (error) {
     scm.setActionError(sessionId, error instanceof Error ? error.message : String(error));
@@ -55,16 +79,16 @@ async function withRefresh(sessionId: string, action: () => Promise<void>) {
 export function selectScmFile(sessionId: string, group: ScmEntryGroup, path: string) {
   useScmStore.getState().setSelectedEntry(sessionId, { group, path });
   useScmStore.getState().setDiffOverride(sessionId, null);
-  const session = getSession(sessionId);
+  const runtime = getSessionRuntime(sessionId);
 
   if (group === "untracked") {
     openScmFileInEditor(sessionId, path, true);
     return;
   }
 
-  if (group === "conflicts" && session) {
+  if (group === "conflicts" && runtime) {
     void invoke<ConflictPayload>("git_read_conflict_file", {
-      workdir: session.workdir,
+      workdir: runtime.workdir,
       path,
     }).then((payload) => {
       useScmStore.getState().setConflictPayload(sessionId, payload);
@@ -75,10 +99,10 @@ export function selectScmFile(sessionId: string, group: ScmEntryGroup, path: str
     useScmStore.getState().setConflictPayload(sessionId, null);
   }
 
-  if (session && (group === "staged" || group === "unstaged")) {
+  if (runtime && (group === "staged" || group === "unstaged")) {
     void invoke("get_git_diff_side", {
       sessionId,
-      workdir: session.workdir,
+      workdir: runtime.workdir,
       path,
       mode: group === "staged" ? "staged" : "unstaged",
     }).catch(() => {});
@@ -88,18 +112,14 @@ export function selectScmFile(sessionId: string, group: ScmEntryGroup, path: str
 }
 
 export async function stageScmFile(sessionId: string, path: string) {
-  const session = getSession(sessionId);
-  if (!session) return;
-  await withRefresh(sessionId, async () => {
-    await invoke("git_stage_file", { workdir: session.workdir, path });
+  await withRefresh(sessionId, async (runtime) => {
+    await invoke("git_stage_file", { workdir: runtime.workdir, path });
   });
 }
 
 export async function unstageScmFile(sessionId: string, path: string) {
-  const session = getSession(sessionId);
-  if (!session) return;
-  await withRefresh(sessionId, async () => {
-    await invoke("git_unstage_file", { workdir: session.workdir, path });
+  await withRefresh(sessionId, async (runtime) => {
+    await invoke("git_unstage_file", { workdir: runtime.workdir, path });
   });
 }
 
@@ -129,41 +149,35 @@ export async function commitScm(sessionId: string) {
 }
 
 export async function stageAllScm(sessionId: string, paths?: string[]) {
-  const session = getSession(sessionId);
-  if (!session) return;
-  await withRefresh(sessionId, async () => {
+  await withRefresh(sessionId, async (runtime) => {
     if (paths && paths.length > 0) {
-      await invoke("git_stage_paths", { workdir: session.workdir, paths });
+      await invoke("git_stage_paths", { workdir: runtime.workdir, paths });
       return;
     }
-    await invoke("git_stage_all", { workdir: session.workdir });
+    await invoke("git_stage_all", { workdir: runtime.workdir });
   });
 }
 
 export async function unstageAllScm(sessionId: string) {
-  const session = getSession(sessionId);
-  if (!session) return;
-  await withRefresh(sessionId, async () => {
-    await invoke("git_unstage_all", { workdir: session.workdir });
+  await withRefresh(sessionId, async (runtime) => {
+    await invoke("git_unstage_all", { workdir: runtime.workdir });
   });
 }
 
 export async function applyScmHunk(sessionId: string, path: string, mode: ScmActionMode, hunkIndex: number, action: "stage" | "unstage" | "discard") {
-  const session = getSession(sessionId);
-  if (!session) return;
-  await withRefresh(sessionId, async () => {
+  await withRefresh(sessionId, async (runtime) => {
     if (action === "stage") {
-      await invoke("git_stage_hunk", { workdir: session.workdir, path, hunkIndex });
+      await invoke("git_stage_hunk", { workdir: runtime.workdir, path, hunkIndex });
       return;
     }
     if (action === "unstage") {
-      await invoke("git_unstage_hunk", { workdir: session.workdir, path, hunkIndex });
+      await invoke("git_unstage_hunk", { workdir: runtime.workdir, path, hunkIndex });
       return;
     }
     if (mode !== "unstaged") {
       throw new Error("当前只支持从未暂存变更中 discard hunk");
     }
-    await invoke("git_discard_hunk", { workdir: session.workdir, path, hunkIndex });
+    await invoke("git_discard_hunk", { workdir: runtime.workdir, path, hunkIndex });
   });
 
   if (mode === "staged" || mode === "unstaged") {
@@ -172,10 +186,8 @@ export async function applyScmHunk(sessionId: string, path: string, mode: ScmAct
 }
 
 export async function resolveConflict(sessionId: string, path: string, strategy: "ours" | "theirs") {
-  const session = getSession(sessionId);
-  if (!session) return;
-  await withRefresh(sessionId, async () => {
-    await invoke("git_resolve_conflict", { workdir: session.workdir, path, strategy });
+  await withRefresh(sessionId, async (runtime) => {
+    await invoke("git_resolve_conflict", { workdir: runtime.workdir, path, strategy });
   });
   useScmStore.getState().setConflictPayload(sessionId, null);
   useScmStore.getState().setSelectedEntry(sessionId, null);

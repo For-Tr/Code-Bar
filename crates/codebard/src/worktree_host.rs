@@ -38,7 +38,9 @@ impl GitWorktreeHost {
             .current_dir(repo_root)
             .args(args)
             .output()
-            .map_err(|error| ErrorEnvelope::new(ErrorCode::GitOperationFailed, error.to_string(), true))
+            .map_err(|error| {
+                ErrorEnvelope::new(ErrorCode::GitOperationFailed, error.to_string(), true)
+            })
     }
 
     fn current_branch(repo_root: &Path) -> Result<Option<String>, ErrorEnvelope> {
@@ -57,7 +59,12 @@ impl GitWorktreeHost {
     fn force_remove_worktree(repo_root: &Path, worktree_path: &Path) {
         let _ = std::process::Command::new("git")
             .current_dir(repo_root)
-            .args(["worktree", "remove", "--force", &worktree_path.to_string_lossy()])
+            .args([
+                "worktree",
+                "remove",
+                "--force",
+                &worktree_path.to_string_lossy(),
+            ])
             .output();
         if worktree_path.exists() {
             let _ = fs::remove_dir_all(worktree_path);
@@ -100,8 +107,9 @@ impl WorktreeHost for GitWorktreeHost {
             .output();
 
         if let Some(parent) = worktree_path.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|error| ErrorEnvelope::new(ErrorCode::GitOperationFailed, error.to_string(), true))?;
+            fs::create_dir_all(parent).map_err(|error| {
+                ErrorEnvelope::new(ErrorCode::GitOperationFailed, error.to_string(), true)
+            })?;
         }
 
         let output = Self::run_git(
@@ -165,12 +173,32 @@ mod tests {
             .as_nanos();
         let root = std::env::temp_dir().join(format!("codebar-worktree-host-{name}-{nonce}"));
         fs::create_dir_all(&root).unwrap();
-        Command::new("git").current_dir(&root).args(["init", "-b", "main"]).output().unwrap();
-        Command::new("git").current_dir(&root).args(["config", "user.email", "codebar@example.com"]).output().unwrap();
-        Command::new("git").current_dir(&root).args(["config", "user.name", "CodeBar"]).output().unwrap();
+        Command::new("git")
+            .current_dir(&root)
+            .args(["init", "-b", "main"])
+            .output()
+            .unwrap();
+        Command::new("git")
+            .current_dir(&root)
+            .args(["config", "user.email", "codebar@example.com"])
+            .output()
+            .unwrap();
+        Command::new("git")
+            .current_dir(&root)
+            .args(["config", "user.name", "CodeBar"])
+            .output()
+            .unwrap();
         fs::write(root.join("README.md"), "hello\n").unwrap();
-        Command::new("git").current_dir(&root).args(["add", "README.md"]).output().unwrap();
-        Command::new("git").current_dir(&root).args(["commit", "-m", "init"]).output().unwrap();
+        Command::new("git")
+            .current_dir(&root)
+            .args(["add", "README.md"])
+            .output()
+            .unwrap();
+        Command::new("git")
+            .current_dir(&root)
+            .args(["commit", "-m", "init"])
+            .output()
+            .unwrap();
         root
     }
 
@@ -179,11 +207,19 @@ mod tests {
         let repo = temp_repo("prepare");
         let host = GitWorktreeHost;
         let prepared = host
-            .prepare(repo.to_string_lossy().as_ref(), "123", WorktreeStrategy::NewManaged)
+            .prepare(
+                repo.to_string_lossy().as_ref(),
+                "123",
+                WorktreeStrategy::NewManaged,
+            )
             .unwrap()
             .unwrap();
         assert!(PathBuf::from(&prepared.path).exists());
-        assert!(prepared.branch_name.as_deref().unwrap().contains("session-123"));
+        assert!(prepared
+            .branch_name
+            .as_deref()
+            .unwrap()
+            .contains("session-123"));
         assert_eq!(prepared.base_branch.as_deref(), Some("main"));
     }
 
@@ -192,7 +228,11 @@ mod tests {
         let repo = temp_repo("cleanup");
         let host = GitWorktreeHost;
         let prepared = host
-            .prepare(repo.to_string_lossy().as_ref(), "321", WorktreeStrategy::NewManaged)
+            .prepare(
+                repo.to_string_lossy().as_ref(),
+                "321",
+                WorktreeStrategy::NewManaged,
+            )
             .unwrap()
             .unwrap();
         host.cleanup(

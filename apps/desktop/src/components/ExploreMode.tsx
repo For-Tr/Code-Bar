@@ -4,7 +4,7 @@ import { type ClaudeSession } from "../store/sessionStore";
 import { ExplorerPane } from "./explore/ExplorerPane";
 import { EditorSplitHost } from "./editor/EditorSplitHost";
 
-class ExploreErrorBoundary extends Component<{ children: ReactNode }, { error: string | null }> {
+class ExploreErrorBoundary extends Component<{ children: ReactNode; resetKey: string }, { error: string | null }> {
   state = { error: null };
 
   static getDerivedStateFromError(error: unknown) {
@@ -21,6 +21,12 @@ class ExploreErrorBoundary extends Component<{ children: ReactNode }, { error: s
         stack: error instanceof Error ? error.stack ?? null : null,
       },
     }));
+  }
+
+  componentDidUpdate(prevProps: Readonly<{ children: ReactNode; resetKey: string }>) {
+    if (this.state.error && prevProps.resetKey !== this.props.resetKey) {
+      this.setState({ error: null });
+    }
   }
 
   render() {
@@ -75,16 +81,28 @@ function EmptyEditorState({ message }: { message: string }) {
   );
 }
 
+function buildExploreResetKey(session: ClaudeSession | null, surface: "sidebar" | "editor") {
+  return session ? `${surface}:${session.id}:${session.workdir}` : `${surface}:empty`;
+}
+
 export function ExploreSidebar({
   session,
   onRefreshDiff,
+  showBackButton = true,
+  onBack,
+  onOpenScm,
 }: {
   session: ClaudeSession | null;
   onRefreshDiff: (sessionId?: string | null, options?: { reloadExplorer?: boolean }) => void;
+  showBackButton?: boolean;
+  onBack?: () => void;
+  onOpenScm?: () => void;
 }) {
   const { t } = useAppI18n();
+  const resetKey = buildExploreResetKey(session, "sidebar");
+
   return (
-    <ExploreErrorBoundary>
+    <ExploreErrorBoundary resetKey={resetKey}>
       <div style={{
         width: "100%",
         height: "100%",
@@ -92,7 +110,15 @@ export function ExploreSidebar({
         background: "transparent",
         borderInlineEnd: "1px solid var(--ci-toolbar-border)",
       }}>
-        {session ? <ExplorerPane session={session} onRefreshDiff={onRefreshDiff} /> : <EmptyEditorState message={t("explorer.enterExplorer")} />}
+        {session ? (
+          <ExplorerPane
+            session={session}
+            onRefreshDiff={onRefreshDiff}
+            showBackButton={showBackButton}
+            onBack={onBack}
+            onOpenScm={onOpenScm}
+          />
+        ) : <EmptyEditorState message={t("explorer.enterExplorer")} />}
       </div>
     </ExploreErrorBoundary>
   );
@@ -105,8 +131,10 @@ export function ExploreEditor({
   session: ClaudeSession | null;
   onRefreshDiff: (sessionId?: string | null, options?: { reloadExplorer?: boolean }) => void;
 }) {
+  const resetKey = buildExploreResetKey(session, "editor");
+
   return (
-    <ExploreErrorBoundary>
+    <ExploreErrorBoundary resetKey={resetKey}>
       <div style={{
         width: "100%",
         height: "100%",

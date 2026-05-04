@@ -2,8 +2,8 @@ use std::fs;
 use std::io::Read;
 use std::path::PathBuf;
 
-use serde_json::{Map, Value};
 use serde::Serialize;
+use serde_json::{Map, Value};
 use tauri::{Emitter, Manager};
 
 use crate::provider_hook_bridge::{forward_provider_hook_to_daemon, HookBridgeProvider};
@@ -491,7 +491,10 @@ fn save_json_file(path: &PathBuf, json: &Value) -> Result<(), String> {
 }
 
 fn strip_managed_hooks(root: &mut Value, source: HookSource) -> bool {
-    let Some(hooks_obj) = root.get_mut("hooks").and_then(|value| value.as_object_mut()) else {
+    let Some(hooks_obj) = root
+        .get_mut("hooks")
+        .and_then(|value| value.as_object_mut())
+    else {
         return false;
     };
 
@@ -573,7 +576,8 @@ fn has_managed_hook_for_spec(root: &Value, spec: &HookCommandSpec) -> bool {
 }
 
 fn missing_managed_events(root: &Value, specs: &[HookCommandSpec]) -> Vec<String> {
-    specs.iter()
+    specs
+        .iter()
         .filter(|spec| !has_managed_hook_for_spec(root, spec))
         .map(|spec| spec.event_name.to_string())
         .collect()
@@ -614,7 +618,10 @@ fn disable_claude_hook_settings() -> Result<String, String> {
     }
 
     save_json_file(&settings_path, &settings)?;
-    Ok(format!("已关闭 Claude Code hooks: {}", settings_path.display()))
+    Ok(format!(
+        "已关闭 Claude Code hooks: {}",
+        settings_path.display()
+    ))
 }
 
 fn load_toml_file(path: &PathBuf) -> Result<toml::Table, String> {
@@ -646,8 +653,8 @@ fn save_toml_file(path: &PathBuf, table: &toml::Table) -> Result<(), String> {
 
 #[cfg(unix)]
 fn ensure_codex_feature_flag() -> Result<String, String> {
-    let config_path = resolve_provider_file_path("codex", "", "config.toml")
-        .ok_or("无法解析 Codex 配置目录")?;
+    let config_path =
+        resolve_provider_file_path("codex", "", "config.toml").ok_or("无法解析 Codex 配置目录")?;
     let mut config = load_toml_file(&config_path)?;
 
     let features = config
@@ -684,8 +691,8 @@ fn ensure_codex_feature_flag() -> Result<String, String> {
 fn ensure_codex_notify_settings() -> Result<String, String> {
     ensure_windows_hook_bridge_assets()?;
 
-    let config_path = resolve_provider_file_path("codex", "", "config.toml")
-        .ok_or("无法解析 Codex 配置目录")?;
+    let config_path =
+        resolve_provider_file_path("codex", "", "config.toml").ok_or("无法解析 Codex 配置目录")?;
     let mut config = load_toml_file(&config_path)?;
     let desired = codex_notify_command()?;
     let desired_values: Vec<toml::Value> =
@@ -714,8 +721,8 @@ fn ensure_codex_notify_settings() -> Result<String, String> {
 
 #[cfg(unix)]
 fn ensure_codex_hook_settings() -> Result<String, String> {
-    let hooks_path = resolve_provider_file_path("codex", "", "hooks.json")
-        .ok_or("无法解析 Codex 配置目录")?;
+    let hooks_path =
+        resolve_provider_file_path("codex", "", "hooks.json").ok_or("无法解析 Codex 配置目录")?;
     let mut hooks = load_json_file(&hooks_path)?;
     let specs = hook_specs(HookSource::Codex)?;
     let changed = merge_hook_specs(
@@ -744,11 +751,14 @@ fn ensure_codex_hook_settings() -> Result<String, String> {
 
 #[cfg(unix)]
 fn disable_codex_feature_flag() -> Result<String, String> {
-    let config_path = resolve_provider_file_path("codex", "", "config.toml")
-        .ok_or("无法解析 Codex 配置目录")?;
+    let config_path =
+        resolve_provider_file_path("codex", "", "config.toml").ok_or("无法解析 Codex 配置目录")?;
     let mut config = load_toml_file(&config_path)?;
 
-    let Some(features) = config.get_mut("features").and_then(|value| value.as_table_mut()) else {
+    let Some(features) = config
+        .get_mut("features")
+        .and_then(|value| value.as_table_mut())
+    else {
         return Ok("Codex hooks feature 已关闭或未配置".to_string());
     };
 
@@ -763,7 +773,10 @@ fn disable_codex_feature_flag() -> Result<String, String> {
 
     features.insert("codex_hooks".to_string(), toml::Value::Boolean(false));
     save_toml_file(&config_path, &config)?;
-    Ok(format!("已关闭 Codex hooks feature: {}", config_path.display()))
+    Ok(format!(
+        "已关闭 Codex hooks feature: {}",
+        config_path.display()
+    ))
 }
 
 #[cfg(not(unix))]
@@ -773,8 +786,8 @@ fn disable_codex_feature_flag() -> Result<String, String> {
 
 #[cfg(unix)]
 fn disable_codex_hook_settings() -> Result<String, String> {
-    let hooks_path = resolve_provider_file_path("codex", "", "hooks.json")
-        .ok_or("无法解析 Codex 配置目录")?;
+    let hooks_path =
+        resolve_provider_file_path("codex", "", "hooks.json").ok_or("无法解析 Codex 配置目录")?;
     let mut hooks = load_json_file(&hooks_path)?;
     let changed = strip_managed_hooks(&mut hooks, HookSource::Codex);
 
@@ -791,8 +804,8 @@ fn disable_codex_hook_settings() -> Result<String, String> {
 
 #[cfg(not(unix))]
 fn disable_codex_hook_settings() -> Result<String, String> {
-    let config_path = resolve_provider_file_path("codex", "", "config.toml")
-        .ok_or("无法解析 Codex 配置目录")?;
+    let config_path =
+        resolve_provider_file_path("codex", "", "config.toml").ok_or("无法解析 Codex 配置目录")?;
     let mut config = load_toml_file(&config_path)?;
 
     if config.remove("notify").is_none() {
@@ -800,7 +813,10 @@ fn disable_codex_hook_settings() -> Result<String, String> {
     }
 
     save_toml_file(&config_path, &config)?;
-    Ok(format!("已关闭 Codex Windows notify: {}", config_path.display()))
+    Ok(format!(
+        "已关闭 Codex Windows notify: {}",
+        config_path.display()
+    ))
 }
 
 pub fn disable_all_hooks() -> Result<String, String> {
@@ -844,7 +860,9 @@ fn codex_hooks_configured() -> Result<bool, String> {
         let config_path = resolve_provider_file_path("codex", "", "config.toml")
             .ok_or("无法解析 Codex 配置目录")?;
         let config = load_toml_file(&config_path)?;
-        return Ok(matches!(config.get("notify"), Some(toml::Value::Array(values)) if !values.is_empty()));
+        return Ok(
+            matches!(config.get("notify"), Some(toml::Value::Array(values)) if !values.is_empty()),
+        );
     }
 }
 
@@ -934,11 +952,19 @@ pub fn reconcile_integrations_on_startup(app: &tauri::AppHandle) -> Result<Strin
     let locale = crate::i18n::current_locale(&app.state::<crate::i18n::LocaleState>());
     if crate::integration_control::notifications_and_hooks_enabled(app) {
         let configured = setup_all_hooks()?;
-        return Ok(crate::i18n::translate(locale, "notifications.hook_enabled", &[("detail", &configured)]));
+        return Ok(crate::i18n::translate(
+            locale,
+            "notifications.hook_enabled",
+            &[("detail", &configured)],
+        ));
     }
 
     let disabled = disable_all_hooks()?;
-    Ok(crate::i18n::translate(locale, "notifications.hook_disabled", &[("detail", &disabled)]))
+    Ok(crate::i18n::translate(
+        locale,
+        "notifications.hook_disabled",
+        &[("detail", &disabled)],
+    ))
 }
 
 #[tauri::command]
@@ -970,26 +996,42 @@ pub fn get_notifications_and_hooks_status(
 
     let mut issues = Vec::new();
     if enabled && !claude_hooks_configured {
-        issues.push(crate::i18n::translate(locale, "notifications.claude_hooks_not_configured", &[]));
+        issues.push(crate::i18n::translate(
+            locale,
+            "notifications.claude_hooks_not_configured",
+            &[],
+        ));
     }
     if enabled && !codex_hooks_configured {
-        issues.push(crate::i18n::translate(locale, "notifications.codex_hooks_not_configured", &[]));
+        issues.push(crate::i18n::translate(
+            locale,
+            "notifications.codex_hooks_not_configured",
+            &[],
+        ));
     }
     if enabled && !codex_feature_enabled {
-        issues.push(crate::i18n::translate(locale, "notifications.codex_feature_disabled", &[]));
+        issues.push(crate::i18n::translate(
+            locale,
+            "notifications.codex_feature_disabled",
+            &[],
+        ));
     }
     if enabled && !claude_listener_ready {
-        issues.push(crate::i18n::translate(locale, "notifications.claude_listener_not_ready", &[]));
+        issues.push(crate::i18n::translate(
+            locale,
+            "notifications.claude_listener_not_ready",
+            &[],
+        ));
     }
     if enabled && !codex_listener_ready {
-        issues.push(crate::i18n::translate(locale, "notifications.codex_listener_not_ready", &[]));
+        issues.push(crate::i18n::translate(
+            locale,
+            "notifications.codex_listener_not_ready",
+            &[],
+        ));
     }
 
-    let healthy = if enabled {
-        issues.is_empty()
-    } else {
-        true
-    };
+    let healthy = if enabled { issues.is_empty() } else { true };
 
     Ok(NotificationHookStatus {
         enabled,
@@ -1038,7 +1080,10 @@ pub fn trust_workspace(path: String) -> Result<(), String> {
     Ok(())
 }
 
-fn codex_notify_message(locale: crate::i18n::AppLocale, json: &Value) -> Option<(String, String, String)> {
+fn codex_notify_message(
+    locale: crate::i18n::AppLocale,
+    json: &Value,
+) -> Option<(String, String, String)> {
     let notification_type = json
         .get("type")
         .or_else(|| json.get("event"))
@@ -1069,7 +1114,9 @@ fn codex_notify_message(locale: crate::i18n::AppLocale, json: &Value) -> Option<
     .find(|s| !s.is_empty())
     .map(ToString::to_string)
     .unwrap_or_else(|| match notification_type.as_str() {
-        "agent-turn-complete" => crate::i18n::translate(locale, "notifications.codex_turn_complete", &[]),
+        "agent-turn-complete" => {
+            crate::i18n::translate(locale, "notifications.codex_turn_complete", &[])
+        }
         other => crate::i18n::translate(locale, "notifications.codex_generic", &[("type", other)]),
     });
 
@@ -1113,7 +1160,9 @@ fn dispatch_hook_event(app: &tauri::AppHandle, source: HookSource, json: &Value)
     match source {
         HookSource::ClaudeCode => match event_name {
             "UserPromptSubmit" => {
-                if let Some(provider_session_id) = forward_provider_hook_to_daemon(HookBridgeProvider::ClaudeCode, json) {
+                if let Some(provider_session_id) =
+                    forward_provider_hook_to_daemon(HookBridgeProvider::ClaudeCode, json)
+                {
                     let _ = app.emit(
                         "provider-session-bound",
                         serde_json::json!({
@@ -1130,7 +1179,8 @@ fn dispatch_hook_event(app: &tauri::AppHandle, source: HookSource, json: &Value)
                 emit_session_lifecycle(app, routing, SessionLifecycleSignal::Waiting);
             }
             "StopFailure" => {
-                let translated_unknown_error = crate::i18n::translate(locale, "notifications.unknown_error", &[]);
+                let translated_unknown_error =
+                    crate::i18n::translate(locale, "notifications.unknown_error", &[]);
                 let error = json
                     .get("error")
                     .and_then(|v| v.as_str())
@@ -1167,7 +1217,9 @@ fn dispatch_hook_event(app: &tauri::AppHandle, source: HookSource, json: &Value)
         },
         HookSource::Codex => match event_name {
             "" => {
-                if let Some((title, message, notification_type)) = codex_notify_message(locale, json) {
+                if let Some((title, message, notification_type)) =
+                    codex_notify_message(locale, json)
+                {
                     emit_session_lifecycle(
                         app,
                         routing,
@@ -1180,7 +1232,9 @@ fn dispatch_hook_event(app: &tauri::AppHandle, source: HookSource, json: &Value)
                 }
             }
             "UserPromptSubmit" => {
-                if let Some(provider_session_id) = forward_provider_hook_to_daemon(HookBridgeProvider::Codex, json) {
+                if let Some(provider_session_id) =
+                    forward_provider_hook_to_daemon(HookBridgeProvider::Codex, json)
+                {
                     let _ = app.emit(
                         "provider-session-bound",
                         serde_json::json!({

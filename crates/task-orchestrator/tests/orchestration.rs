@@ -2,9 +2,10 @@ use std::collections::BTreeMap;
 
 use task_orchestrator::{
     ApprovalActionType, ApprovalRequest, ApprovalStatus, CleanupPolicy, Engine, OrchestrationState,
-    Plan, PlanMode, PlanStatus, PlanStep, PlanStepStatus, Provider, Session, SessionAttachmentInput,
-    SessionLaunchMode, SessionState, SkillProfile, SkillProfileSource, Task, TaskStatus,
-    TrustLevel, VcsType, Workspace, Worktree, WorktreeLifecycleState, WorktreeSource,
+    Plan, PlanMode, PlanStatus, PlanStep, PlanStepStatus, Provider, Session,
+    SessionAttachmentInput, SessionLaunchMode, SessionState, SkillProfile, SkillProfileSource,
+    Task, TaskStatus, TrustLevel, VcsType, Workspace, Worktree, WorktreeLifecycleState,
+    WorktreeSource,
 };
 
 fn ts(minute: u32) -> String {
@@ -244,7 +245,9 @@ fn open_mode_keeps_priority_and_mcp_shape() {
     assert_eq!(next.step.expect("step").id, "step-a");
     let seq = next.recommended_sequence.expect("sequence");
     assert_eq!(seq[0].name, "task.get_next_action");
-    assert!(seq.iter().any(|call| call.name == "task.complete_step#step-a"));
+    assert!(seq
+        .iter()
+        .any(|call| call.name == "task.complete_step#step-a"));
 }
 
 #[test]
@@ -272,7 +275,10 @@ fn depends_on_strictly_unlocks_followup_after_completion() {
             "session-1",
             "step-a",
             Some(&claim.lease_token),
-            Some(&BTreeMap::from([("artifact".into(), serde_json::Value::String("done".into()))])),
+            Some(&BTreeMap::from([(
+                "artifact".into(),
+                serde_json::Value::String("done".into()),
+            )])),
             &ts(12),
         )
         .expect("complete");
@@ -345,7 +351,10 @@ fn step_skill_profile_overrides_task_worktree_and_workspace() {
         .resolve_active_skills(&mut state, "session-1", Some("step-b"), &ts(10))
         .expect("skills");
 
-    assert_eq!(skills.active_skill_profile_id.as_deref(), Some("step-profile"));
+    assert_eq!(
+        skills.active_skill_profile_id.as_deref(),
+        Some("step-profile")
+    );
     assert_eq!(skills.active_skills, vec!["step-skill"]);
     assert_eq!(skills.preferred_skills, Some(vec!["step-skill".into()]));
     let forbidden = skills.forbidden_skills.expect("forbidden");
@@ -396,7 +405,10 @@ fn update_progress_persists_details() {
             "step-a",
             Some(&claim.lease_token),
             "started",
-            Some(&BTreeMap::from([("percent".into(), serde_json::Value::from(50))])),
+            Some(&BTreeMap::from([(
+                "percent".into(),
+                serde_json::Value::from(50),
+            )])),
             &ts(11),
         )
         .expect("progress");

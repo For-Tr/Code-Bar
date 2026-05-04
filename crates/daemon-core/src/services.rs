@@ -1,17 +1,17 @@
 use crate::domain::{
     error_envelope, ApprovalActionType, ApprovalRequest, ApprovalStatus, DomainResult, ErrorCode,
-    ErrorEnvelope, EventEntityType, EventEnvelope, EventSource, Plan, PlanMode, PlanStep,
-    RunAttempt, Session, SessionLaunchMode, SessionState, Task, TaskStatus, Worktree,
-    WorktreeCleanupPolicy, WorktreeLifecycleState, WorktreeSource,
+    ErrorEnvelope, EventEntityType, EventEnvelope, EventSource, Plan, PlanMode,
+    PlanStep, RecoveryBinding, RunAttempt, Session, SessionLaunchMode, SessionState, Task,
+    TaskStatus, Worktree, WorktreeCleanupPolicy, WorktreeLifecycleState, WorktreeSource,
 };
 use crate::ports::{
-    ApprovalExecutor, ApprovalFilter, Clock, DaemonStore, EventFilter, EventRepository,
-    IdGenerator, PreparedWorktree, ProviderAdapter, RuntimeHost, RuntimeLaunchResult,
-    RuntimeLaunchSpec, SessionFilter, TaskFilter, WorktreeHost, WorktreeStrategy,
+    ApprovalExecutor, ApprovalFilter, CanonicalProviderEvent, Clock, DaemonStore, EventFilter,
+    EventRepository, IdGenerator, LaunchResult, NormalizedProviderEvent, PreparedWorktree,
+    ProviderAdapter, RuntimeHost, SessionFilter, TaskFilter, WorktreeHost, WorktreeStrategy,
 };
 use crate::queries::NextAction;
 use crate::workflow::WorkflowService;
-use codebar_contracts::domain::{LauncherType, RunAttemptStatus};
+use codebar_contracts::domain::RunAttemptStatus;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -56,6 +56,8 @@ impl ServiceContext {
 pub type CreateTaskInput = codebar_contracts::rpc::CreateTaskInput;
 pub type UpdateTaskInput = codebar_contracts::rpc::UpdateTaskInput;
 pub type CreateSessionInput = codebar_contracts::rpc::CreateSessionInput;
+pub type UpdateSessionInput = codebar_contracts::rpc::UpdateSessionInput;
+pub type BootstrapSessionInput = codebar_contracts::rpc::BootstrapSessionInput;
 pub type LaunchSessionInput = codebar_contracts::rpc::LaunchSessionInput;
 pub type ResumeSessionInput = codebar_contracts::rpc::ResumeSessionInput;
 pub type SendSessionInputInput = codebar_contracts::rpc::SendSessionInputInput;
@@ -199,11 +201,12 @@ impl SessionService {
     }
 
     pub fn create_session(&self, input: CreateSessionInput) -> DomainResult<Session> {
-        let task = self
-            .ctx
-            .store
-            .get_task(&input.task_id)?
-            .ok_or_else(|| not_found("task_not_found", format!("task {} not found", input.task_id)))?;
+        let task = self.ctx.store.get_task(&input.task_id)?.ok_or_else(|| {
+            not_found(
+                "task_not_found",
+                format!("task {} not found", input.task_id),
+            )
+        })?;
         let now = self.ctx.clock.now();
         let session = Session {
             id: self.ctx.ids.next_session_id(),
@@ -213,22 +216,13 @@ impl SessionService {
             provider: input.provider,
             provider_session_id: None,
             launch_mode: SessionLaunchMode::New,
-            state: match input.worktree_strategy {
-                codebar_contracts::rpc::WorktreeStrategy::Reuse
-                | codebar_contracts::rpc::WorktreeStrategy::NewManaged
-                | codebar_contracts::rpc::WorktreeStrategy::Ask => SessionState::PreparingWorktree,
-            },
+            state: SessionState::Draft,
             current_step_id: None,
             last_activity_at: None,
             created_at: now.clone(),
             updated_at: now,
         };
         self.ctx.store.put_session(session.clone())?;
-
-        let mut task = task;
-        task.status = TaskStatus::Active;
-        task.updated_at = self.ctx.clock.now();
-        self.ctx.store.put_task(task.clone())?;
 
         self.ctx.emit_event(
             EventEntityType::Session,
@@ -242,26 +236,96 @@ impl SessionService {
     }
 
     pub fn get_session(&self, session_id: &str) -> DomainResult<Session> {
-        self.ctx
-            .store
-            .get_session(session_id)?
-            .ok_or_else(|| not_found("session_not_found", format!("session {session_id} not found")))
+        self.ctx.store.get_session(session_id)?.ok_or_else(|| {
+            not_found(
+                "session_not_found",
+                format!("session {session_id} not found"),
+            )
+        })
+    }
+
+    pub fn update_session(&self, input: UpdateSessionInput) -> DomainResult<Session> {
+        let mut session = self.get_session(&input.session_id)?;
+        if let Some(provider) = input.provider {
+            if !matches!(session.state, SessionState::Draft | SessionState::Ready | SessionState::PreparingWorktree) {
+                return Err(error_envelope(
+                    ErrorCode::InvalidArgument,
+                    "session provider can only change before first launch",
+                    false,
+                ));
+            }
+            session.provider = provider;
+            session.provider_session_id = None;
+            session.launch_mode = SessionLaunchMode::New;
+        }
+        session.updated_at = self.ctx.clock.now();
+        self.ctx.store.put_session(session.clone())?;
+        self.ctx.emit_event(
+            EventEntityType::Session,
+            session.id.clone(),
+            "session.updated",
+            EventSource::Daemon,
+            None,
+            HashMap::from([(String::from("session"), json!(session.clone()))]),
+        )?;
+        Ok(session)
     }
 
     pub fn list_sessions(&self, filter: SessionFilter) -> DomainResult<Vec<Session>> {
         self.ctx.store.list_sessions(&filter)
     }
 
+    pub fn bootstrap_session(&self, input: BootstrapSessionInput) -> DomainResult<(Session, Worktree)> {
+        let mut session = self.get_session(&input.session_id)?;
+        if !matches!(session.state, SessionState::Draft | SessionState::PreparingWorkspace | SessionState::PreparingWorktree) {
+            return Err(error_envelope(
+                ErrorCode::InvalidArgument,
+                "session must be draft or preparing before bootstrap",
+                false,
+            ));
+        }
+        session.state = SessionState::PreparingWorktree;
+        session.updated_at = self.ctx.clock.now();
+        self.ctx.store.put_session(session.clone())?;
+
+        let task = self.ctx.store.get_task(&session.task_id)?.ok_or_else(|| {
+                not_found(
+                    "task_not_found",
+                    format!("task {} not found", session.task_id),
+                )
+            })?;
+        if task.status != TaskStatus::Active {
+            let mut next_task = task.clone();
+            next_task.status = TaskStatus::Active;
+            next_task.updated_at = self.ctx.clock.now();
+            self.ctx.store.put_task(next_task)?;
+        }
+
+        let worktree = WorktreeService::new(self.ctx.clone()).prepare_worktree(PrepareWorktreeInput {
+            session_id: session.id.clone(),
+            strategy: input.strategy,
+        })?;
+        let updated_session = self.get_session(&session.id)?;
+        Ok((updated_session, worktree))
+    }
+
     pub fn launch_session(&self, input: LaunchSessionInput) -> DomainResult<(Session, RunAttempt)> {
         let mut session = self.get_session(&input.session_id)?;
         ensure_launchable(&session)?;
+        let task = self.ctx.store.get_task(&session.task_id)?.ok_or_else(|| {
+                not_found(
+                    "task_not_found",
+                    format!("task {} not found", session.task_id),
+                )
+            })?;
         let worktree = session
             .worktree_id
             .as_deref()
             .map(|worktree_id| self.ctx.store.get_worktree(worktree_id))
             .transpose()?
             .flatten();
-        let launch_result = self.launch_or_resume_runtime(&session, worktree.as_ref(), false)?;
+        let launch_result = self.launch_or_resume_runtime(&session, worktree.as_ref(), false, Some(task.prompt.as_str()))?;
+        self.persist_recovery_binding(&session, worktree.as_ref(), Some(&launch_result))?;
         session.state = SessionState::Running;
         session.launch_mode = SessionLaunchMode::New;
         session.last_activity_at = Some(self.ctx.clock.now());
@@ -284,8 +348,13 @@ impl SessionService {
 
     pub fn resume_session(&self, input: ResumeSessionInput) -> DomainResult<(Session, RunAttempt)> {
         let mut session = self.get_session(&input.session_id)?;
-        if session.provider_session_id.is_none() && session.launch_mode == SessionLaunchMode::Resume {
-            return Err(error_envelope(ErrorCode::InvalidArgument, "cannot resume without providerSessionId", false));
+        if session.provider_session_id.is_none() && session.launch_mode == SessionLaunchMode::Resume
+        {
+            return Err(error_envelope(
+                ErrorCode::InvalidArgument,
+                "cannot resume without providerSessionId",
+                false,
+            ));
         }
         let worktree = session
             .worktree_id
@@ -293,7 +362,8 @@ impl SessionService {
             .map(|worktree_id| self.ctx.store.get_worktree(worktree_id))
             .transpose()?
             .flatten();
-        let launch_result = self.launch_or_resume_runtime(&session, worktree.as_ref(), true)?;
+        let launch_result = self.launch_or_resume_runtime(&session, worktree.as_ref(), true, None)?;
+        self.persist_recovery_binding(&session, worktree.as_ref(), Some(&launch_result))?;
         session.state = SessionState::Running;
         session.launch_mode = SessionLaunchMode::Resume;
         session.last_activity_at = Some(self.ctx.clock.now());
@@ -316,10 +386,19 @@ impl SessionService {
 
     pub fn send_session_input(&self, input: SendSessionInputInput) -> DomainResult<bool> {
         let mut session = self.get_session(&input.session_id)?;
-        if !matches!(session.state, SessionState::Running | SessionState::WaitingInput) {
-            return Err(error_envelope(ErrorCode::InvalidArgument, "session must be running or waiting_input to accept input", false));
+        if !matches!(
+            session.state,
+            SessionState::Running | SessionState::WaitingInput
+        ) {
+            return Err(error_envelope(
+                ErrorCode::InvalidArgument,
+                "session must be running or waiting_input to accept input",
+                false,
+            ));
         }
-        self.ctx.runtime.send_input(&session.id, &input.text)?;
+        self.ctx
+            .provider_adapter
+            .send_input(&session, &*self.ctx.runtime, &input.text)?;
         session.state = SessionState::Running;
         session.last_activity_at = Some(self.ctx.clock.now());
         session.updated_at = self.ctx.clock.now();
@@ -337,7 +416,9 @@ impl SessionService {
 
     pub fn stop_session(&self, input: StopSessionInput) -> DomainResult<bool> {
         let mut session = self.get_session(&input.session_id)?;
-        self.ctx.runtime.stop(&session.id, input.reason.as_deref())?;
+        self.ctx
+            .provider_adapter
+            .stop(&session, &*self.ctx.runtime, input.reason.as_deref())?;
         session.state = SessionState::Cancelled;
         session.updated_at = self.ctx.clock.now();
         self.ctx.store.put_session(session.clone())?;
@@ -369,7 +450,11 @@ impl SessionService {
                 session.state = SessionState::Completed;
             }
             other => {
-                return Err(error_envelope(ErrorCode::InvalidArgument, format!("unknown runtime event {other}"), false));
+                return Err(error_envelope(
+                    ErrorCode::InvalidArgument,
+                    format!("unknown runtime event {other}"),
+                    false,
+                ));
             }
         }
         session.last_activity_at = Some(self.ctx.clock.now());
@@ -408,16 +493,119 @@ impl SessionService {
             session.provider_session_id = Some(bound);
             session.updated_at = self.ctx.clock.now();
             self.ctx.store.put_session(session.clone())?;
+            self.persist_recovery_binding(&session, None, None)?;
             self.ctx.emit_event(
                 EventEntityType::Session,
                 session.id.clone(),
                 "session.provider_bound",
                 EventSource::Provider,
                 None,
-                HashMap::from([(String::from("providerSessionId"), json!(session.provider_session_id.clone()))]),
+                HashMap::from([(
+                    String::from("providerSessionId"),
+                    json!(session.provider_session_id.clone()),
+                )]),
             )?;
         }
         Ok(session)
+    }
+
+    pub fn apply_provider_events(
+        &self,
+        provider: &str,
+        payload: &Value,
+    ) -> DomainResult<Vec<NormalizedProviderEvent>> {
+        let events = self
+            .ctx
+            .provider_adapter
+            .normalize_event(provider, payload)?;
+        for event in &events {
+            self.apply_provider_event(event)?;
+        }
+        Ok(events)
+    }
+
+    fn apply_provider_event(&self, event: &NormalizedProviderEvent) -> DomainResult<()> {
+        let session_id = event
+            .session_id
+            .as_deref()
+            .or_else(|| {
+                event
+                    .payload
+                    .get("session_id")
+                    .and_then(|value| value.as_str())
+            })
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string);
+
+        if let Some(session_id) = session_id {
+            match &event.event {
+                CanonicalProviderEvent::ProviderSessionBound {
+                    provider_session_id,
+                } => {
+                    let _ = self.bind_provider_session(&session_id, provider_session_id)?;
+                }
+                CanonicalProviderEvent::WaitingForInput => {
+                    let _ = self.record_runtime_lifecycle(RuntimeLifecycleInput {
+                        session_id: session_id.clone(),
+                        event_type: "waiting".to_string(),
+                        message: None,
+                    })?;
+                }
+                CanonicalProviderEvent::ApprovalRequested {
+                    title,
+                    description,
+                    payload,
+                } => {
+                    let mut session = self.get_session(&session_id)?;
+                    session.state = SessionState::ApprovalRequired;
+                    session.last_activity_at = Some(self.ctx.clock.now());
+                    session.updated_at = self.ctx.clock.now();
+                    self.ctx.store.put_session(session.clone())?;
+                    self.ctx.emit_event(
+                        EventEntityType::Session,
+                        session.id.clone(),
+                        "session.runtime_approval",
+                        EventSource::Provider,
+                        None,
+                        HashMap::from([
+                            (String::from("title"), json!(title.clone())),
+                            (String::from("description"), json!(description.clone())),
+                            (
+                                String::from("payload"),
+                                payload.clone().unwrap_or(Value::Null),
+                            ),
+                        ]),
+                    )?;
+                }
+                CanonicalProviderEvent::RunExited { .. } => {
+                    let _ = self.record_runtime_lifecycle(RuntimeLifecycleInput {
+                        session_id: session_id.clone(),
+                        event_type: "exit".to_string(),
+                        message: None,
+                    })?;
+                }
+                CanonicalProviderEvent::ErrorRaised { message } => {
+                    let _ = self.record_runtime_lifecycle(RuntimeLifecycleInput {
+                        session_id: session_id.clone(),
+                        event_type: "error".to_string(),
+                        message: Some(message.clone()),
+                    })?;
+                }
+                CanonicalProviderEvent::OutputChunk { .. } => {}
+            }
+
+            self.ctx.emit_event(
+                EventEntityType::Session,
+                session_id,
+                event.event_type.clone(),
+                EventSource::Provider,
+                None,
+                HashMap::from([(String::from("providerEvent"), event.payload.clone())]),
+            )?;
+        }
+
+        Ok(())
     }
 
     fn launch_or_resume_runtime(
@@ -425,41 +613,62 @@ impl SessionService {
         session: &Session,
         worktree: Option<&Worktree>,
         resume: bool,
-    ) -> DomainResult<RuntimeLaunchResult> {
-        let cwd = worktree
-            .map(|worktree| worktree.path.clone())
-            .unwrap_or_else(|| session.workspace_id.clone());
-        let spec = RuntimeLaunchSpec {
-            session_id: session.id.clone(),
-            provider: session.provider.clone(),
-            launcher_type: LauncherType::Pty,
-            command: match session.provider {
-                codebar_contracts::domain::ProviderKind::Claude => "claude".to_string(),
-                codebar_contracts::domain::ProviderKind::Codex => "codex".to_string(),
-            },
-            args: if resume {
-                session
-                    .provider_session_id
-                    .clone()
-                    .map(|provider_session_id| vec!["resume".to_string(), provider_session_id])
-                    .unwrap_or_default()
-            } else {
-                Vec::new()
-            },
-            cwd,
-            provider_session_id: session.provider_session_id.clone(),
-        };
-        if resume {
-            self.ctx.runtime.resume(spec)
+        user_prompt: Option<&str>,
+    ) -> DomainResult<LaunchResult> {
+        let workspace_root = self
+            .ctx
+            .store
+            .get_workspace(&session.workspace_id)?
+            .map(|workspace| workspace.root_path);
+
+        let mut spec = if resume {
+            self.ctx
+                .provider_adapter
+                .resume(session, worktree, workspace_root.as_deref())?
         } else {
-            self.ctx.runtime.launch(spec)
+            self.ctx
+                .provider_adapter
+                .start(session, worktree, workspace_root.as_deref())?
+        };
+        if !resume {
+            spec.user_prompt = user_prompt
+                .map(str::trim)
+                .filter(|prompt| !prompt.is_empty() && *prompt != "Awaiting first prompt")
+                .map(ToString::to_string);
         }
+
+        let handle = self.ctx.runtime.launch(spec.clone())?;
+        Ok(LaunchResult {
+            launcher_type: spec.launcher_type,
+            command: spec.command,
+            args: spec.args,
+            cwd: spec.cwd,
+            handle,
+        })
+    }
+
+    fn persist_recovery_binding(
+        &self,
+        session: &Session,
+        worktree: Option<&Worktree>,
+        launch_result: Option<&LaunchResult>,
+    ) -> DomainResult<()> {
+        let run_attempt_id =
+            launch_result.map(|launch| format!("run-handle:{}", launch.handle.handle_id));
+        self.ctx.store.put_recovery_binding(RecoveryBinding {
+            session_id: session.id.clone(),
+            provider: session.provider,
+            provider_session_id: session.provider_session_id.clone(),
+            worktree_path: worktree.map(|item| item.path.clone()),
+            run_attempt_id,
+            updated_at: self.ctx.clock.now(),
+        })
     }
 
     fn record_run_attempt(
         &self,
         session: &Session,
-        launch_result: RuntimeLaunchResult,
+        launch_result: LaunchResult,
     ) -> DomainResult<RunAttempt> {
         let existing = self.ctx.store.list_run_attempts(&session.id)?;
         let run_attempt = RunAttempt {
@@ -470,13 +679,21 @@ impl SessionService {
             command: launch_result.command,
             args: launch_result.args,
             cwd: launch_result.cwd,
-            pid: launch_result.pid,
+            pid: launch_result.handle.pid,
             started_at: Some(self.ctx.clock.now()),
             ended_at: None,
             exit_reason: None,
             status: RunAttemptStatus::Running,
         };
         self.ctx.store.put_run_attempt(run_attempt.clone())?;
+        self.ctx.store.put_recovery_binding(RecoveryBinding {
+            session_id: session.id.clone(),
+            provider: session.provider,
+            provider_session_id: session.provider_session_id.clone(),
+            worktree_path: Some(run_attempt.cwd.clone()),
+            run_attempt_id: Some(run_attempt.id.clone()),
+            updated_at: self.ctx.clock.now(),
+        })?;
         Ok(run_attempt)
     }
 }
@@ -495,25 +712,34 @@ impl WorktreeService {
             .ctx
             .store
             .get_session(&input.session_id)?
-            .ok_or_else(|| not_found("session_not_found", format!("session {} not found", input.session_id)))?;
+            .ok_or_else(|| {
+                not_found(
+                    "session_not_found",
+                    format!("session {} not found", input.session_id),
+                )
+            })?;
         let workspace = self
             .ctx
             .store
             .get_workspace(&session.workspace_id)?
-            .ok_or_else(|| not_found("workspace_not_found", format!("workspace {} not found", session.workspace_id)))?;
+            .ok_or_else(|| {
+                not_found(
+                    "workspace_not_found",
+                    format!("workspace {} not found", session.workspace_id),
+                )
+            })?;
 
-        let prepared = self
-            .ctx
-            .worktrees
-            .prepare(
-                &workspace.root_path,
-                &session.id,
-                match input.strategy {
-                    codebar_contracts::rpc::WorktreeStrategy::Reuse => WorktreeStrategy::Reuse,
-                    codebar_contracts::rpc::WorktreeStrategy::NewManaged => WorktreeStrategy::NewManaged,
-                    codebar_contracts::rpc::WorktreeStrategy::Ask => WorktreeStrategy::Ask,
-                },
-            )?;
+        let prepared = self.ctx.worktrees.prepare(
+            &workspace.root_path,
+            &session.id,
+            match input.strategy {
+                codebar_contracts::rpc::WorktreeStrategy::Reuse => WorktreeStrategy::Reuse,
+                codebar_contracts::rpc::WorktreeStrategy::NewManaged => {
+                    WorktreeStrategy::NewManaged
+                }
+                codebar_contracts::rpc::WorktreeStrategy::Ask => WorktreeStrategy::Ask,
+            },
+        )?;
 
         let now = self.ctx.clock.now();
         let worktree = match prepared {
@@ -567,10 +793,12 @@ impl WorktreeService {
     }
 
     pub fn get_worktree(&self, worktree_id: &str) -> DomainResult<Worktree> {
-        self.ctx
-            .store
-            .get_worktree(worktree_id)?
-            .ok_or_else(|| not_found("worktree_not_found", format!("worktree {worktree_id} not found")))
+        self.ctx.store.get_worktree(worktree_id)?.ok_or_else(|| {
+            not_found(
+                "worktree_not_found",
+                format!("worktree {worktree_id} not found"),
+            )
+        })
     }
 
     pub fn cleanup_worktree(&self, worktree_id: &str) -> DomainResult<bool> {
@@ -579,7 +807,12 @@ impl WorktreeService {
             .ctx
             .store
             .get_workspace(&worktree.workspace_id)?
-            .ok_or_else(|| not_found("workspace_not_found", format!("workspace {} not found", worktree.workspace_id)))?;
+            .ok_or_else(|| {
+                not_found(
+                    "workspace_not_found",
+                    format!("workspace {} not found", worktree.workspace_id),
+                )
+            })?;
         self.ctx.worktrees.cleanup(
             &workspace.root_path,
             &worktree.path,
@@ -623,23 +856,21 @@ impl PlanService {
     }
 
     pub fn get_next_action(&self, session_id: &str) -> DomainResult<NextAction> {
-        let response = self.workflow.get_next_action(codebar_contracts::workflow::GetWorkflowNextActionRequest {
-            session_id: session_id.to_string(),
-        })?;
-        let step = response
-            .next_action
-            .step_id
-            .as_deref()
-            .and_then(|step_id| {
-                self.ctx
-                    .store
-                    .get_task(&response.task_id)
-                    .ok()
-                    .flatten()
-                    .and_then(|task| task.active_plan_id)
-                    .and_then(|plan_id| self.ctx.store.list_plan_steps(&plan_id).ok())
-                    .and_then(|steps| steps.into_iter().find(|candidate| candidate.id == step_id))
-            });
+        let response = self.workflow.get_next_action(
+            codebar_contracts::workflow::GetWorkflowNextActionRequest {
+                session_id: session_id.to_string(),
+            },
+        )?;
+        let step = response.next_action.step_id.as_deref().and_then(|step_id| {
+            self.ctx
+                .store
+                .get_task(&response.task_id)
+                .ok()
+                .flatten()
+                .and_then(|task| task.active_plan_id)
+                .and_then(|plan_id| self.ctx.store.list_plan_steps(&plan_id).ok())
+                .and_then(|steps| steps.into_iter().find(|candidate| candidate.id == step_id))
+        });
         Ok(NextAction {
             task_id: response.task_id,
             step,
@@ -675,11 +906,12 @@ impl ApprovalService {
         description: String,
         payload: HashMap<String, Value>,
     ) -> DomainResult<ApprovalRequest> {
-        let mut session = self
-            .ctx
-            .store
-            .get_session(session_id)?
-            .ok_or_else(|| not_found("session_not_found", format!("session {session_id} not found")))?;
+        let mut session = self.ctx.store.get_session(session_id)?.ok_or_else(|| {
+            not_found(
+                "session_not_found",
+                format!("session {session_id} not found"),
+            )
+        })?;
         let request = ApprovalRequest {
             id: self.ctx.ids.next_approval_request_id(),
             session_id: session.id.clone(),
@@ -712,8 +944,15 @@ impl ApprovalService {
     }
 
     pub fn resolve_request(&self, input: ResolveApprovalInput) -> DomainResult<ApprovalRequest> {
-        if !matches!(input.decision, ApprovalStatus::Approved | ApprovalStatus::Rejected) {
-            return Err(error_envelope(ErrorCode::InvalidArgument, "approval decision must be approved or rejected", false));
+        if !matches!(
+            input.decision,
+            ApprovalStatus::Approved | ApprovalStatus::Rejected
+        ) {
+            return Err(error_envelope(
+                ErrorCode::InvalidArgument,
+                "approval decision must be approved or rejected",
+                false,
+            ));
         }
         let mut request = self
             .ctx
@@ -732,7 +971,12 @@ impl ApprovalService {
             .ctx
             .store
             .get_session(&request.session_id)?
-            .ok_or_else(|| not_found("session_not_found", format!("session {} not found", request.session_id)))?;
+            .ok_or_else(|| {
+                not_found(
+                    "session_not_found",
+                    format!("session {} not found", request.session_id),
+                )
+            })?;
         let worktree = session
             .worktree_id
             .as_deref()
@@ -741,7 +985,8 @@ impl ApprovalService {
             .flatten();
         let workspace = self.ctx.store.get_workspace(&session.workspace_id)?;
         let execution_message = if matches!(request.status, ApprovalStatus::Approved) {
-            self.executor.execute(&request, &session, worktree.as_ref(), workspace.as_ref())?
+            self.executor
+                .execute(&request, &session, worktree.as_ref(), workspace.as_ref())?
         } else {
             None
         };
@@ -754,7 +999,10 @@ impl ApprovalService {
         self.ctx.store.put_session(session.clone())?;
         let mut payload = HashMap::from([(String::from("approval"), json!(request.clone()))]);
         if let Some(message) = execution_message {
-            payload.insert(String::from("execution"), json!({ "status": "executed", "message": message }));
+            payload.insert(
+                String::from("execution"),
+                json!({ "status": "executed", "message": message }),
+            );
         }
         self.ctx.emit_event(
             EventEntityType::Approval,
@@ -794,8 +1042,10 @@ impl RecoveryCoordinator {
     pub fn recover(&self) -> DomainResult<Vec<Session>> {
         let mut recovered = Vec::new();
         for mut session in self.ctx.store.list_sessions(&SessionFilter::default())? {
-            if matches!(session.state, SessionState::Running | SessionState::Launching)
-                && !self.ctx.runtime.is_session_alive(&session.id)
+            if matches!(
+                session.state,
+                SessionState::Running | SessionState::Launching
+            ) && !self.ctx.runtime.is_handle_alive(&session.id)
             {
                 session.state = SessionState::Interrupted;
                 let last_run = self
@@ -804,8 +1054,45 @@ impl RecoveryCoordinator {
                     .list_run_attempts(&session.id)?
                     .into_iter()
                     .max_by_key(|run| run.attempt_no);
-                let recovery = match last_run {
-                    Some(run) => {
+                let binding = self.ctx.store.get_recovery_binding(&session.id)?;
+                let recovery = match (binding, last_run) {
+                    (Some(binding), Some(run)) => {
+                        let continuity_token =
+                            binding.run_attempt_id.clone().unwrap_or_else(|| {
+                                format!("run:{}:{}", run.session_id, run.attempt_no)
+                            });
+                        json!({
+                            "reason": "runtime_missing",
+                            "interrupted": true,
+                            "continuityToken": continuity_token.clone(),
+                            "continuityState": "live",
+                            "providerSessionId": binding.provider_session_id,
+                            "worktreePath": binding.worktree_path,
+                            "detail": format!(
+                                "runtime missing during recovery; last continuity token {} state live",
+                                continuity_token
+                            ),
+                        })
+                    }
+                    (Some(binding), None) => {
+                        let continuity_token = binding
+                            .run_attempt_id
+                            .clone()
+                            .unwrap_or_else(|| format!("session:{}", session.id));
+                        json!({
+                            "reason": "runtime_missing",
+                            "interrupted": true,
+                            "continuityToken": continuity_token.clone(),
+                            "continuityState": "live",
+                            "providerSessionId": binding.provider_session_id,
+                            "worktreePath": binding.worktree_path,
+                            "detail": format!(
+                                "runtime missing during recovery; continuity binding {} state live",
+                                continuity_token
+                            ),
+                        })
+                    }
+                    (None, Some(run)) => {
                         let continuity_token = format!("run:{}:{}", run.session_id, run.attempt_no);
                         json!({
                             "reason": "runtime_missing",
@@ -818,7 +1105,7 @@ impl RecoveryCoordinator {
                             ),
                         })
                     }
-                    None => json!({
+                    (None, None) => json!({
                         "reason": "runtime_missing",
                         "interrupted": true,
                         "continuityToken": Value::Null,
@@ -855,7 +1142,11 @@ impl DiagnosticsService {
         Self { ctx }
     }
 
-    pub fn get_diagnostics(&self, session_id: Option<&str>, task_id: Option<&str>) -> DomainResult<DiagnosticsSummary> {
+    pub fn get_diagnostics(
+        &self,
+        session_id: Option<&str>,
+        task_id: Option<&str>,
+    ) -> DomainResult<DiagnosticsSummary> {
         let pending_approvals = self
             .ctx
             .store
@@ -865,20 +1156,22 @@ impl DiagnosticsService {
                 status: Some(vec![ApprovalStatus::Pending]),
             })?
             .len();
-        let events = self
-            .ctx
-            .events
-            .list_events(&EventFilter {
-                entity_id: session_id.map(ToString::to_string).or_else(|| task_id.map(ToString::to_string)),
-                limit: Some(20),
-                ..EventFilter::default()
-            })?;
+        let events = self.ctx.events.list_events(&EventFilter {
+            entity_id: session_id
+                .map(ToString::to_string)
+                .or_else(|| task_id.map(ToString::to_string)),
+            limit: Some(20),
+            ..EventFilter::default()
+        })?;
         let recovery_summary = session_id
             .and_then(|target_session_id| {
                 events
                     .iter()
                     .rev()
-                    .find(|event| event.event_type == "session.recovered" && event.entity_id == target_session_id)
+                    .find(|event| {
+                        event.event_type == "session.recovered"
+                            && event.entity_id == target_session_id
+                    })
                     .and_then(|event| event.payload.get("recovery"))
                     .and_then(|recovery| recovery.get("detail"))
                     .and_then(|detail| detail.as_str())
@@ -929,7 +1222,12 @@ impl HealthService {
             .store
             .list_sessions(&SessionFilter::default())?
             .into_iter()
-            .filter(|session| matches!(session.state, SessionState::Running | SessionState::Launching))
+            .filter(|session| {
+                matches!(
+                    session.state,
+                    SessionState::Running | SessionState::Launching
+                )
+            })
             .count();
         Ok(HealthSummary {
             summary: format!(
@@ -959,7 +1257,11 @@ fn ensure_launchable(session: &Session) -> DomainResult<()> {
 
 fn require_non_empty(value: &str, field: &str) -> DomainResult<()> {
     if value.trim().is_empty() {
-        return Err(error_envelope(ErrorCode::InvalidArgument, format!("{field} cannot be empty"), false));
+        return Err(error_envelope(
+            ErrorCode::InvalidArgument,
+            format!("{field} cannot be empty"),
+            false,
+        ));
     }
     Ok(())
 }
@@ -973,10 +1275,11 @@ mod tests {
     use super::*;
     use crate::domain::{PlanMode, PlanStatus, TrustLevel, VcsType, Workspace};
     use crate::ports::{
-        EventRepository, EventFilter, IdGenerator, RuntimeHost, RuntimeLaunchResult,
-        RuntimeLaunchSpec, WorktreeHost,
+        CanonicalProviderEvent, EventFilter, EventRepository, IdGenerator, LaunchSpec,
+        NormalizedProviderEvent, ProcessEvent, ProcessHandle, ProviderCapabilities,
+        ProviderDetection, RuntimeHost, WorktreeHost,
     };
-    use codebar_contracts::domain::RunAttemptStatus;
+    use codebar_contracts::domain::{LauncherType, RunAttemptStatus};
     use std::sync::{Arc, Mutex};
 
     #[derive(Default)]
@@ -999,15 +1302,33 @@ mod tests {
         }
     }
     impl IdGenerator for TestIds {
-        fn next_task_id(&self) -> String { self.next("task") }
-        fn next_session_id(&self) -> String { self.next("session") }
-        fn next_worktree_id(&self) -> String { self.next("worktree") }
-        fn next_run_attempt_id(&self) -> String { self.next("run") }
-        fn next_plan_id(&self) -> String { self.next("plan") }
-        fn next_plan_step_id(&self) -> String { self.next("step") }
-        fn next_skill_profile_id(&self) -> String { self.next("skill") }
-        fn next_approval_request_id(&self) -> String { self.next("approval") }
-        fn next_event_id(&self) -> String { self.next("event") }
+        fn next_task_id(&self) -> String {
+            self.next("task")
+        }
+        fn next_session_id(&self) -> String {
+            self.next("session")
+        }
+        fn next_worktree_id(&self) -> String {
+            self.next("worktree")
+        }
+        fn next_run_attempt_id(&self) -> String {
+            self.next("run")
+        }
+        fn next_plan_id(&self) -> String {
+            self.next("plan")
+        }
+        fn next_plan_step_id(&self) -> String {
+            self.next("step")
+        }
+        fn next_skill_profile_id(&self) -> String {
+            self.next("skill")
+        }
+        fn next_approval_request_id(&self) -> String {
+            self.next("approval")
+        }
+        fn next_event_id(&self) -> String {
+            self.next("event")
+        }
     }
 
     #[derive(Default)]
@@ -1021,11 +1342,16 @@ mod tests {
         plan_steps: Mutex<HashMap<String, Vec<PlanStep>>>,
         approvals: Mutex<HashMap<String, ApprovalRequest>>,
         skills: Mutex<HashMap<String, crate::domain::SkillProfile>>,
+        recovery_bindings: Mutex<HashMap<String, RecoveryBinding>>,
     }
 
     impl crate::ports::WorkspaceRepository for TestStore {
         fn put_workspace(&self, workspace: Workspace) -> DomainResult<()> {
-            self.workspaces.lock().unwrap().insert(workspace.id.clone(), workspace); Ok(())
+            self.workspaces
+                .lock()
+                .unwrap()
+                .insert(workspace.id.clone(), workspace);
+            Ok(())
         }
         fn get_workspace(&self, workspace_id: &str) -> DomainResult<Option<Workspace>> {
             Ok(self.workspaces.lock().unwrap().get(workspace_id).cloned())
@@ -1036,7 +1362,8 @@ mod tests {
     }
     impl crate::ports::TaskRepository for TestStore {
         fn put_task(&self, task: Task) -> DomainResult<()> {
-            self.tasks.lock().unwrap().insert(task.id.clone(), task); Ok(())
+            self.tasks.lock().unwrap().insert(task.id.clone(), task);
+            Ok(())
         }
         fn get_task(&self, task_id: &str) -> DomainResult<Option<Task>> {
             Ok(self.tasks.lock().unwrap().get(task_id).cloned())
@@ -1047,7 +1374,11 @@ mod tests {
     }
     impl crate::ports::SessionRepository for TestStore {
         fn put_session(&self, session: Session) -> DomainResult<()> {
-            self.sessions.lock().unwrap().insert(session.id.clone(), session); Ok(())
+            self.sessions
+                .lock()
+                .unwrap()
+                .insert(session.id.clone(), session);
+            Ok(())
         }
         fn get_session(&self, session_id: &str) -> DomainResult<Option<Session>> {
             Ok(self.sessions.lock().unwrap().get(session_id).cloned())
@@ -1058,7 +1389,11 @@ mod tests {
     }
     impl crate::ports::WorktreeRepository for TestStore {
         fn put_worktree(&self, worktree: Worktree) -> DomainResult<()> {
-            self.worktrees.lock().unwrap().insert(worktree.id.clone(), worktree); Ok(())
+            self.worktrees
+                .lock()
+                .unwrap()
+                .insert(worktree.id.clone(), worktree);
+            Ok(())
         }
         fn get_worktree(&self, worktree_id: &str) -> DomainResult<Option<Worktree>> {
             Ok(self.worktrees.lock().unwrap().get(worktree_id).cloned())
@@ -1069,34 +1404,71 @@ mod tests {
     }
     impl crate::ports::RunAttemptRepository for TestStore {
         fn put_run_attempt(&self, run_attempt: RunAttempt) -> DomainResult<()> {
-            self.run_attempts.lock().unwrap().push(run_attempt); Ok(())
+            self.run_attempts.lock().unwrap().push(run_attempt);
+            Ok(())
         }
         fn list_run_attempts(&self, session_id: &str) -> DomainResult<Vec<RunAttempt>> {
-            Ok(self.run_attempts.lock().unwrap().iter().filter(|run| run.session_id == session_id).cloned().collect())
+            Ok(self
+                .run_attempts
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|run| run.session_id == session_id)
+                .cloned()
+                .collect())
         }
     }
     impl crate::ports::PlanRepository for TestStore {
         fn put_plan(&self, plan: Plan) -> DomainResult<()> {
-            self.plans.lock().unwrap().insert(plan.id.clone(), plan); Ok(())
+            self.plans.lock().unwrap().insert(plan.id.clone(), plan);
+            Ok(())
         }
         fn get_plan(&self, plan_id: &str) -> DomainResult<Option<Plan>> {
             Ok(self.plans.lock().unwrap().get(plan_id).cloned())
         }
         fn get_active_plan_for_task(&self, task_id: &str) -> DomainResult<Option<Plan>> {
-            Ok(self.plans.lock().unwrap().values().find(|plan| plan.task_id == task_id && matches!(plan.status, PlanStatus::Active)).cloned())
+            Ok(self
+                .plans
+                .lock()
+                .unwrap()
+                .values()
+                .find(|plan| plan.task_id == task_id && matches!(plan.status, PlanStatus::Active))
+                .cloned())
         }
+    }
+
+    impl crate::ports::PlanStepRepository for TestStore {
         fn put_plan_step(&self, step: PlanStep) -> DomainResult<()> {
-            self.plan_steps.lock().unwrap().entry(step.plan_id.clone()).or_default().push(step); Ok(())
+            self.plan_steps
+                .lock()
+                .unwrap()
+                .entry(step.plan_id.clone())
+                .or_default()
+                .push(step);
+            Ok(())
         }
         fn list_plan_steps(&self, plan_id: &str) -> DomainResult<Vec<PlanStep>> {
-            Ok(self.plan_steps.lock().unwrap().get(plan_id).cloned().unwrap_or_default())
+            Ok(self
+                .plan_steps
+                .lock()
+                .unwrap()
+                .get(plan_id)
+                .cloned()
+                .unwrap_or_default())
         }
     }
     impl crate::ports::SkillProfileRepository for TestStore {
         fn put_skill_profile(&self, profile: crate::domain::SkillProfile) -> DomainResult<()> {
-            self.skills.lock().unwrap().insert(profile.id.clone(), profile); Ok(())
+            self.skills
+                .lock()
+                .unwrap()
+                .insert(profile.id.clone(), profile);
+            Ok(())
         }
-        fn get_skill_profile(&self, skill_profile_id: &str) -> DomainResult<Option<crate::domain::SkillProfile>> {
+        fn get_skill_profile(
+            &self,
+            skill_profile_id: &str,
+        ) -> DomainResult<Option<crate::domain::SkillProfile>> {
             Ok(self.skills.lock().unwrap().get(skill_profile_id).cloned())
         }
         fn list_skill_profiles(&self) -> DomainResult<Vec<crate::domain::SkillProfile>> {
@@ -1105,21 +1477,90 @@ mod tests {
     }
     impl crate::ports::ApprovalRepository for TestStore {
         fn put_approval_request(&self, request: ApprovalRequest) -> DomainResult<()> {
-            self.approvals.lock().unwrap().insert(request.id.clone(), request); Ok(())
+            self.approvals
+                .lock()
+                .unwrap()
+                .insert(request.id.clone(), request);
+            Ok(())
         }
-        fn get_approval_request(&self, approval_request_id: &str) -> DomainResult<Option<ApprovalRequest>> {
-            Ok(self.approvals.lock().unwrap().get(approval_request_id).cloned())
+        fn get_approval_request(
+            &self,
+            approval_request_id: &str,
+        ) -> DomainResult<Option<ApprovalRequest>> {
+            Ok(self
+                .approvals
+                .lock()
+                .unwrap()
+                .get(approval_request_id)
+                .cloned())
         }
-        fn list_approval_requests(&self, filter: &ApprovalFilter) -> DomainResult<Vec<ApprovalRequest>> {
-            Ok(self.approvals.lock().unwrap().values().filter(|approval| {
-                filter.session_id.as_ref().map(|id| &approval.session_id == id).unwrap_or(true)
-                    && filter.task_id.as_ref().map(|id| &approval.task_id == id).unwrap_or(true)
-                    && filter.status.as_ref().map(|statuses| statuses.contains(&approval.status)).unwrap_or(true)
-            }).cloned().collect())
+        fn list_approval_requests(
+            &self,
+            filter: &ApprovalFilter,
+        ) -> DomainResult<Vec<ApprovalRequest>> {
+            Ok(self
+                .approvals
+                .lock()
+                .unwrap()
+                .values()
+                .filter(|approval| {
+                    filter
+                        .session_id
+                        .as_ref()
+                        .map(|id| &approval.session_id == id)
+                        .unwrap_or(true)
+                        && filter
+                            .task_id
+                            .as_ref()
+                            .map(|id| &approval.task_id == id)
+                            .unwrap_or(true)
+                        && filter
+                            .status
+                            .as_ref()
+                            .map(|statuses| statuses.contains(&approval.status))
+                            .unwrap_or(true)
+                })
+                .cloned()
+                .collect())
         }
     }
+    impl crate::ports::RecoveryBindingRepository for TestStore {
+        fn put_recovery_binding(&self, binding: RecoveryBinding) -> DomainResult<()> {
+            self.recovery_bindings
+                .lock()
+                .unwrap()
+                .insert(binding.session_id.clone(), binding);
+            Ok(())
+        }
+
+        fn get_recovery_binding(&self, session_id: &str) -> DomainResult<Option<RecoveryBinding>> {
+            Ok(self
+                .recovery_bindings
+                .lock()
+                .unwrap()
+                .get(session_id)
+                .cloned())
+        }
+    }
+
+    impl crate::ports::ArtifactStore for TestStore {
+        fn artifacts_root(&self) -> String {
+            "memory://artifacts".to_string()
+        }
+
+        fn write_artifact(&self, relative_path: &str, _data: &[u8]) -> DomainResult<String> {
+            Ok(format!("memory://artifacts/{relative_path}"))
+        }
+
+        fn read_artifact(&self, _relative_path: &str) -> DomainResult<Vec<u8>> {
+            Ok(Vec::new())
+        }
+    }
+
     impl crate::ports::StorageIntrospection for TestStore {
-        fn data_files(&self) -> Vec<String> { vec!["memory://store".to_string()] }
+        fn data_files(&self) -> Vec<String> {
+            vec!["memory://store".to_string()]
+        }
     }
 
     #[derive(Default)]
@@ -1128,7 +1569,8 @@ mod tests {
     }
     impl EventRepository for TestEvents {
         fn publish_event(&self, event: EventEnvelope) -> DomainResult<()> {
-            self.events.lock().unwrap().push(event); Ok(())
+            self.events.lock().unwrap().push(event);
+            Ok(())
         }
         fn list_events(&self, _filter: &EventFilter) -> DomainResult<Vec<EventEnvelope>> {
             Ok(self.events.lock().unwrap().clone())
@@ -1137,58 +1579,195 @@ mod tests {
 
     struct TestRuntime;
     impl RuntimeHost for TestRuntime {
-        fn launch(&self, spec: RuntimeLaunchSpec) -> DomainResult<RuntimeLaunchResult> {
-            Ok(RuntimeLaunchResult { launcher_type: spec.launcher_type, command: spec.command, args: spec.args, cwd: spec.cwd, pid: Some(42) })
+        fn launch(&self, spec: LaunchSpec) -> DomainResult<ProcessHandle> {
+            Ok(ProcessHandle {
+                handle_id: spec.session_id,
+                pid: Some(42),
+            })
         }
-        fn resume(&self, spec: RuntimeLaunchSpec) -> DomainResult<RuntimeLaunchResult> {
-            Ok(RuntimeLaunchResult { launcher_type: spec.launcher_type, command: spec.command, args: spec.args, cwd: spec.cwd, pid: Some(43) })
+        fn send_input(&self, _handle_id: &str, _text: &str) -> DomainResult<()> {
+            Ok(())
         }
-        fn send_input(&self, _session_id: &str, _text: &str) -> DomainResult<()> { Ok(()) }
-        fn write_base64(&self, _session_id: &str, _data: &str) -> DomainResult<()> { Ok(()) }
-        fn resize(&self, _session_id: &str, _cols: u16, _rows: u16) -> DomainResult<()> { Ok(()) }
-        fn stop(&self, _session_id: &str, _reason: Option<&str>) -> DomainResult<()> { Ok(()) }
-        fn is_session_alive(&self, _session_id: &str) -> bool { false }
+        fn write_base64(&self, _handle_id: &str, _data: &str) -> DomainResult<()> {
+            Ok(())
+        }
+        fn resize(&self, _handle_id: &str, _cols: u16, _rows: u16) -> DomainResult<()> {
+            Ok(())
+        }
+        fn stop(&self, _handle_id: &str, _reason: Option<&str>) -> DomainResult<()> {
+            Ok(())
+        }
+        fn poll_events(&self, _handle_id: &str) -> DomainResult<Vec<ProcessEvent>> {
+            Ok(Vec::new())
+        }
+        fn is_handle_alive(&self, _handle_id: &str) -> bool {
+            false
+        }
     }
 
     struct TestWorktreeHost;
     impl WorktreeHost for TestWorktreeHost {
-        fn prepare(&self, workspace_root: &str, session_id: &str, strategy: WorktreeStrategy) -> DomainResult<Option<PreparedWorktree>> {
+        fn prepare(
+            &self,
+            workspace_root: &str,
+            session_id: &str,
+            strategy: WorktreeStrategy,
+        ) -> DomainResult<Option<PreparedWorktree>> {
             match strategy {
                 WorktreeStrategy::Reuse => Ok(None),
-                WorktreeStrategy::NewManaged | WorktreeStrategy::Ask => Ok(Some(PreparedWorktree {
-                    path: format!("{workspace_root}/.code-bar-worktrees/{session_id}"),
-                    branch_name: Some(format!("ci/test/session-{session_id}")),
-                    base_branch: Some("main".to_string()),
-                })),
+                WorktreeStrategy::NewManaged | WorktreeStrategy::Ask => {
+                    Ok(Some(PreparedWorktree {
+                        path: format!("{workspace_root}/.code-bar-worktrees/{session_id}"),
+                        branch_name: Some(format!("ci/test/session-{session_id}")),
+                        base_branch: Some("main".to_string()),
+                    }))
+                }
             }
         }
-        fn cleanup(&self, _workspace_root: &str, _path: &str, _branch_name: Option<&str>) -> DomainResult<()> { Ok(()) }
+        fn cleanup(
+            &self,
+            _workspace_root: &str,
+            _path: &str,
+            _branch_name: Option<&str>,
+        ) -> DomainResult<()> {
+            Ok(())
+        }
     }
 
     struct TestProviderAdapter;
     impl ProviderAdapter for TestProviderAdapter {
-        fn bind_provider_session(&self, session: &Session, provider_session_id: &str) -> DomainResult<Option<String>> {
+        fn detect(
+            &self,
+            _provider: crate::domain::ProviderKind,
+        ) -> DomainResult<ProviderDetection> {
+            Ok(ProviderDetection {
+                available: true,
+                command: "test-provider".to_string(),
+                version: Some("1.0.0".to_string()),
+            })
+        }
+
+        fn capabilities(
+            &self,
+            _provider: crate::domain::ProviderKind,
+        ) -> DomainResult<ProviderCapabilities> {
+            Ok(ProviderCapabilities {
+                resume_supported: true,
+                hook_events_supported: true,
+                approval_events_supported: true,
+                mcp_bridge_supported: true,
+            })
+        }
+
+        fn start(
+            &self,
+            session: &Session,
+            worktree: Option<&Worktree>,
+            workspace_root: Option<&str>,
+        ) -> DomainResult<LaunchSpec> {
+            let cwd = worktree
+                .map(|item| item.path.clone())
+                .or_else(|| workspace_root.map(ToString::to_string))
+                .unwrap_or_else(|| "/tmp".to_string());
+            Ok(LaunchSpec {
+                session_id: session.id.clone(),
+                provider: session.provider,
+                launcher_type: LauncherType::Pty,
+                command: "test-provider".to_string(),
+                args: Vec::new(),
+                cwd,
+                env: HashMap::new(),
+                bootstrap_prompt: None,
+                user_prompt: None,
+                mcp_bridge_command: None,
+                mcp_bridge_args: None,
+                provider_session_id: session.provider_session_id.clone(),
+            })
+        }
+
+        fn resume(
+            &self,
+            session: &Session,
+            worktree: Option<&Worktree>,
+            workspace_root: Option<&str>,
+        ) -> DomainResult<LaunchSpec> {
+            let mut spec = self.start(session, worktree, workspace_root)?;
+            if let Some(provider_session_id) = session.provider_session_id.as_ref() {
+                spec.args = vec!["resume".to_string(), provider_session_id.clone()];
+            }
+            Ok(spec)
+        }
+
+        fn send_input(
+            &self,
+            session: &Session,
+            runtime: &dyn RuntimeHost,
+            text: &str,
+        ) -> DomainResult<()> {
+            runtime.send_input(&session.id, text)
+        }
+
+        fn stop(
+            &self,
+            session: &Session,
+            runtime: &dyn RuntimeHost,
+            reason: Option<&str>,
+        ) -> DomainResult<()> {
+            runtime.stop(&session.id, reason)
+        }
+
+        fn bind_provider_session(
+            &self,
+            session: &Session,
+            provider_session_id: &str,
+        ) -> DomainResult<Option<String>> {
             if session.provider_session_id.as_deref() == Some(provider_session_id) {
                 Ok(None)
             } else {
                 Ok(Some(provider_session_id.to_string()))
             }
         }
+
+        fn normalize_event(
+            &self,
+            _provider: &str,
+            payload: &Value,
+        ) -> DomainResult<Vec<NormalizedProviderEvent>> {
+            let session_id = payload
+                .get("code_bar_session_id")
+                .and_then(|value| value.as_str())
+                .map(ToString::to_string);
+            Ok(vec![NormalizedProviderEvent {
+                session_id,
+                event: CanonicalProviderEvent::OutputChunk {
+                    stream: Some("stdout".to_string()),
+                    text: None,
+                    base64: payload
+                        .get("data")
+                        .and_then(|value| value.as_str())
+                        .map(ToString::to_string),
+                },
+                event_type: "provider.output_chunk".to_string(),
+                payload: payload.clone(),
+            }])
+        }
     }
 
     fn test_context() -> ServiceContext {
         let store: Arc<dyn DaemonStore> = Arc::new(TestStore::default());
-        store.put_workspace(Workspace {
-            id: "ws-1".to_string(),
-            display_name: "Workspace".to_string(),
-            root_path: "/tmp/workspace".to_string(),
-            vcs_type: VcsType::Git,
-            repo_identity: Some("repo".to_string()),
-            trust_level: TrustLevel::Trusted,
-            default_provider: Some(codebar_contracts::domain::ProviderKind::Claude),
-            created_at: "2026-04-23T00:00:00Z".to_string(),
-            updated_at: "2026-04-23T00:00:00Z".to_string(),
-        }).unwrap();
+        store
+            .put_workspace(Workspace {
+                id: "ws-1".to_string(),
+                display_name: "Workspace".to_string(),
+                root_path: "/tmp/workspace".to_string(),
+                vcs_type: VcsType::Git,
+                repo_identity: Some("repo".to_string()),
+                trust_level: TrustLevel::Trusted,
+                default_provider: Some(codebar_contracts::domain::ProviderKind::Claude),
+                created_at: "2026-04-23T00:00:00Z".to_string(),
+                updated_at: "2026-04-23T00:00:00Z".to_string(),
+            })
+            .unwrap();
         ServiceContext {
             clock: Arc::new(TestClock),
             ids: Arc::new(TestIds::default()),
@@ -1206,21 +1785,29 @@ mod tests {
         let task_service = TaskService::new(ctx.clone());
         let session_service = SessionService::new(ctx.clone());
 
-        let task = task_service.create_task(CreateTaskInput {
-            workspace_id: "ws-1".to_string(),
-            title: "T".to_string(),
-            prompt: "P".to_string(),
-            goal: None,
-            constraints: None,
-            requested_provider: Some(codebar_contracts::domain::ProviderKind::Claude),
-        }).unwrap();
-        let session = session_service.create_session(CreateSessionInput {
-            task_id: task.id,
-            provider: codebar_contracts::domain::ProviderKind::Claude,
-            worktree_strategy: codebar_contracts::rpc::WorktreeStrategy::NewManaged,
-        }).unwrap();
+        let task = task_service
+            .create_task(CreateTaskInput {
+                workspace_id: "ws-1".to_string(),
+                title: "T".to_string(),
+                prompt: "P".to_string(),
+                goal: None,
+                constraints: None,
+                requested_provider: Some(codebar_contracts::domain::ProviderKind::Claude),
+            })
+            .unwrap();
+        let session = session_service
+            .create_session(CreateSessionInput {
+                task_id: task.id,
+                provider: codebar_contracts::domain::ProviderKind::Claude,
+                worktree_strategy: codebar_contracts::rpc::WorktreeStrategy::NewManaged,
+            })
+            .unwrap();
 
-        let err = session_service.launch_session(LaunchSessionInput { session_id: session.id }).unwrap_err();
+        let err = session_service
+            .launch_session(LaunchSessionInput {
+                session_id: session.id,
+            })
+            .unwrap_err();
         assert_eq!(err.code, ErrorCode::InvalidArgument);
     }
 
@@ -1232,39 +1819,54 @@ mod tests {
         let worktree_service = WorktreeService::new(ctx.clone());
         let plan_service = PlanService::new(ctx.clone());
 
-        let task = task_service.create_task(CreateTaskInput {
-            workspace_id: "ws-1".to_string(),
-            title: "Build daemon".to_string(),
-            prompt: "Implement daemon".to_string(),
-            goal: None,
-            constraints: None,
-            requested_provider: Some(codebar_contracts::domain::ProviderKind::Claude),
-        }).unwrap();
-        let session = session_service.create_session(CreateSessionInput {
-            task_id: task.id.clone(),
-            provider: codebar_contracts::domain::ProviderKind::Claude,
-            worktree_strategy: codebar_contracts::rpc::WorktreeStrategy::NewManaged,
-        }).unwrap();
+        let task = task_service
+            .create_task(CreateTaskInput {
+                workspace_id: "ws-1".to_string(),
+                title: "Build daemon".to_string(),
+                prompt: "Implement daemon".to_string(),
+                goal: None,
+                constraints: None,
+                requested_provider: Some(codebar_contracts::domain::ProviderKind::Claude),
+            })
+            .unwrap();
+        let session = session_service
+            .create_session(CreateSessionInput {
+                task_id: task.id.clone(),
+                provider: codebar_contracts::domain::ProviderKind::Claude,
+                worktree_strategy: codebar_contracts::rpc::WorktreeStrategy::NewManaged,
+            })
+            .unwrap();
         let next_action_before = plan_service.get_next_action(&session.id).unwrap();
-        assert_eq!(next_action_before.recommended_next_calls, vec!["task.get_next_action"]);
+        assert_eq!(
+            next_action_before.recommended_next_calls,
+            vec!["task.get_next_action"]
+        );
 
-        let worktree = worktree_service.prepare_worktree(PrepareWorktreeInput {
-            session_id: session.id.clone(),
-            strategy: codebar_contracts::rpc::WorktreeStrategy::NewManaged,
-        }).unwrap();
+        let worktree = worktree_service
+            .prepare_worktree(PrepareWorktreeInput {
+                session_id: session.id.clone(),
+                strategy: codebar_contracts::rpc::WorktreeStrategy::NewManaged,
+            })
+            .unwrap();
         assert!(matches!(worktree.source, WorktreeSource::Managed));
 
-        let (launched_session, run) = session_service.launch_session(LaunchSessionInput {
-            session_id: session.id.clone(),
-        }).unwrap();
+        let (launched_session, run) = session_service
+            .launch_session(LaunchSessionInput {
+                session_id: session.id.clone(),
+            })
+            .unwrap();
         assert!(matches!(launched_session.state, SessionState::Running));
         assert_eq!(run.attempt_no, 1);
         assert_eq!(run.status, RunAttemptStatus::Running);
 
         let next_action_after = plan_service.get_next_action(&session.id).unwrap();
         assert!(
-            next_action_after.recommended_next_calls.contains(&"sendSessionInput".to_string())
-                || next_action_after.recommended_next_calls.contains(&"task.get_next_action".to_string())
+            next_action_after
+                .recommended_next_calls
+                .contains(&"sendSessionInput".to_string())
+                || next_action_after
+                    .recommended_next_calls
+                    .contains(&"task.get_next_action".to_string())
         );
     }
 
@@ -1274,43 +1876,61 @@ mod tests {
         let task_service = TaskService::new(ctx.clone());
         let session_service = SessionService::new(ctx.clone());
         let worktree_service = WorktreeService::new(ctx.clone());
-        let approval_service = ApprovalService::new(ctx.clone(), Arc::new(crate::null_approval_executor::NullApprovalExecutor));
+        let approval_service = ApprovalService::new(
+            ctx.clone(),
+            Arc::new(crate::null_approval_executor::NullApprovalExecutor),
+        );
 
-        let task = task_service.create_task(CreateTaskInput {
-            workspace_id: "ws-1".to_string(),
-            title: "Need approval".to_string(),
-            prompt: "Push code".to_string(),
-            goal: None,
-            constraints: None,
-            requested_provider: Some(codebar_contracts::domain::ProviderKind::Claude),
-        }).unwrap();
-        let session = session_service.create_session(CreateSessionInput {
-            task_id: task.id,
-            provider: codebar_contracts::domain::ProviderKind::Claude,
-            worktree_strategy: codebar_contracts::rpc::WorktreeStrategy::NewManaged,
-        }).unwrap();
-        worktree_service.prepare_worktree(PrepareWorktreeInput {
-            session_id: session.id.clone(),
-            strategy: codebar_contracts::rpc::WorktreeStrategy::NewManaged,
-        }).unwrap();
-        session_service.launch_session(LaunchSessionInput {
-            session_id: session.id.clone(),
-        }).unwrap();
+        let task = task_service
+            .create_task(CreateTaskInput {
+                workspace_id: "ws-1".to_string(),
+                title: "Need approval".to_string(),
+                prompt: "Push code".to_string(),
+                goal: None,
+                constraints: None,
+                requested_provider: Some(codebar_contracts::domain::ProviderKind::Claude),
+            })
+            .unwrap();
+        let session = session_service
+            .create_session(CreateSessionInput {
+                task_id: task.id,
+                provider: codebar_contracts::domain::ProviderKind::Claude,
+                worktree_strategy: codebar_contracts::rpc::WorktreeStrategy::NewManaged,
+            })
+            .unwrap();
+        worktree_service
+            .prepare_worktree(PrepareWorktreeInput {
+                session_id: session.id.clone(),
+                strategy: codebar_contracts::rpc::WorktreeStrategy::NewManaged,
+            })
+            .unwrap();
+        session_service
+            .launch_session(LaunchSessionInput {
+                session_id: session.id.clone(),
+            })
+            .unwrap();
 
-        let request = approval_service.create_request(
-            &session.id,
-            ApprovalActionType::GitPush,
-            "Push?".to_string(),
-            "Needs approval".to_string(),
-            HashMap::new(),
-        ).unwrap();
+        let request = approval_service
+            .create_request(
+                &session.id,
+                ApprovalActionType::GitPush,
+                "Push?".to_string(),
+                "Needs approval".to_string(),
+                HashMap::new(),
+            )
+            .unwrap();
         let approval_session = session_service.get_session(&session.id).unwrap();
-        assert!(matches!(approval_session.state, SessionState::ApprovalRequired));
+        assert!(matches!(
+            approval_session.state,
+            SessionState::ApprovalRequired
+        ));
 
-        let resolved = approval_service.resolve_request(ResolveApprovalInput {
-            approval_request_id: request.id,
-            decision: ApprovalStatus::Approved,
-        }).unwrap();
+        let resolved = approval_service
+            .resolve_request(ResolveApprovalInput {
+                approval_request_id: request.id,
+                decision: ApprovalStatus::Approved,
+            })
+            .unwrap();
         assert!(matches!(resolved.status, ApprovalStatus::Approved));
         let updated_session = session_service.get_session(&session.id).unwrap();
         assert!(matches!(updated_session.state, SessionState::WaitingInput));
@@ -1324,26 +1944,34 @@ mod tests {
         let worktree_service = WorktreeService::new(ctx.clone());
         let recovery = RecoveryCoordinator::new(ctx.clone());
 
-        let task = task_service.create_task(CreateTaskInput {
-            workspace_id: "ws-1".to_string(),
-            title: "Recover".to_string(),
-            prompt: "Resume later".to_string(),
-            goal: None,
-            constraints: None,
-            requested_provider: Some(codebar_contracts::domain::ProviderKind::Claude),
-        }).unwrap();
-        let session = session_service.create_session(CreateSessionInput {
-            task_id: task.id,
-            provider: codebar_contracts::domain::ProviderKind::Claude,
-            worktree_strategy: codebar_contracts::rpc::WorktreeStrategy::NewManaged,
-        }).unwrap();
-        worktree_service.prepare_worktree(PrepareWorktreeInput {
-            session_id: session.id.clone(),
-            strategy: codebar_contracts::rpc::WorktreeStrategy::NewManaged,
-        }).unwrap();
-        session_service.launch_session(LaunchSessionInput {
-            session_id: session.id.clone(),
-        }).unwrap();
+        let task = task_service
+            .create_task(CreateTaskInput {
+                workspace_id: "ws-1".to_string(),
+                title: "Recover".to_string(),
+                prompt: "Resume later".to_string(),
+                goal: None,
+                constraints: None,
+                requested_provider: Some(codebar_contracts::domain::ProviderKind::Claude),
+            })
+            .unwrap();
+        let session = session_service
+            .create_session(CreateSessionInput {
+                task_id: task.id,
+                provider: codebar_contracts::domain::ProviderKind::Claude,
+                worktree_strategy: codebar_contracts::rpc::WorktreeStrategy::NewManaged,
+            })
+            .unwrap();
+        worktree_service
+            .prepare_worktree(PrepareWorktreeInput {
+                session_id: session.id.clone(),
+                strategy: codebar_contracts::rpc::WorktreeStrategy::NewManaged,
+            })
+            .unwrap();
+        session_service
+            .launch_session(LaunchSessionInput {
+                session_id: session.id.clone(),
+            })
+            .unwrap();
 
         let recovered = recovery.recover().unwrap();
         assert_eq!(recovered.len(), 1);
@@ -1370,14 +1998,16 @@ mod tests {
         let ctx = test_context();
         let task_service = TaskService::new(ctx.clone());
         let plan_service = PlanService::new(ctx.clone());
-        let task = task_service.create_task(CreateTaskInput {
-            workspace_id: "ws-1".to_string(),
-            title: "Plan task".to_string(),
-            prompt: "Prompt".to_string(),
-            goal: None,
-            constraints: None,
-            requested_provider: Some(codebar_contracts::domain::ProviderKind::Claude),
-        }).unwrap();
+        let task = task_service
+            .create_task(CreateTaskInput {
+                workspace_id: "ws-1".to_string(),
+                title: "Plan task".to_string(),
+                prompt: "Prompt".to_string(),
+                goal: None,
+                constraints: None,
+                requested_provider: Some(codebar_contracts::domain::ProviderKind::Claude),
+            })
+            .unwrap();
         let plan = Plan {
             id: "plan-1".to_string(),
             task_id: task.id.clone(),
@@ -1387,26 +2017,28 @@ mod tests {
             updated_at: "2026-04-23T00:00:00Z".to_string(),
         };
         ctx.store.put_plan(plan.clone()).unwrap();
-        ctx.store.put_plan_step(PlanStep {
-            id: "step-1".to_string(),
-            plan_id: plan.id.clone(),
-            title: "Step".to_string(),
-            description: Some("Desc".to_string()),
-            status: crate::domain::PlanStepStatus::Pending,
-            depends_on: vec![],
-            parallelizable: false,
-            required_skills: vec![],
-            allowed_providers: None,
-            lease_owner_session_id: None,
-            lease_token: None,
-            lease_expires_at: None,
-            progress_summary: None,
-            progress_details: None,
-            outputs: None,
-            blocked_reason: None,
-            created_at: "2026-04-23T00:00:00Z".to_string(),
-            updated_at: "2026-04-23T00:00:00Z".to_string(),
-        }).unwrap();
+        ctx.store
+            .put_plan_step(PlanStep {
+                id: "step-1".to_string(),
+                plan_id: plan.id.clone(),
+                title: "Step".to_string(),
+                description: Some("Desc".to_string()),
+                status: crate::domain::PlanStepStatus::Pending,
+                depends_on: vec![],
+                parallelizable: false,
+                required_skills: vec![],
+                allowed_providers: None,
+                lease_owner_session_id: None,
+                lease_token: None,
+                lease_expires_at: None,
+                progress_summary: None,
+                progress_details: None,
+                outputs: None,
+                blocked_reason: None,
+                created_at: "2026-04-23T00:00:00Z".to_string(),
+                updated_at: "2026-04-23T00:00:00Z".to_string(),
+            })
+            .unwrap();
         let (active_plan, steps) = plan_service.get_active_plan(&task.id).unwrap();
         assert_eq!(active_plan.unwrap().id, plan.id);
         assert_eq!(steps.len(), 1);
@@ -1449,7 +2081,9 @@ mod tests {
             ))
             .unwrap();
 
-        let result = diagnostics.get_diagnostics(Some(&session.id), None).unwrap();
+        let result = diagnostics
+            .get_diagnostics(Some(&session.id), None)
+            .unwrap();
         assert_eq!(result.files, vec!["memory://store"]);
         assert!(result.summary.contains("recovery:"));
         let health_summary = health.health().unwrap();

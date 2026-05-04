@@ -82,8 +82,12 @@ pub fn daemon_rpc_request(method: &str, params: Value) -> Result<Value, String> 
     {
         use std::os::unix::net::UnixStream;
         let socket_path = codebard_socket_path();
-        let mut stream = UnixStream::connect(&socket_path)
-            .map_err(|error| format!("failed to connect to codebard {}: {error}", socket_path.display()))?;
+        let mut stream = UnixStream::connect(&socket_path).map_err(|error| {
+            format!(
+                "failed to connect to codebard {}: {error}",
+                socket_path.display()
+            )
+        })?;
         let request = DaemonRpcRequest {
             id: Some("desktop".to_string()),
             method: method.to_string(),
@@ -95,8 +99,11 @@ pub fn daemon_rpc_request(method: &str, params: Value) -> Result<Value, String> 
             .map_err(|error| error.to_string())?;
         let mut line = String::new();
         let mut reader = BufReader::new(stream);
-        reader.read_line(&mut line).map_err(|error| error.to_string())?;
-        let response = serde_json::from_str::<DaemonRpcResponse>(&line).map_err(|error| error.to_string())?;
+        reader
+            .read_line(&mut line)
+            .map_err(|error| error.to_string())?;
+        let response =
+            serde_json::from_str::<DaemonRpcResponse>(&line).map_err(|error| error.to_string())?;
         if response.ok {
             Ok(response.result.unwrap_or(Value::Null))
         } else {
@@ -187,13 +194,27 @@ fn resolve_codebard_binary_path() -> String {
 
     #[cfg(debug_assertions)]
     {
-        let candidate = workspace_root.join("target").join("debug").join(if cfg!(windows) { "codebard.exe" } else { "codebard" });
+        let candidate = workspace_root
+            .join("target")
+            .join("debug")
+            .join(if cfg!(windows) {
+                "codebard.exe"
+            } else {
+                "codebard"
+            });
         return candidate.to_string_lossy().to_string();
     }
 
     #[cfg(not(debug_assertions))]
     {
-        let candidate = workspace_root.join("target").join("release").join(if cfg!(windows) { "codebard.exe" } else { "codebard" });
+        let candidate = workspace_root
+            .join("target")
+            .join("release")
+            .join(if cfg!(windows) {
+                "codebard.exe"
+            } else {
+                "codebard"
+            });
         candidate.to_string_lossy().to_string()
     }
 }

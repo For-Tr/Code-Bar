@@ -2,9 +2,11 @@ use std::collections::BTreeMap;
 
 use serde_json::Value;
 
-use crate::model::{EventEnvelope, EventEntityType, EventSource};
+use crate::model::{EventEntityType, EventEnvelope, EventSource};
 
-fn payload(entries: impl IntoIterator<Item = (impl Into<String>, Value)>) -> BTreeMap<String, Value> {
+fn payload(
+    entries: impl IntoIterator<Item = (impl Into<String>, Value)>,
+) -> BTreeMap<String, Value> {
     entries
         .into_iter()
         .map(|(key, value)| (key.into(), value))
@@ -82,7 +84,11 @@ pub fn step_claimed(
     )
 }
 
-pub fn step_lease_expired(step_id: &str, owner_session_id: &str, created_at: &str) -> EventEnvelope {
+pub fn step_lease_expired(
+    step_id: &str,
+    owner_session_id: &str,
+    created_at: &str,
+) -> EventEnvelope {
     event(
         format!("evt-step-lease-expired-{step_id}-{created_at}"),
         EventEntityType::Session,
@@ -154,7 +160,12 @@ pub fn step_completed(
     )
 }
 
-pub fn step_blocked(session_id: &str, step_id: &str, created_at: &str, reason: &str) -> EventEnvelope {
+pub fn step_blocked(
+    session_id: &str,
+    step_id: &str,
+    created_at: &str,
+    reason: &str,
+) -> EventEnvelope {
     event(
         format!("evt-step-blocked-{step_id}-{created_at}"),
         EventEntityType::Session,

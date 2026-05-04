@@ -57,9 +57,15 @@ const rowBaseStyle = {
 export function ExplorerPane({
   session,
   onRefreshDiff,
+  showBackButton = true,
+  onBack,
+  onOpenScm,
 }: {
   session: ClaudeSession;
   onRefreshDiff: (sessionId?: string | null, options?: { reloadExplorer?: boolean }) => void;
+  showBackButton?: boolean;
+  onBack?: () => void;
+  onOpenScm?: () => void;
 }) {
   const { t } = useAppI18n();
   const theme = useSettingsStore((s) => s.settings.theme);
@@ -150,13 +156,15 @@ export function ExplorerPane({
           >
             <RefreshCw size={13} strokeWidth={1.8} />
           </button>
-          <button
-            onClick={resetWorkbenchMode}
-            style={{ background: "none", border: "none", color: "var(--ci-text-dim)", cursor: "pointer", padding: 2, width: 18, height: 18, display: "flex", alignItems: "center", justifyContent: "center" }}
-            title={t("explorer.backToSession")}
-          >
-            <ChevronLeftGlyph />
-          </button>
+          {showBackButton ? (
+            <button
+              onClick={onBack ?? resetWorkbenchMode}
+              style={{ background: "none", border: "none", color: "var(--ci-text-dim)", cursor: "pointer", padding: 2, width: 18, height: 18, display: "flex", alignItems: "center", justifyContent: "center" }}
+              title={t("explorer.backToSession")}
+            >
+              <ChevronLeftGlyph />
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -166,7 +174,7 @@ export function ExplorerPane({
             {t("explorer.sourceControl")}
           </div>
           <button
-            onClick={() => showScm(session.id)}
+            onClick={onOpenScm ?? (() => showScm(session.id))}
             style={{
               background: "none",
               border: "none",

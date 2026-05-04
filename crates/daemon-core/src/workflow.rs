@@ -1,8 +1,9 @@
 use crate::{
-    domain::{error_envelope, DomainResult, ErrorCode, EventEnvelope, EventEntityType},
+    domain::{error_envelope, DomainResult, ErrorCode, EventEntityType, EventEnvelope},
     ports::{ApprovalFilter, EventFilter, SessionFilter, TaskFilter},
     services::ServiceContext,
 };
+use codebar_contracts::mcp as mcp_contract;
 use codebar_contracts::workflow::{
     AttachWorkflowSessionRequest, AttachWorkflowSessionResponse, BlockWorkflowStepRequest,
     ClaimWorkflowStepRequest, ClaimWorkflowStepResponse, CompleteWorkflowStepRequest,
@@ -22,12 +23,18 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use task_orchestrator::{
     ApprovalRequest, ApprovalStatus, Engine, EventEnvelope as OrchestratorEvent, NextActionView,
     OrchestrationState, PlanMode, PlanStatus, PlanStep, PlanStepStatus, Provider, Session,
-    SessionAttachmentInput, SessionState, Task, TaskStatus, Worktree, Workspace,
+    SessionAttachmentInput, SessionState, Task, TaskStatus, Workspace, Worktree,
 };
 
 pub struct WorkflowService {
     ctx: ServiceContext,
     engine: Engine,
+}
+
+pub struct RpcSkillInvokeResult {
+    pub summary: String,
+    pub result: Option<Value>,
+    pub artifacts: Option<Vec<mcp_contract::SkillArtifact>>,
 }
 
 impl WorkflowService {
@@ -64,6 +71,49 @@ impl WorkflowService {
         Ok(GetWorkflowNextActionResponse {
             task_id: next.task_id.clone(),
             next_action: map_next_action(&next),
+        })
+    }
+
+    pub fn get_mcp_next_action(
+        &self,
+        session_id: &str,
+    ) -> DomainResult<mcp_contract::TaskGetNextActionOutput> {
+        let mut state = self.load_state()?;
+        let next = self
+            .engine
+            .get_next_action(&mut state, session_id, &self.ctx.clock.now())
+            .map_err(map_orchestrator_error)?;
+
+        let step = next.step.map(|step| mcp_contract::TaskGetNextActionStep {
+            id: step.id,
+            title: step.title,
+            description: step.description,
+            success_criteria: step.success_criteria,
+            lease_token: step.lease_token,
+        });
+
+        let recommended_sequence = next.recommended_sequence.map(|calls| {
+            calls
+                .into_iter()
+                .map(|call| mcp_contract::RecommendedSequenceItem {
+                    r#type: match call.kind {
+                        task_orchestrator::RecommendedCallType::Skill => {
+                            mcp_contract::RecommendedSequenceItemType::Skill
+                        }
+                        task_orchestrator::RecommendedCallType::Tool => {
+                            mcp_contract::RecommendedSequenceItemType::Tool
+                        }
+                    },
+                    name: call.name,
+                })
+                .collect::<Vec<_>>()
+        });
+
+        Ok(mcp_contract::TaskGetNextActionOutput {
+            mode: next.mode,
+            step,
+            active_skills: next.active_skills,
+            recommended_sequence,
         })
     }
 
@@ -163,7 +213,13 @@ impl WorkflowService {
             .map_err(map_orchestrator_error)?;
         self.persist_state(&state)?;
         self.persist_events(&state.events)?;
-        let snapshot = self.project_snapshot(&state, &attachment.task_id, Some(&attachment.session_id), true, true)?;
+        let snapshot = self.project_snapshot(
+            &state,
+            &attachment.task_id,
+            Some(&attachment.session_id),
+            true,
+            true,
+        )?;
         Ok(AttachWorkflowSessionResponse {
             task_id: attachment.task_id,
             session_id: Some(attachment.session_id),
@@ -179,6 +235,96 @@ impl WorkflowService {
         let state = self.load_state()?;
         let snapshot = self.project_snapshot(&state, task_id, session_id, true, false)?;
         Ok(snapshot.events)
+    }
+
+    pub fn load_state_for_rpc(&self) -> DomainResult<OrchestrationState> {
+        self.load_state()
+    }
+
+    pub fn resolve_active_skills_for_rpc(
+        &self,
+        state: &mut OrchestrationState,
+        session_id: &str,
+        step_id: Option<&str>,
+    ) -> DomainResult<task_orchestrator::ResolvedSkills> {
+        self.engine
+            .resolve_active_skills(state, session_id, step_id, &self.ctx.clock.now())
+            .map_err(map_orchestrator_error)
+    }
+
+    pub fn invoke_skill_for_rpc(
+        &self,
+        state: &mut OrchestrationState,
+        input: mcp_contract::SkillInvokeInput,
+    ) -> DomainResult<RpcSkillInvokeResult> {
+        let session = state
+            .sessions
+            .get(&input.session_id)
+            .cloned()
+            .ok_or_else(|| error_envelope(ErrorCode::NotFound, "session not found", false))?;
+
+        let step_id = input
+            .step_id
+            .clone()
+            .or_else(|| session.current_step_id.clone());
+
+        let resolved = self
+            .engine
+            .resolve_active_skills(
+                state,
+                &session.id,
+                step_id.as_deref(),
+                &self.ctx.clock.now(),
+            )
+            .map_err(map_orchestrator_error)?;
+
+        let skill_allowed = resolved
+            .active_skills
+            .iter()
+            .any(|skill| skill == &input.skill);
+
+        if !skill_allowed {
+            return Err(error_envelope(
+                ErrorCode::InvalidArgument,
+                format!("skill '{}' is not active for this session", input.skill),
+                false,
+            ));
+        }
+
+        let mut artifacts = Vec::new();
+        if let Some(uri) = input
+            .input
+            .get("uri")
+            .and_then(|value| value.as_str())
+            .map(ToString::to_string)
+        {
+            artifacts.push(mcp_contract::SkillArtifact {
+                r#type: mcp_contract::SkillArtifactType::Url,
+                uri: Some(uri),
+                text: None,
+            });
+        }
+
+        Ok(RpcSkillInvokeResult {
+            summary: format!("Skill '{}' invocation accepted", input.skill),
+            result: Some(Value::Object(
+                vec![
+                    ("skill".to_string(), Value::String(input.skill)),
+                    (
+                        "stepId".to_string(),
+                        step_id.map(Value::String).unwrap_or(Value::Null),
+                    ),
+                    ("input".to_string(), input.input),
+                ]
+                .into_iter()
+                .collect(),
+            )),
+            artifacts: if artifacts.is_empty() {
+                None
+            } else {
+                Some(artifacts)
+            },
+        })
     }
 
     fn load_state(&self) -> DomainResult<OrchestrationState> {
@@ -264,11 +410,13 @@ impl WorkflowService {
         input: &AttachWorkflowSessionRequest,
         session_id: &str,
     ) -> DomainResult<()> {
-        let session = state
-            .sessions
-            .get(session_id)
-            .cloned()
-            .ok_or_else(|| error_envelope(ErrorCode::NotFound, format!("session {session_id} not found"), false))?;
+        let session = state.sessions.get(session_id).cloned().ok_or_else(|| {
+            error_envelope(
+                ErrorCode::NotFound,
+                format!("session {session_id} not found"),
+                false,
+            )
+        })?;
         if state.active_plan_for_task(&session.task_id).is_some() {
             return Ok(());
         }
@@ -289,10 +437,9 @@ impl WorkflowService {
             },
         );
 
-        let task = state
-            .tasks
-            .get_mut(&session.task_id)
-            .ok_or_else(|| error_envelope(ErrorCode::NotFound, "task not found for session", false))?;
+        let task = state.tasks.get_mut(&session.task_id).ok_or_else(|| {
+            error_envelope(ErrorCode::NotFound, "task not found for session", false)
+        })?;
         task.active_plan_id = Some(plan_id.clone());
         task.updated_at = now.clone();
 
@@ -301,7 +448,9 @@ impl WorkflowService {
         let preserved_lease_owner = existing_step
             .as_ref()
             .and_then(|step| step.lease_owner_session_id.clone());
-        let preserved_lease_token = existing_step.as_ref().and_then(|step| step.lease_token.clone());
+        let preserved_lease_token = existing_step
+            .as_ref()
+            .and_then(|step| step.lease_token.clone());
         let preserved_lease_expires_at = existing_step
             .as_ref()
             .and_then(|step| step.lease_expires_at.clone());
@@ -340,10 +489,16 @@ impl WorkflowService {
                 lease_owner_session_id: preserved_lease_owner,
                 lease_token: preserved_lease_token,
                 lease_expires_at: preserved_lease_expires_at,
-                progress_summary: existing_step.as_ref().and_then(|step| step.progress_summary.clone()),
-                progress_details: existing_step.as_ref().and_then(|step| step.progress_details.clone()),
+                progress_summary: existing_step
+                    .as_ref()
+                    .and_then(|step| step.progress_summary.clone()),
+                progress_details: existing_step
+                    .as_ref()
+                    .and_then(|step| step.progress_details.clone()),
                 outputs: existing_step.as_ref().and_then(|step| step.outputs.clone()),
-                blocked_reason: existing_step.as_ref().and_then(|step| step.blocked_reason.clone()),
+                blocked_reason: existing_step
+                    .as_ref()
+                    .and_then(|step| step.blocked_reason.clone()),
                 created_at: existing_step
                     .as_ref()
                     .map(|step| step.created_at.clone())
@@ -375,18 +530,28 @@ impl WorkflowService {
         include_events: bool,
         include_diagnostics: bool,
     ) -> DomainResult<GetWorkflowSnapshotResponse> {
-        let task = state
-            .tasks
-            .get(task_id)
-            .ok_or_else(|| error_envelope(ErrorCode::NotFound, format!("task {task_id} not found"), false))?;
+        let task = state.tasks.get(task_id).ok_or_else(|| {
+            error_envelope(
+                ErrorCode::NotFound,
+                format!("task {task_id} not found"),
+                false,
+            )
+        })?;
         let plan = state.active_plan_for_task(task_id);
         let active_session = session_id
             .and_then(|id| state.sessions.get(id))
-            .or_else(|| state.sessions.values().find(|session| session.task_id == task_id));
+            .or_else(|| {
+                state
+                    .sessions
+                    .values()
+                    .find(|session| session.task_id == task_id)
+            });
         let approvals = state
             .approvals
             .values()
-            .filter(|approval| approval.task_id == task_id && approval.status == ApprovalStatus::Pending)
+            .filter(|approval| {
+                approval.task_id == task_id && approval.status == ApprovalStatus::Pending
+            })
             .cloned()
             .collect::<Vec<_>>();
         let step_map = plan
@@ -498,15 +663,18 @@ fn project_nodes(
     for (index, step) in step_map.values().enumerate() {
         let level = levels.get(&step.id).copied().unwrap_or(0) as f64;
         let y = 200.0 + (index as f64 * 170.0);
-        let session = active_session.filter(|session| session.current_step_id.as_deref() == Some(step.id.as_str()));
-        let step_approval = approvals
-            .iter()
-            .find(|approval| active_session.map(|s| s.id.as_str()) == Some(approval.session_id.as_str()));
-        let next_actions = if active_session
-            .and_then(|session| session.current_step_id.as_deref())
+        let session = active_session
+            .filter(|session| session.current_step_id.as_deref() == Some(step.id.as_str()));
+        let step_approval = approvals.iter().find(|approval| {
+            active_session.map(|s| s.id.as_str()) == Some(approval.session_id.as_str())
+        });
+        let next_actions = if active_session.and_then(|session| session.current_step_id.as_deref())
             == Some(step.id.as_str())
         {
-            vec!["task.get_next_action".to_string(), "task.complete_step".to_string()]
+            vec![
+                "task.get_next_action".to_string(),
+                "task.complete_step".to_string(),
+            ]
         } else {
             Vec::new()
         };
@@ -565,7 +733,10 @@ fn project_nodes(
     nodes
 }
 
-fn project_edges(step_map: &BTreeMap<String, PlanStep>, approvals: &[ApprovalRequest]) -> Vec<TaskDagEdge> {
+fn project_edges(
+    step_map: &BTreeMap<String, PlanStep>,
+    approvals: &[ApprovalRequest],
+) -> Vec<TaskDagEdge> {
     let mut edges = Vec::new();
     for step in step_map.values() {
         for dependency in &step.depends_on {
@@ -601,8 +772,11 @@ fn project_event(state: &OrchestrationState, event: &EventEnvelope) -> TaskDagEv
         EventEntityType::Session => {
             let session = state.sessions.get(&event.entity_id);
             (
-                session.map(|session| session.task_id.clone()).unwrap_or_default(),
-                step_id_from_payload.or_else(|| session.and_then(|session| session.current_step_id.clone())),
+                session
+                    .map(|session| session.task_id.clone())
+                    .unwrap_or_default(),
+                step_id_from_payload
+                    .or_else(|| session.and_then(|session| session.current_step_id.clone())),
                 Some(event.entity_id.clone()),
             )
         }
@@ -659,7 +833,10 @@ fn project_diagnostics(
             data: None,
         });
     }
-    for step in step_map.values().filter(|step| step.status == PlanStepStatus::Blocked) {
+    for step in step_map
+        .values()
+        .filter(|step| step.status == PlanStepStatus::Blocked)
+    {
         diagnostics.push(TaskDagDiagnostic {
             id: format!("diag:{}:blocked", step.id),
             task_id: task_id.to_string(),
@@ -674,7 +851,10 @@ fn project_diagnostics(
             data: None,
         });
     }
-    for event in events.iter().filter(|event| event.kind == "step.lease_expired") {
+    for event in events
+        .iter()
+        .filter(|event| event.kind == "step.lease_expired")
+    {
         diagnostics.push(TaskDagDiagnostic {
             id: format!("diag:{}:lease-expired", event.id),
             task_id: task_id.to_string(),
@@ -843,8 +1023,7 @@ fn map_plan_status(status: PlanStatus) -> &'static str {
 fn map_step_status(step: &PlanStep, active_session: Option<&Session>) -> TaskDagStepStatus {
     match step.status {
         PlanStepStatus::Pending => {
-            if active_session
-                .and_then(|session| session.current_step_id.as_deref())
+            if active_session.and_then(|session| session.current_step_id.as_deref())
                 == Some(step.id.as_str())
             {
                 TaskDagStepStatus::Ready
@@ -910,9 +1089,9 @@ fn map_provider_from_contract(provider: TaskDagProvider) -> Provider {
 fn map_session_state(state: SessionState) -> TaskDagSessionState {
     match state {
         SessionState::Draft | SessionState::Ready => TaskDagSessionState::Created,
-        SessionState::PreparingWorkspace | SessionState::PreparingWorktree | SessionState::Launching => {
-            TaskDagSessionState::Launching
-        }
+        SessionState::PreparingWorkspace
+        | SessionState::PreparingWorktree
+        | SessionState::Launching => TaskDagSessionState::Launching,
         SessionState::Running => TaskDagSessionState::Running,
         SessionState::WaitingInput => TaskDagSessionState::WaitingInput,
         SessionState::ApprovalRequired | SessionState::Interrupted => TaskDagSessionState::Paused,
@@ -972,7 +1151,10 @@ fn build_open_step_description(
     if parts.is_empty() {
         "Continue work in attached session.".into()
     } else {
-        format!("Continue work in attached session from {}.", parts.join(", "))
+        format!(
+            "Continue work in attached session from {}.",
+            parts.join(", ")
+        )
     }
 }
 
@@ -989,7 +1171,10 @@ fn derive_open_step_status(
     }
 
     if lease_owner_session_id.is_some()
-        || matches!(existing_status, Some(PlanStepStatus::Claimed | PlanStepStatus::Running))
+        || matches!(
+            existing_status,
+            Some(PlanStepStatus::Claimed | PlanStepStatus::Running)
+        )
     {
         return existing_status.unwrap_or(PlanStepStatus::Running);
     }
@@ -1034,12 +1219,16 @@ fn map_orchestrator_event(event: OrchestratorEvent) -> DomainResult<EventEnvelop
 fn map_orchestrator_error(error: task_orchestrator::ErrorEnvelope) -> crate::domain::ErrorEnvelope {
     let base = match error.code.as_str() {
         "not_found" => error_envelope(ErrorCode::NotFound, error.message, error.retryable),
-        "invalid_input" => error_envelope(ErrorCode::InvalidArgument, error.message, error.retryable),
+        "invalid_input" => {
+            error_envelope(ErrorCode::InvalidArgument, error.message, error.retryable)
+        }
         "conflict" => error_envelope(ErrorCode::InvalidArgument, error.message, error.retryable),
         _ => error_envelope(ErrorCode::Internal, error.message, error.retryable),
     };
     match error.details {
-        Some(details) => crate::domain::error_with_details(base, Value::Object(details.into_iter().collect())),
+        Some(details) => {
+            crate::domain::error_with_details(base, Value::Object(details.into_iter().collect()))
+        }
         None => base,
     }
 }

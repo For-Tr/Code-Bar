@@ -84,9 +84,9 @@ function Section({
   actions?: React.ReactNode;
   children: React.ReactNode;
 }) {
-  if (count === 0) return null;
-
   const [expanded, setExpanded] = useState(defaultExpanded);
+
+  if (count === 0) return null;
 
   return (
     <div style={{ marginBottom: 6 }}>
@@ -214,8 +214,26 @@ function GroupSection({
   );
 }
 
-export function ScmSidebar({ session }: { session: ClaudeSession | null }) {
+export function ScmSidebar({
+  session,
+  showBackButton = true,
+  onBack,
+}: {
+  session: ClaudeSession | null;
+  showBackButton?: boolean;
+  onBack?: () => void;
+}) {
   const { t, isRtl } = useAppI18n();
+  const sessionId = session?.id ?? "__no_session__";
+  const sessionDiffFiles = session?.diffFiles ?? [];
+  const snapshot = useScmStore((s) => s.snapshotBySessionId[sessionId]?.files ?? sessionDiffFiles);
+  const groups = useScmStore((s) => s.statusBySessionId[sessionId] ?? EMPTY_SCM_GROUPS);
+  const selectedEntry = useScmStore((s) => s.selectedEntryBySessionId[sessionId] ?? null);
+  const commitMessage = useScmStore((s) => s.commitMessageBySessionId[sessionId] ?? "");
+  const busy = useScmStore((s) => s.actionPendingBySessionId[sessionId] ?? false);
+  const actionError = useScmStore((s) => s.actionErrorBySessionId[sessionId] ?? null);
+  const setCommitMessage = useScmStore((s) => s.setCommitMessage);
+
   if (!session) {
     return (
       <div style={{
@@ -234,14 +252,6 @@ export function ScmSidebar({ session }: { session: ClaudeSession | null }) {
       </div>
     );
   }
-
-  const snapshot = useScmStore((s) => s.snapshotBySessionId[session.id]?.files ?? session.diffFiles);
-  const groups = useScmStore((s) => s.statusBySessionId[session.id] ?? EMPTY_SCM_GROUPS);
-  const selectedEntry = useScmStore((s) => s.selectedEntryBySessionId[session.id] ?? null);
-  const commitMessage = useScmStore((s) => s.commitMessageBySessionId[session.id] ?? "");
-  const busy = useScmStore((s) => s.actionPendingBySessionId[session.id] ?? false);
-  const actionError = useScmStore((s) => s.actionErrorBySessionId[session.id] ?? null);
-  const setCommitMessage = useScmStore((s) => s.setCommitMessage);
   const totalAdditions = snapshot.reduce((sum, file) => sum + file.additions, 0);
   const totalDeletions = snapshot.reduce((sum, file) => sum + file.deletions, 0);
   const hasGroupedStatus = groups.conflicts.length + groups.staged.length + groups.unstaged.length + groups.untracked.length > 0;
@@ -257,29 +267,31 @@ export function ScmSidebar({ session }: { session: ClaudeSession | null }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0, background: "transparent" }}>
-      <div style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "flex-end",
-        gap: 8,
-        padding: "6px 10px",
-        borderBottom: "1px solid var(--ci-toolbar-border)",
-      }}>
-        <button
-          onClick={resetWorkbenchMode}
-          style={{
-            background: "none",
-            border: "none",
-            color: "var(--ci-text-muted)",
-            cursor: "pointer",
-            padding: 0,
-            fontSize: 12,
-          }}
-          title={t("scm.backToSession")}
-        >
-          ←
-        </button>
-      </div>
+      {showBackButton ? (
+        <div style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "flex-end",
+          gap: 8,
+          padding: "6px 10px",
+          borderBottom: "1px solid var(--ci-toolbar-border)",
+        }}>
+          <button
+            onClick={onBack ?? resetWorkbenchMode}
+            style={{
+              background: "none",
+              border: "none",
+              color: "var(--ci-text-muted)",
+              cursor: "pointer",
+              padding: 0,
+              fontSize: 12,
+            }}
+            title={t("scm.backToSession")}
+          >
+            ←
+          </button>
+        </div>
+      ) : null}
 
       <div style={{
         padding: "8px 12px",

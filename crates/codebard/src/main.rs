@@ -4,11 +4,9 @@ mod contract_map;
 mod event_bus;
 mod provider_adapter;
 mod rpc;
-mod runtime;
 mod single_instance;
-mod storage;
-mod worktree_host;
 mod wiring;
+mod worktree_host;
 
 #[tokio::main]
 async fn main() {

@@ -1,33 +1,37 @@
 import { useSessionStore } from "../store/sessionStore";
-import { useWorkbenchStore } from "../store/workbenchStore";
+import {
+  useWorkbenchStore,
+  type SessionObjectTab,
+  type WorkflowObjectTab,
+} from "../store/workbenchStore";
 
-export function showSessionSurface(sessionId: string | null) {
-  useSessionStore.getState().setActiveSession(sessionId);
+export function showSessionSurface(sessionId: string | null, tab: SessionObjectTab = "run") {
+  useSessionStore.getState().setExpandedSession(sessionId);
   if (sessionId) {
-    useSessionStore.getState().setExpandedSession(sessionId);
+    useSessionStore.getState().setActiveSession(sessionId);
   }
-  useWorkbenchStore.getState().showSessionSurface(sessionId);
+  useWorkbenchStore.getState().showSessionSurface(sessionId, tab);
 }
 
-export function showWorkflow(sessionId?: string | null, taskId?: string | null) {
-  const nextSessionId = sessionId ?? null;
-  if (nextSessionId) {
-    useSessionStore.getState().setActiveSession(nextSessionId);
-    useSessionStore.getState().setExpandedSession(nextSessionId);
+export function showWorkflow(
+  sessionId?: string | null,
+  taskId?: string | null,
+  tab: WorkflowObjectTab = "overview",
+) {
+  if (sessionId !== undefined) {
+    useSessionStore.getState().setActiveSession(sessionId);
+    useSessionStore.getState().setExpandedSession(sessionId);
   }
-  useWorkbenchStore.getState().showWorkflow(nextSessionId, taskId ?? null);
+
+  useWorkbenchStore.getState().showWorkflow(sessionId, taskId ?? null, tab);
 }
 
 export function showExplorer(sessionId: string) {
-  useSessionStore.getState().setActiveSession(sessionId);
-  useSessionStore.getState().setExpandedSession(sessionId);
-  useWorkbenchStore.getState().showExplorer(sessionId);
+  showSessionSurface(sessionId, "files");
 }
 
 export function showScm(sessionId: string) {
-  useSessionStore.getState().setActiveSession(sessionId);
-  useSessionStore.getState().setExpandedSession(sessionId);
-  useWorkbenchStore.getState().showScm(sessionId);
+  showSessionSurface(sessionId, "changes");
 }
 
 export function resetWorkbenchMode() {

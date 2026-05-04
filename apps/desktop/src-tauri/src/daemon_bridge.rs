@@ -29,7 +29,10 @@ pub fn daemon_health_check() -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
-pub fn daemon_request(method: String, params: serde_json::Value) -> Result<serde_json::Value, String> {
+pub fn daemon_request(
+    method: String,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, String> {
     ensure_codebard_running()?;
     daemon_rpc_request(&method, params)
 }

@@ -1,8 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
+import { getLatestDaemonState } from "../daemon/DaemonDataProvider";
+import { resolveEffectiveSessionWorkdir } from "../daemon/selectors";
 import { useEditorBufferStore } from "../store/editorBufferStore";
 import { useEditorStore } from "../store/editorStore";
 import { type ExplorerEntry, useExplorerStore } from "../store/explorerStore";
+import { useSessionStore } from "../store/sessionStore";
 import { useWorkbenchStore } from "../store/workbenchStore";
+import { useWorkspaceStore } from "../store/workspaceStore";
 
 interface SessionFileReadResult {
   content: string;
@@ -102,6 +106,15 @@ export function openDiff(sessionId: string, path: string, reveal: ExplorerSelect
   return tabId;
 }
 
+async function rememberEffectiveSessionWorkdir(sessionId: string) {
+  const session = useSessionStore.getState().sessions.find((item) => item.id === sessionId) ?? null;
+  if (!session) return;
+  const workspace = useWorkspaceStore.getState().workspaces.find((item) => item.id === session.workspaceId) ?? null;
+  const workdir = resolveEffectiveSessionWorkdir(getLatestDaemonState(), sessionId, session, workspace);
+  if (!workdir) return;
+  await invoke("remember_session_workdir", { sessionId, workdir }).catch(() => {});
+}
+
 export async function loadFile(tabId: string) {
   const tab = useEditorStore.getState().tabsById[tabId];
   if (!tab || tab.viewMode !== "code") return;
@@ -110,6 +123,7 @@ export async function loadFile(tabId: string) {
 
   useEditorBufferStore.getState().patchBuffer(tabId, { loading: true, error: null });
   try {
+    await rememberEffectiveSessionWorkdir(tab.sessionId);
     const payload = await invoke<SessionFileReadResult>("read_session_file", {
       sessionId: tab.sessionId,
       relativePath: tab.path,
@@ -160,6 +174,7 @@ export async function loadDirectory(sessionId: string, dir = "") {
   const store = useExplorerStore.getState();
   store.setDirectoryLoading(sessionId, dir, true);
   try {
+    await rememberEffectiveSessionWorkdir(sessionId);
     const payload = await invoke<SessionDirectoryListResult>("list_session_directory", {
       sessionId,
       relativePath: dir,

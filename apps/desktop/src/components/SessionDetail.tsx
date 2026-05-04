@@ -4,6 +4,9 @@ import { motion } from "framer-motion";
 import { useAppI18n } from "../i18n";
 import { useSessionStore } from "../store/sessionStore";
 import { useSettingsStore, isGlassTheme } from "../store/settingsStore";
+import { useWorkspaceStore } from "../store/workspaceStore";
+import { useDaemonData } from "../daemon/DaemonDataProvider";
+import { resolveEffectiveSessionWorkdir } from "../daemon/selectors";
 import { TrafficLights } from "./TrafficLights";
 import { SessionPromptComposer } from "./session/SessionPromptComposer";
 import { SessionRunnerSurface } from "./session/SessionRunnerSurface";
@@ -169,20 +172,18 @@ function SessionPanel({ sessionId, isOpen, onClose, presentation, showHeader }: 
   const textShadow = isGlass ? "var(--ci-glass-text-shadow)" : "none";
   const [hidden, setHidden] = useState(!isOpen);
   const hasOpenedRef = useRef(false);
+  const daemon = useDaemonData();
 
   const {
     session,
-    runner,
     runnerBadge,
     queryInputRef,
     pendingQuery,
     setPendingQuery,
-    querySent,
     installing,
     setInstalling,
     installId,
     launchPrompt,
-    ptyEverActive,
     cliAvailable,
     recheckCli,
     handlePtyReady,
@@ -193,7 +194,11 @@ function SessionPanel({ sessionId, isOpen, onClose, presentation, showHeader }: 
     handleSwitchRunner,
     supportsPromptLaunch,
     resumeSessionId,
-    isResumeLaunch,
+    canSwitchRunner,
+    shouldShowComposer,
+    waitingForPtyLaunch,
+    showRuntimeSurface,
+    runtimeSurfaceActive,
     cliCommand,
     installCmd,
     contextEnv,
@@ -214,18 +219,14 @@ function SessionPanel({ sessionId, isOpen, onClose, presentation, showHeader }: 
     }
   }, [isOpen, presentation]);
 
-  useEffect(() => {
-    if (isOpen && !querySent) {
-      const t = setTimeout(() => queryInputRef.current?.focus(), 350);
-      return () => clearTimeout(t);
-    }
-  }, [isOpen, querySent, queryInputRef]);
+  const workspace = useWorkspaceStore((state) =>
+    session ? state.workspaces.find((item) => item.id === session.workspaceId) ?? null : null
+  );
 
   if (!session) return null;
-
-  const waitingForPtyLaunch = querySent && !ptyEverActive && !isResumeLaunch;
+  const effectiveWorkdir = resolveEffectiveSessionWorkdir(daemon.state, session.id, session, workspace);
   const cliBaseArgs: string[] =
-    runner.type === "claude-code"
+    session.runner.type === "claude-code"
       ? (resumeSessionId
           ? ["--resume", resumeSessionId, "--dangerously-skip-permissions"]
           : ["--dangerously-skip-permissions"])
@@ -374,17 +375,16 @@ function SessionPanel({ sessionId, isOpen, onClose, presentation, showHeader }: 
       <div style={{ flex: 1, overflow: "hidden", position: "relative", display: "flex", flexDirection: "column" }}>
         <SessionRunnerSurface
           isGlass={isGlass}
-          isOpen={isOpen}
           installing={installing}
           installId={installId}
           installCmd={installCmd}
           recheckCli={recheckCli}
-          querySent={querySent}
-          ptyEverActive={ptyEverActive}
+          runtimeActive={runtimeSurfaceActive}
+          runtimeVisible={showRuntimeSurface}
           sessionId={sessionId}
           cliCommand={cliCommand}
           cliBaseArgs={cliBaseArgs}
-          workdir={session.workdir}
+          workdir={effectiveWorkdir}
           launchPrompt={launchPrompt}
           supportsPromptLaunch={supportsPromptLaunch}
           handlePtyReady={handlePtyReady}
@@ -397,18 +397,18 @@ function SessionPanel({ sessionId, isOpen, onClose, presentation, showHeader }: 
 
         <motion.div
           initial={false}
-          animate={(!querySent || waitingForPtyLaunch) && !installing ? { opacity: 1, scale: 1 } : { opacity: 0, scale: 0.96, pointerEvents: "none" as const }}
+          animate={shouldShowComposer ? { opacity: 1, scale: 1 } : { opacity: 0, scale: 0.96, pointerEvents: "none" as const }}
           transition={{ duration: 0.18 }}
           style={{ position: "absolute", inset: 0 }}
         >
-          {(!querySent || waitingForPtyLaunch) && !installing && (
+          {shouldShowComposer && (
             <SessionPromptComposer
               pendingQuery={pendingQuery}
               setPendingQuery={setPendingQuery}
               queryInputRef={queryInputRef}
-              querySent={querySent}
               waitingForPtyLaunch={waitingForPtyLaunch}
-              runnerType={runner.type}
+              canSwitchRunner={canSwitchRunner}
+              runnerType={session.runner.type}
               runnerBadge={runnerBadge}
               cliAvailable={cliAvailable}
               cliCommand={cliCommand}

@@ -2,7 +2,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{
-    domain::{ApprovalActionType, ApprovalRequest, Plan, PlanMode, PlanStep, ProviderKind, Session, Task, Worktree, Workspace},
+    domain::{
+        ApprovalActionType, ApprovalRequest, Plan, PlanMode, PlanStep, ProviderKind, Session, Task,
+        Workspace, Worktree,
+    },
     events::EventEnvelope,
 };
 
@@ -213,6 +216,28 @@ pub struct UpsertWorkspaceInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub struct GetWorkspaceInput {
+    pub workspace_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GetWorkspaceOutput {
+    pub workspace: Workspace,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ListWorkspacesInput {}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ListWorkspacesOutput {
+    pub workspaces: Vec<Workspace>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct GetSessionInput {
     pub session_id: String,
 }
@@ -249,6 +274,33 @@ pub struct CreateSessionInput {
 #[serde(rename_all = "camelCase")]
 pub struct CreateSessionOutput {
     pub session: Session,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateSessionInput {
+    pub session_id: String,
+    pub provider: Option<ProviderKind>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateSessionOutput {
+    pub session: Session,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BootstrapSessionInput {
+    pub session_id: String,
+    pub strategy: WorktreeStrategy,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BootstrapSessionOutput {
+    pub session: Session,
+    pub worktree: Worktree,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -359,6 +411,30 @@ pub struct PrepareWorktreeOutput {
 #[serde(rename_all = "camelCase")]
 pub struct CleanupWorktreeInput {
     pub worktree_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GetWorktreeInput {
+    pub worktree_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GetWorktreeOutput {
+    pub worktree: Worktree,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ListWorktreesInput {
+    pub workspace_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ListWorktreesOutput {
+    pub worktrees: Vec<Worktree>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

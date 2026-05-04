@@ -5,8 +5,8 @@ export function SessionPromptComposer({
   pendingQuery,
   setPendingQuery,
   queryInputRef,
-  querySent,
   waitingForPtyLaunch,
+  canSwitchRunner,
   runnerType,
   runnerBadge,
   cliAvailable,
@@ -20,8 +20,8 @@ export function SessionPromptComposer({
   pendingQuery: string;
   setPendingQuery: (value: string) => void;
   queryInputRef: React.RefObject<HTMLTextAreaElement | null>;
-  querySent: boolean;
   waitingForPtyLaunch: boolean;
+  canSwitchRunner: boolean;
   runnerType: RunnerType;
   runnerBadge: string;
   cliAvailable: boolean | null;
@@ -29,7 +29,7 @@ export function SessionPromptComposer({
   installCmd?: string;
   isGlass: boolean;
   launchDisabled: boolean;
-  handleSwitchRunner: (type: RunnerType) => void;
+  handleSwitchRunner: (type: RunnerType) => Promise<void> | void;
   handleInstall: () => void;
 }) {
   const { t, isRtl } = useAppI18n();
@@ -106,7 +106,7 @@ export function SessionPromptComposer({
           </div>
         )}
 
-        {!querySent && (
+        {canSwitchRunner && (
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "center" }}>
             {(Object.entries(RUNNER_LABELS) as [RunnerType, string][]).map(([type, label]) => {
               const active = runnerType === type;
@@ -147,9 +147,11 @@ export function SessionPromptComposer({
             <div style={{ fontWeight: 600, marginBottom: 4 }}>
               ⚠️ {t("session.cliMissing", { command: cliCommand })}
             </div>
-            <div style={{ color: overlayHint, marginBottom: 8 }}>
-              {t("session.installCommand")}<code style={{ color: "rgba(255,195,80,0.8)", fontFamily: "'JetBrains Mono', monospace", fontSize: 10 }}>{installCmd}</code>
-            </div>
+            {installCmd && (
+              <div style={{ color: overlayHint, marginBottom: 8 }}>
+                {t("session.installCommand")}<code style={{ color: "rgba(255,195,80,0.8)", fontFamily: "'JetBrains Mono', monospace", fontSize: 10 }}>{installCmd}</code>
+              </div>
+            )}
             {installCmd && (
               <button
                 onClick={handleInstall}

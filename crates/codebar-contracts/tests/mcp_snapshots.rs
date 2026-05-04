@@ -1,9 +1,9 @@
+use codebar_contracts::domain::{PlanMode, ProviderKind};
 use codebar_contracts::mcp::{
     RecommendedSequenceItem, RecommendedSequenceItemType, SessionAttachInput, SessionAttachOutput,
     SkillArtifact, SkillArtifactType, SkillInvokeInput, SkillInvokeOutput, TaskGetNextActionInput,
     TaskGetNextActionOutput, TaskGetNextActionStep,
 };
-use codebar_contracts::domain::{PlanMode, ProviderKind};
 use serde_json::json;
 
 #[test]
@@ -38,14 +38,26 @@ fn snapshot_task_get_next_action_json() {
             id: "step_001".into(),
             title: "Freeze contracts".into(),
             description: Some("Define shared task and session models".into()),
-            success_criteria: Some(vec!["Rust and TS types align".into(), "Snapshots updated".into()]),
+            success_criteria: Some(vec![
+                "Rust and TS types align".into(),
+                "Snapshots updated".into(),
+            ]),
             lease_token: Some("lease_123".into()),
         }),
         active_skills: vec!["contracts".into(), "tests".into()],
         recommended_sequence: Some(vec![
-            RecommendedSequenceItem { r#type: RecommendedSequenceItemType::Tool, name: "context.get_current".into() },
-            RecommendedSequenceItem { r#type: RecommendedSequenceItemType::Tool, name: "task.update_progress".into() },
-            RecommendedSequenceItem { r#type: RecommendedSequenceItemType::Skill, name: "contracts.generate".into() },
+            RecommendedSequenceItem {
+                r#type: RecommendedSequenceItemType::Tool,
+                name: "context.get_current".into(),
+            },
+            RecommendedSequenceItem {
+                r#type: RecommendedSequenceItemType::Tool,
+                name: "task.update_progress".into(),
+            },
+            RecommendedSequenceItem {
+                r#type: RecommendedSequenceItemType::Skill,
+                name: "contracts.generate".into(),
+            },
         ]),
     };
     let payload = json!({ "input": input, "output": output });

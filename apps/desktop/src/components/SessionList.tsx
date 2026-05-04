@@ -8,9 +8,10 @@ import { useAppI18n } from "../i18n";
 import { ClaudeSession, SessionStatus, orderWorkspaceSessions, useSessionStore } from "../store/sessionStore";
 import { useWorkspaceStore, getWorkspaceColor } from "../store/workspaceStore";
 import { useSettingsStore, RUNNER_LABELS, sanitizeRunnerConfig, isGlassTheme } from "../store/settingsStore";
-import { useWorkbenchStore } from "../store/workbenchStore";
 import { showExplorer, showSessionSurface } from "../services/workbenchCommands";
-import { createDaemonSession, stopDaemonSession } from "../services/daemonCommands";
+import { createDaemonSession, resumeDaemonSession, stopDaemonSession } from "../services/daemonCommands";
+import { useDaemonData } from "../daemon/DaemonDataProvider";
+import { mapDaemonStateToUiStatus, selectSessionView } from "../daemon/selectors";
 
 // ── 状态配置（使用 CSS 变量）────────────────────────────────
 const STATUS_CONFIG: Record<SessionStatus, {
@@ -81,7 +82,7 @@ function StatusDot({ status }: { status: SessionStatus }) {
 function SessionCard({
   session, isSelected, isOpened, accentColor, isGlass, showExpandButton, isDeleteConfirming, onClick, onCancelDelete, onExpand, onOpenExplore, onRemove, onRotateSuspend,
 }: {
-  session: ClaudeSession;
+  session: Pick<ClaudeSession, "id" | "name" | "runner" | "status" | "currentTask" | "branchName">;
   isSelected: boolean;
   isOpened: boolean;
   accentColor: string;
@@ -421,15 +422,10 @@ export function SessionList() {
     expandedSessionId,
     sessionOrderByWorkspace,
     removeSession,
-    setActiveSession,
-    setExpandedSession,
-    addSession,
-    markWorktreeReady,
     reorderWorkspaceSessionsByVisibleMove,
-    updateSession,
   } = useSessionStore();
+  const daemon = useDaemonData();
   const { activeWorkspaceId } = useWorkspaceStore();
-  const focusSession = useWorkbenchStore((s) => s.focusSession);
   const activeWorkspace = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === activeWorkspaceId)
   );
@@ -444,6 +440,9 @@ export function SessionList() {
     if (!activeWorkspace) return [];
     return orderWorkspaceSessions(sessions, activeWorkspace.id, sessionOrderByWorkspace);
   }, [activeWorkspace, sessions, sessionOrderByWorkspace]);
+  const daemonSessionViewById = useMemo(() => Object.fromEntries(
+    wsSessions.map((session) => [session.id, selectSessionView(daemon.state, session.id)]),
+  ), [daemon.state, wsSessions]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -465,41 +464,18 @@ export function SessionList() {
   const handleNewSession = async () => {
     if (!activeWorkspace) return;
 
-    if ("__TAURI_INTERNALS__" in window) {
-      try {
-        const created = await createDaemonSession({
-          workspace: activeWorkspace,
-          runnerType: runner.type,
-        });
-        addSession(created.sessionId, activeWorkspace.id, created.worktree?.path ?? activeWorkspace.path, undefined, { ...runner });
-        useSessionStore.getState().updateSession(created.sessionId, {
-          workdir: created.worktree?.path ?? activeWorkspace.path,
-          worktreePath: created.worktree?.path,
-          branchName: created.worktree?.branchName,
-          baseBranch: created.worktree?.baseBranch,
-          taskId: created.taskId,
-        });
-        setActiveSession(created.sessionId);
-        setExpandedSession(created.sessionId);
-        focusSession(created.sessionId);
-        markWorktreeReady(created.sessionId);
-        return;
-      } catch (e) {
-        console.warn("[daemon] create session failed:", e);
-        return;
-      }
+    try {
+      const created = await createDaemonSession({
+        workspace: activeWorkspace,
+        runnerType: runner.type,
+      });
+      await daemon.refreshSessionViews(created.sessionId);
+      await daemon.refreshTaskViews(created.taskId);
+      await showSessionSurface(created.sessionId);
+    } catch (e) {
+      console.warn("[daemon] create session failed:", e);
+      return;
     }
-
-    const maxId = sessions
-      .map((session) => Number(session.id))
-      .filter((value) => !Number.isNaN(value))
-      .reduce((max, value) => Math.max(max, value), 0);
-    const id = String(maxId + 1);
-    addSession(id, activeWorkspace.id, activeWorkspace.path, undefined, { ...runner });
-    setActiveSession(id);
-    setExpandedSession(id);
-    focusSession(id);
-    markWorktreeReady(id);
   };
 
   const handleRemoveSession = async (session: ClaudeSession) => {
@@ -599,10 +575,19 @@ export function SessionList() {
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <SortableContext items={wsSessions.map((s) => s.id)} strategy={verticalListSortingStrategy}>
               <AnimatePresence>
-                {wsSessions.map((session) => (
+                {wsSessions.map((session) => {
+                  const sessionView = daemonSessionViewById[session.id];
+                  const displaySession = {
+                    ...session,
+                    name: sessionView?.task?.title ?? session.name,
+                    status: sessionView ? mapDaemonStateToUiStatus(sessionView.session.state) : session.status,
+                    currentTask: sessionView?.task?.title ?? session.currentTask,
+                    branchName: sessionView?.worktree?.branchName ?? session.branchName,
+                  };
+                  return (
                   <SortableSessionCard key={session.id} id={session.id}>
                     <SessionCard
-                      session={session}
+                      session={displaySession}
                       isSelected={session.id === activeSessionId}
                       isOpened={session.id === expandedSessionId}
                       accentColor={accentColor}
@@ -633,13 +618,22 @@ export function SessionList() {
                       }}
                       onRotateSuspend={() => {
                         setPendingDeleteSessionId(null);
-                        updateSession(session.id, {
-                          status: session.status === "waiting" ? "suspended" : "waiting",
-                        });
+                        if (displaySession.status === "waiting") {
+                          void stopDaemonSession(session.id).catch((e) => {
+                            console.warn("[daemon] suspend session failed:", e);
+                          });
+                          return;
+                        }
+                        if (displaySession.status === "suspended") {
+                          void resumeDaemonSession(session.id).catch((e) => {
+                            console.warn("[daemon] resume session failed:", e);
+                          });
+                        }
                       }}
                     />
                   </SortableSessionCard>
-                ))}
+                  );
+                })}
               </AnimatePresence>
             </SortableContext>
           </DndContext>

@@ -1,308 +1,139 @@
-use codebar_contracts::errors::{ErrorCode, ErrorEnvelope};
-use daemon_core::domain::{DomainResult, Session};
-use daemon_core::ports::ProviderAdapter;
-use serde_json::{json, Value};
-use std::path::Path;
+use daemon_core::domain::{DomainResult, ProviderKind, Session, Worktree};
+use daemon_core::ports::{
+    LaunchSpec, NormalizedProviderEvent, ProviderAdapter, ProviderCapabilities, ProviderDetection,
+    RuntimeHost,
+};
+use provider_claude::ClaudeAdapter;
+use provider_codex::CodexAdapter;
 
 #[derive(Default)]
-pub struct RealProviderAdapter;
-
-#[derive(Debug, Clone)]
-pub struct NormalizedProviderEvent {
-    pub event_type: String,
-    pub session_id: Option<String>,
-    pub payload: serde_json::Map<String, Value>,
+pub struct ProviderRegistry {
+    claude: ClaudeAdapter,
+    codex: CodexAdapter,
 }
 
-impl RealProviderAdapter {
-    pub fn extract_provider_session_id(provider: &str, json: &Value) -> Option<String> {
+impl ProviderRegistry {
+    fn by_kind(&self, provider: ProviderKind) -> &dyn ProviderAdapter {
         match provider {
-            "claude-code" => extract_claude_session_id(json),
-            "codex" => extract_codex_session_id(json),
+            ProviderKind::Claude => &self.claude,
+            ProviderKind::Codex => &self.codex,
+        }
+    }
+
+    fn by_name(&self, provider: &str) -> Option<&dyn ProviderAdapter> {
+        match provider {
+            "claude" | "claude-code" => Some(&self.claude),
+            "codex" => Some(&self.codex),
             _ => None,
         }
     }
-
-    pub fn normalize_hook_events(provider: &str, json: &Value) -> Vec<NormalizedProviderEvent> {
-        let session_id = extract_non_empty_string(json.get("code_bar_session_id"));
-        let event_name = json
-            .get("hook_event_name")
-            .and_then(|value| value.as_str())
-            .unwrap_or("");
-        let mut events = Vec::new();
-
-        match provider {
-            "claude-code" => match event_name {
-                "UserPromptSubmit" => {
-                    if let Some(provider_session_id) = extract_claude_session_id(json) {
-                        events.push(NormalizedProviderEvent {
-                            event_type: "provider-session-bound".to_string(),
-                            session_id: session_id.clone(),
-                            payload: serde_json::Map::from_iter([
-                                ("session_id".to_string(), json!(session_id.clone())),
-                                ("runner_type".to_string(), json!("claude-code")),
-                                ("provider_session_id".to_string(), json!(provider_session_id)),
-                            ]),
-                        });
-                    }
-                    events.push(NormalizedProviderEvent {
-                        event_type: "pty-running".to_string(),
-                        session_id: session_id.clone(),
-                        payload: serde_json::Map::from_iter([("session_id".to_string(), json!(session_id.clone()))]),
-                    });
-                }
-                "Stop" => {
-                    events.push(NormalizedProviderEvent {
-                        event_type: "pty-waiting".to_string(),
-                        session_id: session_id.clone(),
-                        payload: serde_json::Map::from_iter([("session_id".to_string(), json!(session_id.clone()))]),
-                    });
-                }
-                "StopFailure" => {
-                    let error = json
-                        .get("error")
-                        .and_then(|value| value.as_str())
-                        .unwrap_or("unknown error")
-                        .to_string();
-                    events.push(NormalizedProviderEvent {
-                        event_type: "pty-error".to_string(),
-                        session_id: session_id.clone(),
-                        payload: serde_json::Map::from_iter([
-                            ("session_id".to_string(), json!(session_id.clone())),
-                            ("error".to_string(), json!(error)),
-                        ]),
-                    });
-                }
-                "Notification" => {
-                    let title = json.get("title").and_then(|value| value.as_str()).unwrap_or("Claude Code");
-                    let message = json.get("message").and_then(|value| value.as_str()).unwrap_or("");
-                    let notification_type = json
-                        .get("notification_type")
-                        .and_then(|value| value.as_str())
-                        .unwrap_or("");
-                    events.push(NormalizedProviderEvent {
-                        event_type: "pty-notification".to_string(),
-                        session_id: session_id.clone(),
-                        payload: serde_json::Map::from_iter([
-                            ("session_id".to_string(), json!(session_id.clone())),
-                            ("title".to_string(), json!(title)),
-                            ("message".to_string(), json!(message)),
-                            ("notification_type".to_string(), json!(notification_type)),
-                        ]),
-                    });
-                }
-                _ => {}
-            },
-            "codex" => match event_name {
-                "" => {
-                    if let Some((title, message, notification_type)) = codex_notify_message(json) {
-                        events.push(NormalizedProviderEvent {
-                            event_type: "pty-notification".to_string(),
-                            session_id: session_id.clone(),
-                            payload: serde_json::Map::from_iter([
-                                ("session_id".to_string(), json!(session_id.clone())),
-                                ("title".to_string(), json!(title)),
-                                ("message".to_string(), json!(message)),
-                                ("notification_type".to_string(), json!(notification_type)),
-                            ]),
-                        });
-                    }
-                }
-                "UserPromptSubmit" => {
-                    if let Some(provider_session_id) = extract_codex_session_id(json) {
-                        events.push(NormalizedProviderEvent {
-                            event_type: "provider-session-bound".to_string(),
-                            session_id: session_id.clone(),
-                            payload: serde_json::Map::from_iter([
-                                ("session_id".to_string(), json!(session_id.clone())),
-                                ("runner_type".to_string(), json!("codex")),
-                                ("provider_session_id".to_string(), json!(provider_session_id)),
-                            ]),
-                        });
-                    }
-                    events.push(NormalizedProviderEvent {
-                        event_type: "pty-running".to_string(),
-                        session_id: session_id.clone(),
-                        payload: serde_json::Map::from_iter([("session_id".to_string(), json!(session_id.clone()))]),
-                    });
-                }
-                "Stop" => {
-                    events.push(NormalizedProviderEvent {
-                        event_type: "pty-waiting".to_string(),
-                        session_id: session_id.clone(),
-                        payload: serde_json::Map::from_iter([("session_id".to_string(), json!(session_id.clone()))]),
-                    });
-                }
-                _ => {}
-            },
-            _ => {}
-        }
-
-        events
-    }
 }
 
-impl ProviderAdapter for RealProviderAdapter {
+impl ProviderAdapter for ProviderRegistry {
+    fn detect(&self, provider: ProviderKind) -> DomainResult<ProviderDetection> {
+        self.by_kind(provider).detect(provider)
+    }
+
+    fn capabilities(&self, provider: ProviderKind) -> DomainResult<ProviderCapabilities> {
+        self.by_kind(provider).capabilities(provider)
+    }
+
+    fn start(
+        &self,
+        session: &Session,
+        worktree: Option<&Worktree>,
+        workspace_root: Option<&str>,
+    ) -> DomainResult<LaunchSpec> {
+        self.by_kind(session.provider)
+            .start(session, worktree, workspace_root)
+    }
+
+    fn resume(
+        &self,
+        session: &Session,
+        worktree: Option<&Worktree>,
+        workspace_root: Option<&str>,
+    ) -> DomainResult<LaunchSpec> {
+        self.by_kind(session.provider)
+            .resume(session, worktree, workspace_root)
+    }
+
+    fn send_input(
+        &self,
+        session: &Session,
+        runtime: &dyn RuntimeHost,
+        text: &str,
+    ) -> DomainResult<()> {
+        self.by_kind(session.provider)
+            .send_input(session, runtime, text)
+    }
+
+    fn stop(
+        &self,
+        session: &Session,
+        runtime: &dyn RuntimeHost,
+        reason: Option<&str>,
+    ) -> DomainResult<()> {
+        self.by_kind(session.provider)
+            .stop(session, runtime, reason)
+    }
+
     fn bind_provider_session(
         &self,
         session: &Session,
         provider_session_id: &str,
     ) -> DomainResult<Option<String>> {
-        let trimmed = provider_session_id.trim();
-        if trimmed.is_empty() {
-            return Err(ErrorEnvelope::new(
-                ErrorCode::ProviderBindingFailed,
-                "providerSessionId cannot be empty",
-                false,
-            ));
-        }
-        if session.provider_session_id.as_deref() == Some(trimmed) {
-            Ok(None)
-        } else {
-            Ok(Some(trimmed.to_string()))
-        }
-    }
-}
-
-fn extract_non_empty_string(value: Option<&Value>) -> Option<String> {
-    value
-        .and_then(|v| v.as_str())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(ToString::to_string)
-}
-
-fn extract_string_by_paths<'a>(json: &'a Value, paths: &[&[&str]]) -> Option<String> {
-    for path in paths {
-        let mut node = json;
-        let mut ok = true;
-        for key in *path {
-            let Some(next) = node.get(*key) else {
-                ok = false;
-                break;
-            };
-            node = next;
-        }
-        if ok {
-            if let Some(value) = extract_non_empty_string(Some(node)) {
-                return Some(value);
-            }
-        }
-    }
-    None
-}
-
-fn extract_claude_session_id(json: &Value) -> Option<String> {
-    let direct = extract_string_by_paths(
-        json,
-        &[
-            &["session_id"],
-            &["sessionId"],
-            &["session", "id"],
-            &["payload", "session_id"],
-            &["payload", "sessionId"],
-            &["payload", "session", "id"],
-        ],
-    );
-    if direct.is_some() {
-        return direct;
+        self.by_kind(session.provider)
+            .bind_provider_session(session, provider_session_id)
     }
 
-    let transcript_path = extract_string_by_paths(
-        json,
-        &[
-            &["transcript_path"],
-            &["transcriptPath"],
-            &["payload", "transcript_path"],
-            &["payload", "transcriptPath"],
-        ],
-    )?;
-    Path::new(&transcript_path)
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(ToString::to_string)
-}
-
-fn extract_codex_session_id(json: &Value) -> Option<String> {
-    extract_string_by_paths(
-        json,
-        &[
-            &["session_id"],
-            &["sessionId"],
-            &["session", "id"],
-            &["payload", "session_id"],
-            &["payload", "sessionId"],
-            &["payload", "session", "id"],
-        ],
-    )
-}
-
-fn codex_notify_message(json: &Value) -> Option<(String, String, String)> {
-    let notification_type = json
-        .get("type")
-        .or_else(|| json.get("event"))
-        .and_then(|value| value.as_str())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())?
-        .to_string();
-
-    let title = json
-        .get("title")
-        .and_then(|value| value.as_str())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToString::to_string)
-        .unwrap_or_else(|| "Codex".to_string());
-
-    let message = [
-        json.get("message"),
-        json.get("last-assistant-message"),
-        json.get("last_assistant_message"),
-        json.get("summary"),
-        json.get("detail"),
-    ]
-    .into_iter()
-    .flatten()
-    .filter_map(|value| value.as_str())
-    .map(str::trim)
-    .find(|value| !value.is_empty())
-    .map(ToString::to_string)
-    .unwrap_or_else(|| notification_type.clone());
-
-    Some((title, message, notification_type))
+    fn normalize_event(
+        &self,
+        provider: &str,
+        payload: &serde_json::Value,
+    ) -> DomainResult<Vec<NormalizedProviderEvent>> {
+        match self.by_name(provider) {
+            Some(adapter) => adapter.normalize_event(provider, payload),
+            None => Ok(Vec::new()),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::RealProviderAdapter;
+    use super::ProviderRegistry;
+    use daemon_core::ports::{CanonicalProviderEvent, ProviderAdapter};
     use serde_json::json;
 
     #[test]
-    fn extracts_claude_session_id_from_direct_field() {
-        let payload = json!({ "session_id": "claude-123" });
-        assert_eq!(
-            RealProviderAdapter::extract_provider_session_id("claude-code", &payload).as_deref(),
-            Some("claude-123")
-        );
+    fn normalizes_claude_alias_payloads() {
+        let adapter = ProviderRegistry::default();
+        let payload = json!({
+            "code_bar_session_id": "session-1",
+            "hook_event_name": "UserPromptSubmit",
+            "session_id": "claude-session-1"
+        });
+
+        let events = adapter.normalize_event("claude", &payload).unwrap();
+        assert!(events.iter().any(|event| {
+            matches!(
+                event.event,
+                CanonicalProviderEvent::ProviderSessionBound { .. }
+            )
+        }));
     }
 
     #[test]
-    fn extracts_claude_session_id_from_transcript_path() {
-        let payload = json!({ "transcript_path": "/tmp/sessions/claude-abc.jsonl" });
-        assert_eq!(
-            RealProviderAdapter::extract_provider_session_id("claude-code", &payload).as_deref(),
-            Some("claude-abc")
-        );
-    }
+    fn normalizes_codex_payloads() {
+        let adapter = ProviderRegistry::default();
+        let payload = json!({
+            "code_bar_session_id": "session-1",
+            "hook_event_name": "Stop"
+        });
 
-    #[test]
-    fn extracts_codex_session_id() {
-        let payload = json!({ "payload": { "sessionId": "codex-456" } });
-        assert_eq!(
-            RealProviderAdapter::extract_provider_session_id("codex", &payload).as_deref(),
-            Some("codex-456")
-        );
+        let events = adapter.normalize_event("codex", &payload).unwrap();
+        assert!(events
+            .iter()
+            .any(|event| matches!(event.event, CanonicalProviderEvent::WaitingForInput)));
     }
 }

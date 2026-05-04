@@ -1,32 +1,39 @@
 use crate::contract_map::{
     map_approval_request_to_contract, map_plan_step_to_contract, map_plan_to_contract,
     map_run_attempt_to_contract, map_session_to_contract, map_task_to_contract,
-    map_worktree_to_contract,
+    map_worktree_to_contract, map_workspace_to_contract,
 };
 use crate::event_bus::EventBus;
-use crate::provider_adapter::{NormalizedProviderEvent, RealProviderAdapter};
-use crate::storage::FileStore;
 use codebar_contracts::errors::{ErrorCode, ErrorEnvelope};
+use codebar_contracts::mcp as mcp_contract;
 use codebar_contracts::rpc as contract_rpc;
 use codebar_contracts::workflow as workflow_contract;
-use daemon_core::domain::{ApprovalRequest, DomainResult, EventEnvelope, Plan, PlanStep, Session, Task, Worktree, Workspace};
-use daemon_core::ports::{ApprovalFilter, EventFilter, EventRepository, SessionFilter, TaskFilter, WorkspaceRepository};
+use daemon_core::domain::{
+    ApprovalRequest, DomainResult, EventEnvelope, Plan, PlanStep, Session, Task, Workspace,
+    Worktree,
+};
+use daemon_core::ports::{
+    ApprovalFilter, EventFilter, SessionFilter, TaskFilter, WorkspaceRepository, WorktreeRepository,
+};
+use storage_sqlite::StorageSqlite;
+
 use daemon_core::services::{
-    ApprovalService, CreateSessionInput, CreateTaskInput, DiagnosticsService, EventService,
+    ApprovalService, BootstrapSessionInput, CreateSessionInput, CreateTaskInput, DiagnosticsService, EventService,
     HealthService, LaunchSessionInput, PlanService, PrepareWorktreeInput, RecoveryCoordinator,
     ResolveApprovalInput, ResumeSessionInput, RuntimeLifecycleInput, SendSessionInputInput,
-    SessionService, StopSessionInput, TaskService, UpdateTaskInput, WorktreeService,
+    SessionService, StopSessionInput, TaskService, UpdateSessionInput, UpdateTaskInput, WorktreeService,
 };
 use daemon_core::workflow::WorkflowService;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 pub struct DaemonRpc {
     pub root: PathBuf,
-    pub _store: Arc<FileStore>,
+    pub _store: Arc<StorageSqlite>,
     pub events: Arc<EventBus>,
     pub task_service: TaskService,
     pub session_service: SessionService,
@@ -87,6 +94,20 @@ impl DaemonRpc {
         self._store.put_workspace(workspace)
     }
 
+    pub fn get_workspace(&self, workspace_id: &str) -> DomainResult<Workspace> {
+        self._store.get_workspace(workspace_id)?.ok_or_else(|| {
+            ErrorEnvelope::new(
+                ErrorCode::NotFound,
+                format!("workspace {workspace_id} not found"),
+                false,
+            )
+        })
+    }
+
+    pub fn list_workspaces(&self) -> DomainResult<Vec<Workspace>> {
+        self._store.list_workspaces()
+    }
+
     pub fn create_task(&self, input: CreateTaskInput) -> DomainResult<Task> {
         self.task_service.create_task(input)
     }
@@ -111,15 +132,32 @@ impl DaemonRpc {
         self.session_service.get_session(session_id)
     }
 
+    pub fn update_session(&self, input: UpdateSessionInput) -> DomainResult<Session> {
+        self.session_service.update_session(input)
+    }
+
+    pub fn bootstrap_session(
+        &self,
+        input: BootstrapSessionInput,
+    ) -> DomainResult<(Session, Worktree)> {
+        self.session_service.bootstrap_session(input)
+    }
+
     pub fn list_sessions(&self, filter: SessionFilter) -> DomainResult<Vec<Session>> {
         self.session_service.list_sessions(filter)
     }
 
-    pub fn launch_session(&self, input: LaunchSessionInput) -> DomainResult<(Session, daemon_core::domain::RunAttempt)> {
+    pub fn launch_session(
+        &self,
+        input: LaunchSessionInput,
+    ) -> DomainResult<(Session, daemon_core::domain::RunAttempt)> {
         self.session_service.launch_session(input)
     }
 
-    pub fn resume_session(&self, input: ResumeSessionInput) -> DomainResult<(Session, daemon_core::domain::RunAttempt)> {
+    pub fn resume_session(
+        &self,
+        input: ResumeSessionInput,
+    ) -> DomainResult<(Session, daemon_core::domain::RunAttempt)> {
         self.session_service.resume_session(input)
     }
 
@@ -139,32 +177,33 @@ impl DaemonRpc {
         self.session_service.runtime_resize(session_id, cols, rows)
     }
 
-    pub fn bind_provider_session(&self, session_id: &str, provider_session_id: &str) -> DomainResult<Session> {
-        self.session_service.bind_provider_session(session_id, provider_session_id)
+    pub fn bind_provider_session(
+        &self,
+        session_id: &str,
+        provider_session_id: &str,
+    ) -> DomainResult<Session> {
+        self.session_service
+            .bind_provider_session(session_id, provider_session_id)
     }
 
     pub fn forward_provider_hook(&self, provider: &str, payload: Value) -> DomainResult<Value> {
-        let provider_session_id = RealProviderAdapter::extract_provider_session_id(provider, &payload);
-        let events = RealProviderAdapter::normalize_hook_events(provider, &payload);
-        for event in &events {
-            self.emit_normalized_provider_event(event);
-        }
-        Ok(serde_json::to_value(contract_rpc::ForwardProviderHookOutput {
-            provider_session_id,
-        }).unwrap())
-    }
+        let events = self
+            .session_service
+            .apply_provider_events(provider, &payload)?;
 
-    fn emit_normalized_provider_event(&self, event: &NormalizedProviderEvent) {
-        let _ = self.events.publish_event(EventEnvelope {
-            id: format!("provider-event-{}-{}", self.root.display(), event.event_type),
-            entity_type: daemon_core::domain::EventEntityType::Session,
-            entity_id: event.session_id.clone().unwrap_or_default(),
-            event_type: event.event_type.clone(),
-            source: daemon_core::domain::EventSource::Provider,
-            correlation_id: None,
-            payload: event.payload.clone().into_iter().collect(),
-            created_at: "provider".to_string(),
+        let provider_session_id = events.iter().find_map(|event| match &event.event {
+            daemon_core::ports::CanonicalProviderEvent::ProviderSessionBound {
+                provider_session_id,
+            } => Some(provider_session_id.clone()),
+            _ => None,
         });
+
+        Ok(
+            serde_json::to_value(contract_rpc::ForwardProviderHookOutput {
+                provider_session_id,
+            })
+            .unwrap(),
+        )
     }
 
     pub fn prepare_worktree(&self, input: PrepareWorktreeInput) -> DomainResult<Worktree> {
@@ -173,6 +212,14 @@ impl DaemonRpc {
 
     pub fn cleanup_worktree(&self, worktree_id: &str) -> DomainResult<bool> {
         self.worktree_service.cleanup_worktree(worktree_id)
+    }
+
+    pub fn get_worktree(&self, worktree_id: &str) -> DomainResult<Worktree> {
+        self.worktree_service.get_worktree(worktree_id)
+    }
+
+    pub fn list_worktrees(&self, workspace_id: Option<&str>) -> DomainResult<Vec<Worktree>> {
+        self._store.list_worktrees(workspace_id)
     }
 
     pub fn get_active_plan(&self, task_id: &str) -> DomainResult<(Option<Plan>, Vec<PlanStep>)> {
@@ -188,6 +235,94 @@ impl DaemonRpc {
             "activeSkills": action.active_skills,
             "recommendedNextCalls": action.recommended_next_calls,
         }))
+    }
+
+    pub fn context_get_current(
+        &self,
+        input: mcp_contract::ContextGetCurrentInput,
+    ) -> DomainResult<mcp_contract::ContextGetCurrentOutput> {
+        let session = self.session_service.get_session(&input.session_id)?;
+        let task = self.task_service.get_task(&session.task_id)?;
+        let workspace = self
+            ._store
+            .get_workspace(&session.workspace_id)?
+            .ok_or_else(|| {
+                ErrorEnvelope::new(
+                    ErrorCode::NotFound,
+                    format!("workspace {} not found", session.workspace_id),
+                    false,
+                )
+            })?;
+        let worktree = match session.worktree_id.as_deref() {
+            Some(worktree_id) => self._store.get_worktree(worktree_id)?,
+            None => None,
+        };
+
+        Ok(mcp_contract::ContextGetCurrentOutput {
+            task: mcp_contract::ContextTaskView {
+                id: task.id,
+                title: task.title,
+                prompt: task.prompt,
+                goal: task.goal,
+                constraints: task.constraints,
+            },
+            workspace: mcp_contract::ContextWorkspaceView {
+                id: workspace.id,
+                root_path: workspace.root_path,
+            },
+            worktree: worktree.map(|worktree| mcp_contract::ContextWorktreeView {
+                id: worktree.id,
+                path: worktree.path,
+                branch_name: worktree.branch_name,
+            }),
+            session: mcp_contract::ContextSessionView {
+                id: session.id,
+                provider: session.provider,
+                state: session_state_label(session.state),
+            },
+        })
+    }
+
+    pub fn task_get_next_action(
+        &self,
+        input: mcp_contract::TaskGetNextActionInput,
+    ) -> DomainResult<mcp_contract::TaskGetNextActionOutput> {
+        self.workflow_service.get_mcp_next_action(&input.session_id)
+    }
+
+    pub fn skill_list_active(
+        &self,
+        input: mcp_contract::SkillListActiveInput,
+    ) -> DomainResult<mcp_contract::SkillListActiveOutput> {
+        let session = self.session_service.get_session(&input.session_id)?;
+        let mut state = self.workflow_service.load_state_for_rpc()?;
+        let resolved = self.workflow_service.resolve_active_skills_for_rpc(
+            &mut state,
+            &session.id,
+            session.current_step_id.as_deref(),
+        )?;
+
+        Ok(mcp_contract::SkillListActiveOutput {
+            active_skills: resolved.active_skills,
+            preferred_skills: resolved.preferred_skills,
+            forbidden_skills: resolved.forbidden_skills,
+        })
+    }
+
+    pub fn skill_invoke(
+        &self,
+        input: mcp_contract::SkillInvokeInput,
+    ) -> DomainResult<mcp_contract::SkillInvokeOutput> {
+        let mut state = self.workflow_service.load_state_for_rpc()?;
+        let output = self
+            .workflow_service
+            .invoke_skill_for_rpc(&mut state, input)?;
+
+        Ok(mcp_contract::SkillInvokeOutput {
+            summary: output.summary,
+            result: output.result,
+            artifacts: output.artifacts,
+        })
     }
 
     pub fn get_workflow_snapshot(
@@ -243,20 +378,25 @@ impl DaemonRpc {
         &self,
         input: workflow_contract::ResolveWorkflowApprovalRequest,
     ) -> DomainResult<workflow_contract::ResolveWorkflowApprovalResponse> {
-        let request = self.approval_service.resolve_request(ResolveApprovalInput {
-            approval_request_id: input.approval_id,
-            decision: match input.decision.as_str() {
-                "approve" | "approved" => daemon_core::domain::ApprovalStatus::Approved,
-                _ => daemon_core::domain::ApprovalStatus::Rejected,
-            },
-        })?;
+        let request = self
+            .approval_service
+            .resolve_request(ResolveApprovalInput {
+                approval_request_id: input.approval_id,
+                decision: match input.decision.as_str() {
+                    "approve" | "approved" => daemon_core::domain::ApprovalStatus::Approved,
+                    _ => daemon_core::domain::ApprovalStatus::Rejected,
+                },
+            })?;
         Ok(workflow_contract::ResolveWorkflowApprovalResponse {
             task_id: request.task_id,
             session_id: Some(request.session_id),
         })
     }
 
-    pub fn list_approval_requests(&self, filter: ApprovalFilter) -> DomainResult<Vec<ApprovalRequest>> {
+    pub fn list_approval_requests(
+        &self,
+        filter: ApprovalFilter,
+    ) -> DomainResult<Vec<ApprovalRequest>> {
         self.approval_service.list_requests(filter)
     }
 
@@ -268,8 +408,14 @@ impl DaemonRpc {
         self.event_service.list_events(filter)
     }
 
-    pub fn get_diagnostics(&self, session_id: Option<&str>, task_id: Option<&str>) -> DomainResult<Value> {
-        let diagnostics = self.diagnostics_service.get_diagnostics(session_id, task_id)?;
+    pub fn get_diagnostics(
+        &self,
+        session_id: Option<&str>,
+        task_id: Option<&str>,
+    ) -> DomainResult<Value> {
+        let diagnostics = self
+            .diagnostics_service
+            .get_diagnostics(session_id, task_id)?;
         Ok(json!({
             "summary": diagnostics.summary,
             "files": diagnostics.files,
@@ -318,6 +464,8 @@ impl DaemonRpc {
                 };
                 self.upsert_workspace(workspace).map(|_| serde_json::to_value(contract_rpc::AcceptedOutput { accepted: true }).unwrap())
             }),
+            "getWorkspace" => parse_params::<contract_rpc::GetWorkspaceInput>(request.params).and_then(|input| self.get_workspace(&input.workspace_id).map(|workspace| serde_json::to_value(contract_rpc::GetWorkspaceOutput { workspace: map_workspace_to_contract(workspace) }).unwrap())),
+            "listWorkspaces" => parse_params_or_default::<contract_rpc::ListWorkspacesInput>(request.params).and_then(|_| self.list_workspaces().map(|workspaces| serde_json::to_value(contract_rpc::ListWorkspacesOutput { workspaces: workspaces.into_iter().map(map_workspace_to_contract).collect::<Vec<_>>() }).unwrap())),
             "createTask" => parse_params::<contract_rpc::CreateTaskInput>(request.params).and_then(|input| self.create_task(CreateTaskInput {
                 workspace_id: input.workspace_id,
                 title: input.title,
@@ -344,6 +492,17 @@ impl DaemonRpc {
                 provider: input.provider,
                 worktree_strategy: input.worktree_strategy,
             }).map(|session| serde_json::to_value(contract_rpc::CreateSessionOutput { session: map_session_to_contract(session) }).unwrap())),
+            "updateSession" => parse_params::<contract_rpc::UpdateSessionInput>(request.params).and_then(|input| self.update_session(UpdateSessionInput {
+                session_id: input.session_id,
+                provider: input.provider,
+            }).map(|session| serde_json::to_value(contract_rpc::UpdateSessionOutput { session: map_session_to_contract(session) }).unwrap())),
+            "bootstrapSession" => parse_params::<contract_rpc::BootstrapSessionInput>(request.params).and_then(|input| self.bootstrap_session(BootstrapSessionInput {
+                session_id: input.session_id,
+                strategy: input.strategy,
+            }).map(|(session, worktree)| serde_json::to_value(contract_rpc::BootstrapSessionOutput {
+                session: map_session_to_contract(session),
+                worktree: map_worktree_to_contract(worktree),
+            }).unwrap())),
             "getSession" => parse_params::<contract_rpc::GetSessionInput>(request.params).and_then(|input| self.get_session(&input.session_id).map(|session| serde_json::to_value(contract_rpc::GetSessionOutput { session: map_session_to_contract(session) }).unwrap())),
             "listSessions" => parse_params_or_default::<contract_rpc::ListSessionsInput>(request.params).and_then(|filter| self.list_sessions(SessionFilter {
                 task_id: filter.task_id,
@@ -385,6 +544,8 @@ impl DaemonRpc {
                 strategy: input.strategy,
             }).map(|worktree| serde_json::to_value(contract_rpc::PrepareWorktreeOutput { worktree: map_worktree_to_contract(worktree) }).unwrap())),
             "cleanupWorktree" => get_required_string(&request.params, "worktreeId").and_then(|worktree_id| self.cleanup_worktree(&worktree_id).map(|accepted| json!({ "accepted": accepted }))),
+            "getWorktree" => parse_params::<contract_rpc::GetWorktreeInput>(request.params).and_then(|input| self.get_worktree(&input.worktree_id).map(|worktree| serde_json::to_value(contract_rpc::GetWorktreeOutput { worktree: map_worktree_to_contract(worktree) }).unwrap())),
+            "listWorktrees" => parse_params_or_default::<contract_rpc::ListWorktreesInput>(request.params).and_then(|input| self.list_worktrees(input.workspace_id.as_deref()).map(|worktrees| serde_json::to_value(contract_rpc::ListWorktreesOutput { worktrees: worktrees.into_iter().map(map_worktree_to_contract).collect::<Vec<_>>() }).unwrap())),
             "getActivePlan" => parse_params::<contract_rpc::GetActivePlanInput>(request.params).and_then(|input| self.get_active_plan(&input.task_id).map(|(plan, steps)| serde_json::to_value(contract_rpc::GetActivePlanOutput { plan: plan.map(map_plan_to_contract), steps: steps.into_iter().map(map_plan_step_to_contract).collect::<Vec<_>>() }).unwrap())),
             "getNextAction" => parse_params::<contract_rpc::GetNextActionInput>(request.params).and_then(|input| self.get_next_action(&input.session_id).map(|value| {
                 let output = contract_rpc::GetNextActionOutput {
@@ -448,6 +609,108 @@ impl DaemonRpc {
             "blockWorkflowStep" => parse_params::<workflow_contract::BlockWorkflowStepRequest>(request.params).and_then(|input| self.block_workflow_step(input).map(|_| serde_json::to_value(contract_rpc::AcceptedOutput { accepted: true }).unwrap())),
             "attachWorkflowSession" => parse_params::<workflow_contract::AttachWorkflowSessionRequest>(request.params).and_then(|input| self.attach_workflow_session(input).map(|output| serde_json::to_value(output).unwrap())),
             "resolveWorkflowApproval" => parse_params::<workflow_contract::ResolveWorkflowApprovalRequest>(request.params).and_then(|input| self.resolve_workflow_approval(input).map(|output| serde_json::to_value(output).unwrap())),
+            "context.get_current" => parse_params::<mcp_contract::ContextGetCurrentInput>(request.params)
+                .and_then(|input| self.context_get_current(input).map(|output| serde_json::to_value(output).unwrap())),
+            "task.get_next_action" => parse_params::<mcp_contract::TaskGetNextActionInput>(request.params)
+                .and_then(|input| self.task_get_next_action(input).map(|output| serde_json::to_value(output).unwrap())),
+            "task.update_progress" => parse_params::<mcp_contract::TaskUpdateProgressInput>(request.params).and_then(|input| {
+                let step_id = input
+                    .step_id
+                    .ok_or_else(|| ErrorEnvelope::new(ErrorCode::InvalidArgument, "stepId is required", false))?;
+                let details = input.details.and_then(|value| {
+                    value
+                        .as_object()
+                        .map(|map| map.iter().map(|(k, v)| (k.clone(), v.clone())).collect::<BTreeMap<String, Value>>())
+                });
+                self.update_workflow_progress(workflow_contract::UpdateWorkflowProgressRequest {
+                    session_id: input.session_id,
+                    step_id,
+                    lease_token: input.lease_token,
+                    summary: input.summary,
+                    details,
+                })
+                .map(|_| serde_json::to_value(mcp_contract::AcceptedOutput { accepted: true }).unwrap())
+            }),
+            "task.complete_step" => parse_params::<mcp_contract::TaskCompleteStepInput>(request.params).and_then(|input| {
+                let outputs = input.outputs.and_then(|value| {
+                    value
+                        .as_object()
+                        .map(|map| map.iter().map(|(k, v)| (k.clone(), v.clone())).collect::<BTreeMap<String, Value>>())
+                });
+                self.complete_workflow_step(workflow_contract::CompleteWorkflowStepRequest {
+                    session_id: input.session_id,
+                    step_id: input.step_id,
+                    lease_token: input.lease_token,
+                    outputs,
+                })
+                .map(|output| {
+                    serde_json::to_value(mcp_contract::TaskCompleteStepOutput {
+                        accepted: true,
+                        next_step_id: output.next_step_id,
+                    })
+                    .unwrap()
+                })
+            }),
+            "task.block_step" => parse_params::<mcp_contract::TaskBlockStepInput>(request.params).and_then(|input| {
+                self.block_workflow_step(workflow_contract::BlockWorkflowStepRequest {
+                    session_id: input.session_id,
+                    step_id: input.step_id,
+                    reason: input.reason,
+                })
+                .map(|_| serde_json::to_value(mcp_contract::AcceptedOutput { accepted: true }).unwrap())
+            }),
+            "skill.list_active" => parse_params::<mcp_contract::SkillListActiveInput>(request.params)
+                .and_then(|input| self.skill_list_active(input).map(|output| serde_json::to_value(output).unwrap())),
+            "skill.invoke" => parse_params::<mcp_contract::SkillInvokeInput>(request.params)
+                .and_then(|input| self.skill_invoke(input).map(|output| serde_json::to_value(output).unwrap())),
+            "session.attach" => parse_params::<mcp_contract::SessionAttachInput>(request.params).and_then(|input| {
+                self.attach_workflow_session(workflow_contract::AttachWorkflowSessionRequest {
+                    provider: match input.provider {
+                        codebar_contracts::domain::ProviderKind::Claude => workflow_contract::TaskDagProvider::ClaudeCode,
+                        codebar_contracts::domain::ProviderKind::Codex => workflow_contract::TaskDagProvider::Codex,
+                    },
+                    session_id: None,
+                    provider_session_id: input.provider_session_id,
+                    cwd: Some(input.cwd),
+                    worktree_path: None,
+                    workspace_id: None,
+                    workspace_name: None,
+                    workspace_path: None,
+                    session_name: None,
+                    current_task: None,
+                    branch_name: None,
+                    base_branch: None,
+                    session_status: None,
+                })
+                .map(|output| {
+                    let active_step_id = output
+                        .document
+                        .plan
+                        .as_ref()
+                        .and_then(|plan| plan.active_step_id.clone());
+                    let mode = output
+                        .document
+                        .plan
+                        .as_ref()
+                        .map(|plan| match plan.mode.as_str() {
+                            "guided" => codebar_contracts::domain::PlanMode::Guided,
+                            _ => codebar_contracts::domain::PlanMode::Open,
+                        })
+                        .unwrap_or(codebar_contracts::domain::PlanMode::Open);
+                    serde_json::to_value(mcp_contract::SessionAttachOutput {
+                        session_id: output.session_id.unwrap_or_default(),
+                        task_id: output.task_id,
+                        mode,
+                        active_step_id,
+                        active_skill_profile_id: None,
+                        recommended_next_calls: vec![
+                            "context.get_current".to_string(),
+                            "task.get_next_action".to_string(),
+                        ],
+                    })
+                    .unwrap()
+                })
+            }),
             other => Err(ErrorEnvelope::new(
                 ErrorCode::NotFound,
                 format!("unknown rpc method {other}"),
@@ -502,12 +765,18 @@ pub async fn serve(daemon: DaemonRpc) -> Result<(), String> {
 }
 
 #[cfg(unix)]
-async fn handle_stream(daemon: Arc<DaemonRpc>, stream: tokio::net::UnixStream) -> Result<(), String> {
+async fn handle_stream(
+    daemon: Arc<DaemonRpc>,
+    stream: tokio::net::UnixStream,
+) -> Result<(), String> {
     handle_stream_impl(daemon, stream).await
 }
 
 #[cfg(not(unix))]
-async fn handle_stream(daemon: Arc<DaemonRpc>, stream: tokio::net::TcpStream) -> Result<(), String> {
+async fn handle_stream(
+    daemon: Arc<DaemonRpc>,
+    stream: tokio::net::TcpStream,
+) -> Result<(), String> {
     handle_stream_impl(daemon, stream).await
 }
 
@@ -519,7 +788,12 @@ where
     let mut reader = BufReader::new(reader);
     let mut line = String::new();
 
-    while reader.read_line(&mut line).await.map_err(|error| error.to_string())? > 0 {
+    while reader
+        .read_line(&mut line)
+        .await
+        .map_err(|error| error.to_string())?
+        > 0
+    {
         let request = serde_json::from_str::<RpcRequest>(line.trim_end())
             .map_err(|error| error.to_string())?;
         if request.method == "subscribeEvents" {
@@ -578,19 +852,52 @@ where
 }
 
 fn parse_list_tasks_input(params: Value) -> DomainResult<contract_rpc::ListTasksInput> {
-    if params.is_null() { Ok(contract_rpc::ListTasksInput { workspace_id: None, status: None }) } else { parse_params(params) }
+    if params.is_null() {
+        Ok(contract_rpc::ListTasksInput {
+            workspace_id: None,
+            status: None,
+        })
+    } else {
+        parse_params(params)
+    }
 }
 
-fn parse_list_approval_requests_input(params: Value) -> DomainResult<contract_rpc::ListApprovalRequestsInput> {
-    if params.is_null() { Ok(contract_rpc::ListApprovalRequestsInput { session_id: None, task_id: None, status: None }) } else { parse_params(params) }
+fn parse_list_approval_requests_input(
+    params: Value,
+) -> DomainResult<contract_rpc::ListApprovalRequestsInput> {
+    if params.is_null() {
+        Ok(contract_rpc::ListApprovalRequestsInput {
+            session_id: None,
+            task_id: None,
+            status: None,
+        })
+    } else {
+        parse_params(params)
+    }
 }
 
 fn parse_list_events_input(params: Value) -> DomainResult<contract_rpc::ListEventsInput> {
-    if params.is_null() { Ok(contract_rpc::ListEventsInput { entity_type: None, entity_id: None, since: None, limit: None }) } else { parse_params(params) }
+    if params.is_null() {
+        Ok(contract_rpc::ListEventsInput {
+            entity_type: None,
+            entity_id: None,
+            since: None,
+            limit: None,
+        })
+    } else {
+        parse_params(params)
+    }
 }
 
 fn parse_get_diagnostics_input(params: Value) -> DomainResult<contract_rpc::GetDiagnosticsInput> {
-    if params.is_null() { Ok(contract_rpc::GetDiagnosticsInput { session_id: None, task_id: None }) } else { parse_params(params) }
+    if params.is_null() {
+        Ok(contract_rpc::GetDiagnosticsInput {
+            session_id: None,
+            task_id: None,
+        })
+    } else {
+        parse_params(params)
+    }
 }
 
 fn get_required_string(params: &Value, key: &str) -> DomainResult<String> {
@@ -599,21 +906,53 @@ fn get_required_string(params: &Value, key: &str) -> DomainResult<String> {
         .and_then(|value| value.as_str())
         .map(ToString::to_string)
         .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| ErrorEnvelope::new(ErrorCode::InvalidArgument, format!("missing {key}"), false))
+        .ok_or_else(|| {
+            ErrorEnvelope::new(ErrorCode::InvalidArgument, format!("missing {key}"), false)
+        })
+}
+
+fn session_state_label(state: codebar_contracts::domain::SessionState) -> String {
+    match state {
+        codebar_contracts::domain::SessionState::Draft => "draft",
+        codebar_contracts::domain::SessionState::PreparingWorkspace => "preparing_workspace",
+        codebar_contracts::domain::SessionState::PreparingWorktree => "preparing_worktree",
+        codebar_contracts::domain::SessionState::Ready => "ready",
+        codebar_contracts::domain::SessionState::Launching => "launching",
+        codebar_contracts::domain::SessionState::Running => "running",
+        codebar_contracts::domain::SessionState::WaitingInput => "waiting_input",
+        codebar_contracts::domain::SessionState::ApprovalRequired => "approval_required",
+        codebar_contracts::domain::SessionState::Interrupted => "interrupted",
+        codebar_contracts::domain::SessionState::Completed => "completed",
+        codebar_contracts::domain::SessionState::Failed => "failed",
+        codebar_contracts::domain::SessionState::Cancelled => "cancelled",
+        codebar_contracts::domain::SessionState::Archived => "archived",
+    }
+    .to_string()
 }
 
 pub async fn read_rpc_response(path: &Path, request: &RpcRequest) -> Result<RpcResponse, String> {
     #[cfg(unix)]
     {
         use tokio::net::UnixStream;
-        let mut stream = UnixStream::connect(path).await.map_err(|error| error.to_string())?;
+        let mut stream = UnixStream::connect(path)
+            .await
+            .map_err(|error| error.to_string())?;
         stream
-            .write_all(format!("{}\n", serde_json::to_string(request).map_err(|error| error.to_string())?).as_bytes())
+            .write_all(
+                format!(
+                    "{}\n",
+                    serde_json::to_string(request).map_err(|error| error.to_string())?
+                )
+                .as_bytes(),
+            )
             .await
             .map_err(|error| error.to_string())?;
         let mut reader = BufReader::new(stream);
         let mut line = String::new();
-        reader.read_line(&mut line).await.map_err(|error| error.to_string())?;
+        reader
+            .read_line(&mut line)
+            .await
+            .map_err(|error| error.to_string())?;
         serde_json::from_str(&line).map_err(|error| error.to_string())
     }
 

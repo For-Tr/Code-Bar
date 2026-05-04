@@ -153,7 +153,9 @@ fn concurrent_claim_allows_only_one_session() {
         })
     });
 
-    let results = handles.map(|handle| handle.join().unwrap()).collect::<Vec<_>>();
+    let results = handles
+        .map(|handle| handle.join().unwrap())
+        .collect::<Vec<_>>();
     let success_count = results.iter().filter(|result| result.is_ok()).count();
     assert_eq!(success_count, 1);
 
@@ -262,7 +264,9 @@ fn dependent_step_unlocks_once_after_completion_under_contention() {
         })
     });
 
-    let results = claim_handles.map(|handle| handle.join().unwrap()).collect::<Vec<_>>();
+    let results = claim_handles
+        .map(|handle| handle.join().unwrap())
+        .collect::<Vec<_>>();
     let success_count = results.iter().filter(|result| result.is_ok()).count();
     assert_eq!(success_count, 1);
 

@@ -36,9 +36,8 @@ pub mod macos {
             // set_application 只允许成功设置一次；后续重复调用会报错。
             // 用 OnceLock 保证进程内只初始化一次，避免“有时成功有时失败”。
             let bundle_id = app.config().identifier.clone();
-            let init_result = MAC_NOTIFICATION_APP_INIT.get_or_init(|| {
-                set_application(&bundle_id).map_err(|e| e.to_string())
-            });
+            let init_result = MAC_NOTIFICATION_APP_INIT
+                .get_or_init(|| set_application(&bundle_id).map_err(|e| e.to_string()));
             if let Err(e) = init_result {
                 // dev 场景下临时 identifier 可能未注册到 LaunchServices，
                 // set_application 会失败。此时继续使用 mac_notification_sys

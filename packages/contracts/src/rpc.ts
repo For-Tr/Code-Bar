@@ -136,12 +136,20 @@ export interface UpdateTaskInput {
 }
 export interface UpdateTaskOutput { task: Task }
 export interface UpsertWorkspaceInput { workspace: Workspace }
+export interface GetWorkspaceInput { workspaceId: string }
+export interface GetWorkspaceOutput { workspace: Workspace }
+export interface ListWorkspacesInput {}
+export interface ListWorkspacesOutput { workspaces: Workspace[] }
 export interface GetSessionInput { sessionId: string }
 export interface GetSessionOutput { session: Session }
 export interface ListSessionsInput { taskId?: string; workspaceId?: string; sessionId?: string }
 export interface ListSessionsOutput { sessions: Session[] }
 export interface CreateSessionInput { taskId: string; provider: ProviderKind; worktreeStrategy: WorktreeStrategy }
 export interface CreateSessionOutput { session: Session }
+export interface UpdateSessionInput { sessionId: string; provider?: ProviderKind }
+export interface UpdateSessionOutput { session: Session }
+export interface BootstrapSessionInput { sessionId: string; strategy: WorktreeStrategy }
+export interface BootstrapSessionOutput { session: Session; worktree: Worktree }
 export interface LaunchSessionInput { sessionId: string }
 export interface LaunchSessionOutput { session: Session; run: RunAttempt }
 export interface ResumeSessionInput { sessionId: string }
@@ -160,6 +168,10 @@ export interface StopSessionInput { sessionId: string; reason?: string }
 export interface PrepareWorktreeInput { sessionId: string; strategy: Exclude<WorktreeStrategy, "ask"> }
 export interface PrepareWorktreeOutput { worktree: Worktree }
 export interface CleanupWorktreeInput { worktreeId: string }
+export interface GetWorktreeInput { worktreeId: string }
+export interface GetWorktreeOutput { worktree: Worktree }
+export interface ListWorktreesInput { workspaceId?: string }
+export interface ListWorktreesOutput { worktrees: Worktree[] }
 export interface GetActivePlanInput { taskId: string }
 export interface GetActivePlanOutput { plan?: Plan; steps: PlanStep[] }
 export interface GetNextActionInput { sessionId: string }

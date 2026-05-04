@@ -10,11 +10,7 @@ pub struct NextAction {
     pub recommended_next_calls: Vec<String>,
 }
 
-pub fn compute_next_action(
-    task: &Task,
-    session: &Session,
-    store: &dyn DaemonStore,
-) -> NextAction {
+pub fn compute_next_action(task: &Task, session: &Session, store: &dyn DaemonStore) -> NextAction {
     let plan = task
         .active_plan_id
         .as_deref()
@@ -45,8 +41,10 @@ pub fn compute_next_action(
 
     let mut recommended_next_calls = Vec::new();
     match session.state {
-        SessionState::Draft | SessionState::PreparingWorkspace | SessionState::PreparingWorktree => {
-            recommended_next_calls.push("prepareWorktree".to_string());
+        SessionState::Draft
+        | SessionState::PreparingWorkspace
+        | SessionState::PreparingWorktree => {
+            recommended_next_calls.push("bootstrapSession".to_string());
         }
         SessionState::Ready => {
             recommended_next_calls.push("launchSession".to_string());

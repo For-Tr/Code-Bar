@@ -271,7 +271,10 @@ fn recommended_sequence(
         for skill in active_skills {
             sequence.push(RecommendedCall::skill(skill.clone()));
         }
-        sequence.push(RecommendedCall::tool(format!("task.complete_step#{}", step.id)));
+        sequence.push(RecommendedCall::tool(format!(
+            "task.complete_step#{}",
+            step.id
+        )));
     }
     sequence
 }

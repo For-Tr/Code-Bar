@@ -204,7 +204,9 @@ impl DeletedWorkspaceRef {
         }
 
         match self.path.as_deref() {
-            Some(expected) => normalize_path(path.map(|value| value.to_string())).as_deref() == Some(expected),
+            Some(expected) => {
+                normalize_path(path.map(|value| value.to_string())).as_deref() == Some(expected)
+            }
             None => true,
         }
     }
@@ -236,7 +238,10 @@ fn unique_workspace_refs(values: Vec<DeletedWorkspaceRef>) -> Vec<DeletedWorkspa
     let mut seen = HashSet::new();
     let mut next = Vec::new();
 
-    for value in values.into_iter().filter_map(DeletedWorkspaceRef::normalized) {
+    for value in values
+        .into_iter()
+        .filter_map(DeletedWorkspaceRef::normalized)
+    {
         let key = (
             value.workspace_id.clone(),
             value.path.clone().unwrap_or_default(),
@@ -271,7 +276,8 @@ fn normalize_deleted_ui_state(mut state: DeletedUiState) -> DeletedUiState {
         .collect::<HashSet<_>>()
         .into_iter()
         .collect();
-    state.session_ids
+    state
+        .session_ids
         .sort_by_key(|id| id.parse::<u64>().unwrap_or(u64::MAX));
     state.workspace_ids.sort();
     state.sessions = unique_session_refs(state.sessions);
@@ -355,7 +361,12 @@ fn read_recovery_bindings(app: &tauri::AppHandle) -> Result<Vec<RecoveryBinding>
     };
 
     serde_json::from_str::<Vec<RecoveryBinding>>(&content)
-        .map(|items| items.into_iter().filter_map(RecoveryBinding::normalized).collect())
+        .map(|items| {
+            items
+                .into_iter()
+                .filter_map(RecoveryBinding::normalized)
+                .collect()
+        })
         .map_err(|e| format!("解析恢复绑定失败: {e}"))
 }
 
@@ -379,13 +390,16 @@ fn write_session_id_state(app: &tauri::AppHandle, state: &SessionIdState) -> Res
     write_ui_state(app, SESSION_ID_STATE_KEY, &payload)
 }
 
-fn write_recovery_bindings(app: &tauri::AppHandle, bindings: &[RecoveryBinding]) -> Result<(), String> {
+fn write_recovery_bindings(
+    app: &tauri::AppHandle,
+    bindings: &[RecoveryBinding],
+) -> Result<(), String> {
     if bindings.is_empty() {
         return remove_ui_state_file(app, RECOVERY_BINDINGS_KEY);
     }
 
-    let payload = serde_json::to_string(bindings)
-        .map_err(|e| format!("序列化恢复绑定失败: {e}"))?;
+    let payload =
+        serde_json::to_string(bindings).map_err(|e| format!("序列化恢复绑定失败: {e}"))?;
     write_ui_state(app, RECOVERY_BINDINGS_KEY, &payload)
 }
 
@@ -708,7 +722,9 @@ fn load_codex_history_index() -> HashMap<String, RecoveryHint> {
                 current_task: first_task,
                 modified_at_ms: modified_millis(&path),
             };
-            let slot = hints.entry(normalized_cwd).or_insert_with(|| candidate.clone());
+            let slot = hints
+                .entry(normalized_cwd)
+                .or_insert_with(|| candidate.clone());
             if slot.modified_at_ms < candidate.modified_at_ms {
                 *slot = candidate;
             }
@@ -821,7 +837,8 @@ fn collect_known_session_id_floor(
     }
 
     for workspace in workspaces {
-        let normalized_workspace_path = normalize_path(Some(workspace.workspace_path.clone())).unwrap_or_default();
+        let normalized_workspace_path =
+            normalize_path(Some(workspace.workspace_path.clone())).unwrap_or_default();
         if normalized_workspace_path.is_empty() {
             continue;
         }
@@ -1072,9 +1089,11 @@ pub fn clear_deleted_items(
         })
         .collect::<Vec<_>>();
 
-    state.session_ids
+    state
+        .session_ids
         .retain(|id| !removed_session_ids.contains(id));
-    state.workspace_ids
+    state
+        .workspace_ids
         .retain(|id| !removed_workspace_ids.contains(id));
     remove_recovery_bindings_by_session_ids(&app, &removed_session_ids)?;
     state.sessions.retain(|entry| {
@@ -1126,7 +1145,8 @@ pub fn recover_workspace_sessions(
     let mut recovered = Vec::new();
 
     for workspace in workspaces {
-        let normalized_workspace_path = normalize_path(Some(workspace.workspace_path)).unwrap_or_default();
+        let normalized_workspace_path =
+            normalize_path(Some(workspace.workspace_path)).unwrap_or_default();
         let repo_root = PathBuf::from(&normalized_workspace_path);
         let Some(parent) = repo_root.parent() else {
             continue;
@@ -1164,11 +1184,12 @@ pub fn recover_workspace_sessions(
             {
                 continue;
             }
-            if deleted_state.workspace_ids.contains(&workspace.workspace_id)
-                || deleted_state
-                    .workspaces
-                    .iter()
-                    .any(|entry| entry.matches(&workspace.workspace_id, Some(&normalized_workspace_path)))
+            if deleted_state
+                .workspace_ids
+                .contains(&workspace.workspace_id)
+                || deleted_state.workspaces.iter().any(|entry| {
+                    entry.matches(&workspace.workspace_id, Some(&normalized_workspace_path))
+                })
             {
                 continue;
             }

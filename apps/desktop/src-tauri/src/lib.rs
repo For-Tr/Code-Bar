@@ -230,6 +230,7 @@ pub fn run() {
             git::branch::git_branch_delete,
             git::branch::git_branch_merge,
             git::branch::git_repo_info,
+            git::branch::git_branch_health,
             // Git Worktree 管理
             git::worktree::git_worktree_create,
             git::worktree::git_worktree_remove,

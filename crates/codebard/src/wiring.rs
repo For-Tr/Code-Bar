@@ -1,10 +1,8 @@
 use crate::approval_executor::GitApprovalExecutor;
 use crate::event_bus::EventBus;
+use crate::provider_adapter::ProviderRegistry;
 use crate::rpc::{serve, DaemonRpc};
-use crate::provider_adapter::RealProviderAdapter;
-use crate::runtime::PortablePtyRuntimeHost;
 use crate::single_instance::InstanceGuard;
-use crate::storage::FileStore;
 use crate::worktree_host::GitWorktreeHost;
 use daemon_core::ports::{Clock, IdGenerator};
 use daemon_core::services::{
@@ -12,20 +10,26 @@ use daemon_core::services::{
     RecoveryCoordinator, ServiceContext, SessionService, TaskService, WorktreeService,
 };
 use daemon_core::workflow::WorkflowService;
+use runtime_host::PortablePtyRuntimeHost;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use storage_sqlite::StorageSqlite;
 
 pub async fn run() -> Result<(), String> {
     let root = default_daemon_root();
     let _guard = InstanceGuard::acquire(&root)?;
     let daemon = build_daemon(root)?;
-    daemon.recovery.recover().map_err(|error| error.message.clone())?;
+    daemon
+        .recovery
+        .recover()
+        .map_err(|error| error.message.clone())?;
     serve(daemon).await
 }
 
 pub fn build_daemon(root: PathBuf) -> Result<DaemonRpc, String> {
-    let store = Arc::new(FileStore::new(root.clone())?);
-    let events = Arc::new(EventBus::new(store.events_path())?);
+    let store = Arc::new(StorageSqlite::new(root.clone())?);
+    let audit = store.clone() as Arc<dyn daemon_core::ports::AuditEventRepository>;
+    let events = Arc::new(EventBus::with_audit(audit)?);
     let ctx = ServiceContext {
         clock: Arc::new(SystemClock),
         ids: Arc::new(SequenceIds::default()),
@@ -37,7 +41,7 @@ pub fn build_daemon(root: PathBuf) -> Result<DaemonRpc, String> {
             events.clone(),
         )),
         worktrees: Arc::new(GitWorktreeHost),
-        provider_adapter: Arc::new(RealProviderAdapter),
+        provider_adapter: Arc::new(ProviderRegistry::default()),
     };
 
     Ok(DaemonRpc {
@@ -86,18 +90,33 @@ impl SequenceIds {
     }
 }
 impl IdGenerator for SequenceIds {
-    fn next_task_id(&self) -> String { self.next("task") }
+    fn next_task_id(&self) -> String {
+        self.next("task")
+    }
     fn next_session_id(&self) -> String {
         let mut counter = self.counter.lock().unwrap();
         *counter += 1;
         counter.to_string()
     }
-    fn next_worktree_id(&self) -> String { self.next("worktree") }
-    fn next_run_attempt_id(&self) -> String { self.next("run") }
-    fn next_plan_id(&self) -> String { self.next("plan") }
-    fn next_plan_step_id(&self) -> String { self.next("step") }
-    fn next_skill_profile_id(&self) -> String { self.next("skill") }
-    fn next_approval_request_id(&self) -> String { self.next("approval") }
-    fn next_event_id(&self) -> String { self.next("event") }
+    fn next_worktree_id(&self) -> String {
+        self.next("worktree")
+    }
+    fn next_run_attempt_id(&self) -> String {
+        self.next("run")
+    }
+    fn next_plan_id(&self) -> String {
+        self.next("plan")
+    }
+    fn next_plan_step_id(&self) -> String {
+        self.next("step")
+    }
+    fn next_skill_profile_id(&self) -> String {
+        self.next("skill")
+    }
+    fn next_approval_request_id(&self) -> String {
+        self.next("approval")
+    }
+    fn next_event_id(&self) -> String {
+        self.next("event")
+    }
 }
-

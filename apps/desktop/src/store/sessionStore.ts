@@ -61,6 +61,7 @@ interface SessionStore {
   // worktreeReady：记录 worktree 是否已就绪（创建完成或确认不是 git 仓库）
   // 不持久化，每次应用启动重置；持久化的 session 重新打开时从 worktreePath 推断
   worktreeReadyIds: Set<string>;
+  firstPromptDraftBySessionId: Record<string, string>;
 
   addSession: (id: string, workspaceId: string, workdir: string, name: string | undefined, runner: RunnerConfig) => string;
   removeSession: (id: string) => void;
@@ -72,6 +73,8 @@ interface SessionStore {
   setExpandedSession: (id: string | null) => void;
   removeSessionsByWorkspace: (workspaceId: string) => void;
   markWorktreeReady: (id: string) => void;
+  stashFirstPromptDraft: (id: string, prompt: string) => void;
+  consumeFirstPromptDraft: (id: string) => string;
   mergeRecoveredSessions: (sessions: ClaudeSession[]) => void;
   reorderWorkspaceSessions: (workspaceId: string, orderedSessionIds: string[]) => void;
   reorderWorkspaceSessionsByVisibleMove: (workspaceId: string, activeId: string, overId: string) => void;
@@ -210,7 +213,7 @@ function makeSession(
 
 export const useSessionStore = create<SessionStore>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       sessions: [],
       activeSessionId: null,
       expandedSessionId: null,
@@ -218,6 +221,7 @@ export const useSessionStore = create<SessionStore>()(
       splitDetailItemId: "session-detail",
       splitCardItemIdsBySlot: {},
       worktreeReadyIds: new Set<string>(),
+      firstPromptDraftBySessionId: {},
 
       addSession: (id, workspaceId, workdir, name, runner) => {
         const s = makeSession({
@@ -251,6 +255,7 @@ export const useSessionStore = create<SessionStore>()(
               : state.expandedSessionId;
           const worktreeReadyIds = new Set(state.worktreeReadyIds);
           worktreeReadyIds.delete(id);
+          const { [id]: _removedDraft, ...firstPromptDraftBySessionId } = state.firstPromptDraftBySessionId;
           const sessionOrderByWorkspace = Object.fromEntries(
             Object.entries(state.sessionOrderByWorkspace).map(([workspaceId, ids]) => [
               workspaceId,
@@ -269,6 +274,7 @@ export const useSessionStore = create<SessionStore>()(
             activeSessionId,
             expandedSessionId,
             worktreeReadyIds,
+            firstPromptDraftBySessionId,
             sessionOrderByWorkspace,
             splitDetailItemId,
             splitCardItemIdsBySlot,
@@ -328,6 +334,8 @@ export const useSessionStore = create<SessionStore>()(
           const removedItemIds = new Set(removedIds.map((id) => `session-${id}`));
           const worktreeReadyIds = new Set(state.worktreeReadyIds);
           removedIds.forEach((id) => worktreeReadyIds.delete(id));
+          const firstPromptDraftBySessionId = { ...state.firstPromptDraftBySessionId };
+          removedIds.forEach((id) => { delete firstPromptDraftBySessionId[id]; });
           const { [workspaceId]: _, ...restOrder } = state.sessionOrderByWorkspace;
           const splitDetailItemId = removedItemIds.has(state.splitDetailItemId)
             ? "session-detail"
@@ -340,6 +348,7 @@ export const useSessionStore = create<SessionStore>()(
             activeSessionId,
             expandedSessionId,
             worktreeReadyIds,
+            firstPromptDraftBySessionId,
             sessionOrderByWorkspace: restOrder,
             splitDetailItemId,
             splitCardItemIdsBySlot,
@@ -352,6 +361,33 @@ export const useSessionStore = create<SessionStore>()(
           worktreeReadyIds.add(id);
           return { worktreeReadyIds };
         }),
+
+      stashFirstPromptDraft: (id, prompt) =>
+        set((state) => {
+          const trimmed = prompt.trim();
+          if (!trimmed) {
+            if (!(id in state.firstPromptDraftBySessionId)) return {};
+            const { [id]: _removed, ...rest } = state.firstPromptDraftBySessionId;
+            return { firstPromptDraftBySessionId: rest };
+          }
+          return {
+            firstPromptDraftBySessionId: {
+              ...state.firstPromptDraftBySessionId,
+              [id]: trimmed,
+            },
+          };
+        }),
+
+      consumeFirstPromptDraft: (id) => {
+        const draft = get().firstPromptDraftBySessionId[id] ?? "";
+        if (draft) {
+          set((state) => {
+            const { [id]: _removed, ...rest } = state.firstPromptDraftBySessionId;
+            return { firstPromptDraftBySessionId: rest };
+          });
+        }
+        return draft;
+      },
 
       mergeRecoveredSessions: (recoveredSessions) =>
         set((state) => {

@@ -9,7 +9,11 @@ impl InstanceGuard {
     pub fn acquire(root: &Path) -> Result<Self, String> {
         fs::create_dir_all(root).map_err(|error| error.to_string())?;
         let lock_path = root.join("codebard.lock");
-        match fs::OpenOptions::new().create_new(true).write(true).open(&lock_path) {
+        match fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&lock_path)
+        {
             Ok(mut file) => {
                 use std::io::Write;
                 writeln!(file, "{}", std::process::id()).map_err(|error| error.to_string())?;

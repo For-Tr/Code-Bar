@@ -35,7 +35,12 @@ impl SkillProfileResolver {
                 .find(|profile| profile.step_id.as_deref() == Some(value))
         });
 
-        let precedence = [workspace_profile, worktree_profile, task_profile, step_profile];
+        let precedence = [
+            workspace_profile,
+            worktree_profile,
+            task_profile,
+            step_profile,
+        ];
 
         let active_profile = precedence.iter().rev().copied().flatten().next();
         let allowed_source = precedence
@@ -44,12 +49,13 @@ impl SkillProfileResolver {
             .copied()
             .flatten()
             .find(|profile| !profile.allowed_skills.is_empty());
-        let preferred_source = precedence
-            .iter()
-            .rev()
-            .copied()
-            .flatten()
-            .find(|profile| profile.preferred_skills.as_ref().map(|v| !v.is_empty()).unwrap_or(false));
+        let preferred_source = precedence.iter().rev().copied().flatten().find(|profile| {
+            profile
+                .preferred_skills
+                .as_ref()
+                .map(|v| !v.is_empty())
+                .unwrap_or(false)
+        });
 
         let forbidden = precedence
             .into_iter()
@@ -82,7 +88,11 @@ impl SkillProfileResolver {
             active_skill_profile_id: active_profile.map(|profile| profile.id.clone()),
             active_skills,
             preferred_skills: preferred,
-            forbidden_skills: if forbidden.is_empty() { None } else { Some(forbidden) },
+            forbidden_skills: if forbidden.is_empty() {
+                None
+            } else {
+                Some(forbidden)
+            },
         }
     }
 }

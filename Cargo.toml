@@ -5,6 +5,13 @@ members = [
   "crates/codebar-contracts",
   "crates/daemon-core",
   "crates/codebard",
+  "crates/codebar",
+  "crates/runtime-host",
+  "crates/storage-sqlite",
   "crates/task-orchestrator",
+  "crates/provider-claude",
+  "crates/provider-codex",
+  "crates/mcp-bridge",
+  "crates/codebar-mcp",
 ]
 default-members = ["apps/desktop/src-tauri"]

@@ -9,13 +9,12 @@ interface InstallTerminalProps {
 
 interface SessionRunnerSurfaceProps {
   isGlass: boolean;
-  isOpen: boolean;
   installing: boolean;
   installId: string;
   installCmd?: string;
   recheckCli: () => void;
-  querySent: boolean;
-  ptyEverActive: boolean;
+  runtimeActive: boolean;
+  runtimeVisible: boolean;
   sessionId: string;
   cliCommand: string;
   cliBaseArgs: string[];
@@ -32,13 +31,12 @@ interface SessionRunnerSurfaceProps {
 
 export function SessionRunnerSurface({
   isGlass,
-  isOpen,
   installing,
   installId,
   installCmd,
   recheckCli,
-  querySent,
-  ptyEverActive,
+  runtimeActive,
+  runtimeVisible,
   sessionId,
   cliCommand,
   cliBaseArgs,
@@ -104,15 +102,15 @@ export function SessionRunnerSurface({
         inset: 0,
         overflow: "hidden",
         padding: isGlass ? 0 : "8px 4px 4px",
-        opacity: querySent && ptyEverActive ? 1 : 0,
-        pointerEvents: querySent && ptyEverActive ? "auto" : "none",
+        opacity: runtimeVisible ? 1 : 0,
+        pointerEvents: runtimeVisible ? "auto" : "none",
       }}>
         <PtyTerminal
           sessionId={sessionId}
           command={cliCommand}
           args={cliBaseArgs}
           workdir={workdir}
-          active={isOpen && querySent && ptyEverActive}
+          active={runtimeActive}
           initialPrompt={launchPrompt}
           supportsPromptArg={supportsPromptLaunch}
           onReady={handlePtyReady}

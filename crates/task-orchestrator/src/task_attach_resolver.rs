@@ -53,7 +53,12 @@ impl TaskAttachResolver {
         state: &'a OrchestrationState,
         input: &SessionAttachmentInput,
     ) -> Result<Option<&'a crate::model::Session>, ErrorEnvelope> {
-        let Some(provider_session_id) = input.provider_session_id.as_deref().map(str::trim).filter(|value| !value.is_empty()) else {
+        let Some(provider_session_id) = input
+            .provider_session_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
             return Ok(None);
         };
         let worktree_path = normalized_path(input.worktree_path.as_deref());
@@ -66,7 +71,8 @@ impl TaskAttachResolver {
             .filter(|session| session.provider_session_id.as_deref() == Some(provider_session_id))
             .filter(|session| {
                 if let Some(worktree_path) = worktree_path.as_deref() {
-                    session_worktree_path(state, session.id.as_str()).as_deref() == Some(worktree_path)
+                    session_worktree_path(state, session.id.as_str()).as_deref()
+                        == Some(worktree_path)
                 } else {
                     true
                 }
@@ -74,7 +80,9 @@ impl TaskAttachResolver {
             .collect::<Vec<_>>();
 
         if matches.len() > 1 {
-            return Err(ErrorEnvelope::conflict("attachment matched multiple sessions by provider session id"));
+            return Err(ErrorEnvelope::conflict(
+                "attachment matched multiple sessions by provider session id",
+            ));
         }
 
         Ok(matches.pop())
@@ -107,7 +115,9 @@ impl TaskAttachResolver {
         match matches.as_slice() {
             [] => Ok(None),
             [session] => Ok(Some(*session)),
-            _ => Err(ErrorEnvelope::conflict("attachment matched multiple sessions by path")),
+            _ => Err(ErrorEnvelope::conflict(
+                "attachment matched multiple sessions by path",
+            )),
         }
     }
 }
