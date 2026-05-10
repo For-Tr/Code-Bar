@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { type LocaleSetting, useAppI18n } from "../i18n";
 import { useSettingsStore, type ThemeMode, type SplitWidgetCanvasItem, isGlassTheme } from "../store/settingsStore";
+import { MemorySettings } from "./memory/MemorySettings";
 
 const C = {
   surface: "var(--ci-surface)",
@@ -488,6 +489,7 @@ function SystemTab() {
           />
         </div>
       </div>
+      <MemorySettings />
     </div>
   );
 }

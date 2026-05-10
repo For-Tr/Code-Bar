@@ -100,6 +100,13 @@ pub fn emit_provider_session_bound(app: &AppHandle, routing: &SessionRoutingHint
     };
     let runner_type = routing.source.runner_type();
     for session_id in session_ids {
+        crate::memory::bind_native(
+            app,
+            &session_id,
+            &provider_session_id,
+            runner_type,
+            routing.cwd.as_deref(),
+        );
         eprintln!(
             "[resume-bind:{runner_type}] code_bar_session={} provider_session={}",
             session_id, provider_session_id

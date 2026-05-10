@@ -62,6 +62,7 @@ export function buildRunnerContextEnv(session: ClaudeSession, runner: RunnerConf
 
   const env: [string, string][] = [
     ["CODE_BAR_SESSION_ID", session.id],
+    ["CODE_BAR_PROVIDER_SESSION_ID", session.providerSessionId ?? ""],
     ["CODE_BAR_RUNNER_TYPE", runner.type],
     ["CODE_BAR_SESSION_NAME", session.name],
     ["CODE_BAR_WORKDIR", session.workdir],

@@ -5,6 +5,7 @@ mod hooks;
 mod i18n;
 mod integration_control;
 mod keystore;
+pub mod memory;
 mod notification;
 mod provider_sessions;
 mod pty;
@@ -80,6 +81,8 @@ pub fn run() {
 
             // 启动 CLI hook 接收器（Unix Socket / Windows Loopback TCP）
             hooks::start_hook_socket_servers(app.handle().clone());
+            memory::start_hindsight(app.handle());
+            memory::start_worker(app.handle());
 
             // 启动时按持久化偏好自动协调通知与 hooks 配置。
             match hooks::reconcile_integrations_on_startup(app.handle()) {
@@ -256,6 +259,7 @@ pub fn run() {
             ui_state::save_recovery_binding,
             ui_state::backfill_workspace_session_bindings,
             usage::refresh_runner_usage,
+            memory::memory_request,
         ]);
 
     let app = builder
@@ -266,6 +270,9 @@ pub fn run() {
         #[cfg(target_os = "macos")]
         if let tauri::RunEvent::Reopen { .. } = event {
             window::show_popup_only(app.clone());
+        }
+        if let tauri::RunEvent::Exit { .. } = event {
+            memory::stop_hindsight();
         }
     });
 }

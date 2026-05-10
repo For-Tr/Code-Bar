@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type WorkbenchSidebarSection = "sessions" | "explorer" | "scm";
+export type WorkbenchSidebarSection = "sessions" | "explorer" | "scm" | "memory";
 export type WorkbenchCenterSurface = "session" | "editor" | "diff" | "welcome";
 
 interface WorkbenchStore {

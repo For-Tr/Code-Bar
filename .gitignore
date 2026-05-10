@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Generated Hindsight release artifacts (built per target in CI)
+src-tauri/resources/hindsight/hindsight-api
+src-tauri/resources/hindsight/hindsight-api.exe
+src-tauri/resources/hindsight/models/

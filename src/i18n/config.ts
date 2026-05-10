@@ -1,6 +1,7 @@
 import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
 import { localeMessages } from "./messages";
+import { memoryMessages } from "./memoryMessages";
 import { DEFAULT_LOCALE, type SupportedLocale } from "./locale";
 
 function flattenMessages(tree: Record<string, unknown>, prefix = "") {
@@ -18,7 +19,7 @@ function flattenMessages(tree: Record<string, unknown>, prefix = "") {
 }
 
 const resources = Object.fromEntries(
-  Object.entries(localeMessages).map(([locale, messages]) => [locale, { translation: flattenMessages(messages as Record<string, unknown>) }])
+  Object.entries(localeMessages).map(([locale, messages]) => [locale, { translation: flattenMessages({ ...messages, memory: memoryMessages[locale] }) }])
 );
 
 let initialized = false;

@@ -138,6 +138,24 @@ pub async fn start_pty_session(
         .map_err(|e| format!("openpty 失败: {e}"))?;
 
     let resolved_command = resolve_command_path(&command);
+    let args = match crate::memory::prepare_launch(
+        &app,
+        &session_id,
+        &command,
+        &runner_type,
+        env.as_deref().unwrap_or(&[]),
+        args.clone(),
+    ) {
+        Ok(args) => args,
+        Err(error) => {
+            eprintln!("[memory] Agent starts without memory: {error}");
+            let _ = app.emit(
+                "memory-warning",
+                serde_json::json!({"session_id":session_id,"error":error}),
+            );
+            args
+        }
+    };
     let (launch_command, launch_args) = resolve_windows_pty_command(&resolved_command, &args);
 
     let mut cmd = if cfg!(windows)
@@ -167,9 +185,7 @@ pub async fn start_pty_session(
     // 继承基础环境变量
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
-    let codebar_tmp = crate::util::codebar_tmp_dir()
-        .to_string_lossy()
-        .to_string();
+    let codebar_tmp = crate::util::codebar_tmp_dir().to_string_lossy().to_string();
     cmd.env("TMPDIR", &codebar_tmp);
     cmd.env("TEMP", &codebar_tmp);
     cmd.env("TMP", &codebar_tmp);

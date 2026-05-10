@@ -209,3 +209,7 @@ This project is licensed under the [Apache License 2.0](LICENSE).
 ## Author
 
 [@For-Tr](https://github.com/For-Tr)
+
+## Workspace memory
+
+Optional Hindsight integration mounts the official Hindsight MCP server through Code Bar's scoped stdio bridge for Claude Code and Codex, with incremental session/Git evidence ingestion and retained source snapshots. See [setup, isolation and verification](docs/workspace-memory.md).

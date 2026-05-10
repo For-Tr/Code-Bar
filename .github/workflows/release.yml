@@ -81,6 +81,13 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install Hindsight build tools
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build bundled Hindsight sidecar
+        shell: bash
+        run: python3 scripts/build-hindsight-sidecar.py
+
       - name: Build bundle
         shell: bash
         run: pnpm exec tauri build --bundles "${{ matrix.bundle }}" --target "${{ matrix.target }}"
