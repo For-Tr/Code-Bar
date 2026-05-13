@@ -517,6 +517,8 @@ export const useSessionStore = create<SessionStore>()(
           ...s,
           // running/waiting 状态在重启后 PTY 已不存在，重置为 idle
           status: (s.status === "running" || s.status === "waiting") ? "idle" : s.status,
+          // diffFiles 不持久化（避免大 diff payload 写入 localStorage / WAL）
+          diffFiles: [],
           // output 不持久化（节省空间，PTY 重启后输出会重新产生）
           output: [],
           pid: undefined,
