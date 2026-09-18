@@ -209,3 +209,7 @@ pnpm tauri build
 ## 作者
 
 [@For-Tr](https://github.com/For-Tr)
+
+## Workspace 级记忆
+
+可选接入 Hindsight，由 Code Bar 将 Hindsight 官方 MCP 服务挂载到 Claude Code 和 Codex 的受控 stdio 桥接中，提供按仓库与任务隔离的记忆读写，增量提取会话与 Git 证据，并保留可追溯的来源快照。详见[配置、隔离规则与验证说明](docs/workspace-memory.md)。

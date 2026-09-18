@@ -1,0 +1,19 @@
+.memory { color: var(--ci-text); font-size: 12px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.memory-panel { padding: 12px; overflow: auto; flex: 1; }
+.memory h3 { font-size: 12px; margin: 0; }
+.memory p { margin: 0; color: var(--ci-text-dim); line-height: 1.6; }
+.memory label { display: flex; flex-direction: column; gap: 6px; }
+.memory .memory-check { flex-direction: row; align-items: center; }
+.memory input:not([type=checkbox]) { width: 100%; min-width: 0; box-sizing: border-box; border: 1px solid var(--ci-border); border-radius: 7px; background: var(--ci-surface); color: var(--ci-text); padding: 8px; font: inherit; }
+.memory button { border: 1px solid var(--ci-border); border-radius: 7px; padding: 6px 9px; background: var(--ci-surface); color: var(--ci-text); font: inherit; cursor: pointer; }
+.memory button:disabled { opacity: .45; cursor: default; }
+.memory button.memory-primary { color: var(--ci-accent); background: var(--ci-accent-bg); border-color: var(--ci-accent-bdr); }
+.memory button:focus-visible, .memory input:focus-visible { outline: 2px solid var(--ci-accent); outline-offset: 2px; }
+.memory-row { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.memory-card { padding: 12px; border: 1px solid var(--ci-border); border-radius: 10px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.memory-settings { background: var(--ci-surface-hi); padding: 14px; border-radius: 14px; }
+.memory .memory-error { color: var(--ci-red); overflow-wrap: anywhere; }
+.memory .memory-notice { color: var(--ci-accent); }
+.memory-summary { font-size: 11px; color: var(--ci-text-dim); }
+.memory-break { overflow-wrap: anywhere; white-space: pre-wrap; }
+.memory pre { margin: 0; padding: 8px; background: var(--ci-surface); border-radius: 6px; font-size: 11px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 400px; overflow: auto; }

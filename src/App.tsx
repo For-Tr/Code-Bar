@@ -919,7 +919,7 @@ export default function App() {
   }, [activeSession?.id, refreshSessionDiff]);
 
   useEffect(() => {
-    if (sidebarSection === "sessions") return;
+    if (sidebarSection === "sessions" || sidebarSection === "memory") return;
     if (workbenchSession) return;
     useWorkbenchStore.getState().resetWorkbenchMode();
   }, [sidebarSection, workbenchSession]);
